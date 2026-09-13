@@ -34,6 +34,7 @@ import com.dugcanlift.coach.data.Client
 import com.dugcanlift.coach.data.ClientRepository
 import com.dugcanlift.coach.data.ImportResult
 import com.dugcanlift.coach.data.Roster
+import com.dugcanlift.coach.data.RosterLoader
 import com.dugcanlift.coach.data.RosterRow
 import com.dugcanlift.coach.data.ShareLinkImporter
 import com.dugcanlift.coach.ui.theme.DclAccent
@@ -76,6 +77,12 @@ fun RosterScreen(
     var showPasteSheet by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    // Serialises this screen's loads of `clients` -- see RosterLoader's doc for why this exists.
+    // A cold launch through an App Link or the share sheet starts the initial load below and the
+    // pending import's post-import reload at effectively the same time, with no ordering between
+    // their two Dispatchers.IO reads; without this, whichever finishes last wins, and a slow
+    // initial read can overwrite the just-imported client even though it was issued first.
+    val loader = remember { RosterLoader() }
 
     val viewState = remember(clients) { Roster.buildViewState(clients) }
 
@@ -83,7 +90,7 @@ fun RosterScreen(
     // fresh -- including on return from ClientScreen, since navigating away disposes this
     // composition and navigating back re-runs it -- so the roster always reflects the latest saves.
     LaunchedEffect(Unit) {
-        clients = withContext(Dispatchers.IO) { repo.all() }
+        clients = loader.refresh { withContext(Dispatchers.IO) { repo.all() } }
     }
 
     fun handleSubmit(fragment: String) {
@@ -91,7 +98,7 @@ fun RosterScreen(
         scope.launch {
             when (val result = withContext(Dispatchers.IO) { ShareLinkImporter.import(fragment, repo) }) {
                 is ImportResult.Imported -> {
-                    clients = withContext(Dispatchers.IO) { repo.all() }
+                    clients = loader.refresh { withContext(Dispatchers.IO) { repo.all() } }
                     showPasteSheet = false
                     snackbarHostState.showSnackbar("Imported ${result.daysImported} days for ${result.clientName}")
                 }
