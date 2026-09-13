@@ -1,3 +1,15 @@
+import java.util.Properties
+
+// Signing mirrors LIFT Android's: the keystore path and passwords live in a
+// git-ignored keystore.properties at the repo root, never in the build script.
+// When that file is absent — a fresh clone, or a build server with its own key —
+// release builds are simply left unsigned rather than failing.
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val hasSigningConfig = keystorePropertiesFile.exists()
+val keystoreProperties = Properties().apply {
+    if (hasSigningConfig) load(keystorePropertiesFile.inputStream())
+}
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -19,10 +31,24 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (hasSigningConfig) {
+            create("release") {
+                storeFile = file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             optimization {
                 enable = false
+            }
+            if (hasSigningConfig) {
+                signingConfig = signingConfigs.getByName("release")
             }
         }
     }
