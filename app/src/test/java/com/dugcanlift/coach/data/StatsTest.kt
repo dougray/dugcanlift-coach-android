@@ -14,6 +14,10 @@ class StatsTest {
         assertEquals(100.0 * (1 + 20 / 30.0), Stats.e1rm(set(100.0, 20))!!, 1e-9)   // 20 reps still estimates (Doug, 2026-09-13)
         assertNull(Stats.e1rm(set(225.0, 5, warm = true))); assertNull(Stats.e1rm(set(null, 5))); assertNull(Stats.e1rm(set(225.0, 0)))
     }
+    // A zero weightLb is a bodyweight movement or a mis-entry, not a legitimate 0 lb lift; an Epley
+    // estimate of 0.0 would poison a trend chart, so this must be null, not merely non-null-checked.
+    @Test fun `e1rm is null for a zero-weight set even with real reps, not merely non-null`() =
+        assertNull(Stats.e1rm(set(0.0, 5)))
     @Test fun `fuel prefers ft and falls back to itemized food and is null when neither`() {
         assertEquals(2410.0, Stats.fuel(day("d", ft = listOf(2410.0, 188.0, 71.0, 230.0, 33.0)))!!.calories, 0.0)
         assertEquals(380.0, Stats.fuel(day("d", food = listOf(ClientFoodEntry("Oats", 2.0, 380.0, 13.0, 6.6, 68.0, 10.0, 0))))!!.calories, 0.0)
@@ -28,9 +32,21 @@ class StatsTest {
         assertEquals(2400, weeks[1].kcalAvg); assertEquals(1.0, weeks[1].proteinHitRate!!, 0.0); assertEquals(0.0, weeks[0].proteinHitRate!!, 0.0)
         assertEquals(1, weeks[1].sessions); assertEquals(1125.0, weeks[1].volume, 0.0)
     }
-    @Test fun `per-lift e1rm series is keyed by exercise name in day order`() {
+    @Test fun `per-lift e1rm series is keyed by name plus equipment in day order`() {
         val c = Client("a", "Doug", "lb", null, 0, null, listOf(day("2026-09-01", listOf(set(200.0, 5))), day("2026-09-08", listOf(set(225.0, 5)))))
-        assertEquals(listOf("2026-09-01", "2026-09-08"), Stats.perLiftE1rm(c).getValue("Back Squat").map { it.first })
+        assertEquals(listOf("2026-09-01", "2026-09-08"), Stats.perLiftE1rm(c).getValue("Back Squat|Barbell").map { it.first })
+    }
+    // The wire format's exercise dictionary is "name|equipment" precisely because a cable pulldown and
+    // a machine pulldown are not the same lift; perLiftE1rm must key the same way or two same-named
+    // lifts on different equipment silently merge into one misleading series.
+    @Test fun `two same-named lifts on different equipment stay separate series`() {
+        val barbellRow = ExerciseSet("Row", "Barbell", 135.0, 8, null, null, null, false)
+        val cableRow = ExerciseSet("Row", "Cable", 100.0, 10, null, null, null, false)
+        val c = Client("a", "Doug", "lb", null, 0, null, listOf(day("2026-09-01", listOf(barbellRow, cableRow))))
+        val series = Stats.perLiftE1rm(c)
+        assertEquals(setOf("Row|Barbell", "Row|Cable"), series.keys)
+        assertEquals(Stats.e1rm(barbellRow), series.getValue("Row|Barbell").single().second)
+        assertEquals(Stats.e1rm(cableRow), series.getValue("Row|Cable").single().second)
     }
 
     // --- Edges the brief leaves open, needed by later screens ---

@@ -95,15 +95,24 @@ object Stats {
     fun bodyweightSeries(client: Client): List<Pair<String, Double>> =
         client.days.mapNotNull { day -> day.bodyweightLb?.let { day.dayKey to it } }.sortedBy { it.first }
 
-    /** Estimated one-rep max over time, one series per exercise name, in the order the client's days appear. */
+    /**
+     * Estimated one-rep max over time, one series per lift identity, in the order the client's days
+     * appear. Keyed `"name|equipment"` -- the exact construction the kit's share format uses (trimmed
+     * name, `|`, trimmed equipment) -- because the wire format treats equipment as part of a lift's
+     * identity: a barbell row and a cable row are both "Row" but are not the same lift. A null
+     * equipment (an equipment-less exercise) is treated as an empty string, matching what the wire's
+     * own `ex.equipment.trim()` produces for one.
+     */
     fun perLiftE1rm(client: Client): Map<String, List<Pair<String, Double>>> {
         val series = LinkedHashMap<String, MutableList<Pair<String, Double>>>()
         for (day in client.days) {
             for (set in day.sets) {
                 val estimate = e1rm(set) ?: continue
-                series.getOrPut(set.exerciseName) { mutableListOf() }.add(day.dayKey to estimate)
+                series.getOrPut(liftKey(set.exerciseName, set.equipment)) { mutableListOf() }.add(day.dayKey to estimate)
             }
         }
         return series
     }
+
+    private fun liftKey(name: String, equipment: String?): String = "${name.trim()}|${(equipment ?: "").trim()}"
 }

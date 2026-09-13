@@ -29,4 +29,19 @@ class ClientRepositoryTest {
         tmp.root.resolve("clients/bad.json").writeText("{not json")
         assertEquals(listOf("a1"), repo.all().map { it.id })
     }
+    @Test fun `a save whose move cannot succeed throws rather than silently reporting success`() {
+        val repo = ClientRepository(tmp.root)
+        // Occupy the destination path with a directory: on every POSIX and NTFS filesystem,
+        // moving a regular file onto a directory path fails (EISDIR / access denied) --
+        // no permission bits needed, so this is deterministic across CI and local runs alike,
+        // unlike the old File.renameTo(...) call whose failure this reproduces, which returned
+        // false and was ignored instead of throwing.
+        tmp.root.resolve("clients/a1.json").mkdirs()
+        try {
+            repo.save(client("a1"))
+            fail("expected save() to throw when the destination cannot be replaced")
+        } catch (e: Exception) {
+            // expected -- a genuine failure propagates instead of being swallowed
+        }
+    }
 }
