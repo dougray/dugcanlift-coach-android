@@ -1,0 +1,71 @@
+package com.dugcanlift.coach.data
+import org.junit.Assert.*
+import org.junit.Test
+
+class StatsTest {
+    private fun set(w: Double?, r: Int?, warm: Boolean = false) = ExerciseSet("Back Squat", "Barbell", w, r, null, null, null, warm)
+    private fun day(key: String, sets: List<ExerciseSet> = emptyList(), food: List<ClientFoodEntry> = emptyList(), ft: List<Double>? = null, bw: Double? = null) =
+        TrainingDay(key, null, null, bw, null, ft?.get(0), ft?.get(1), ft?.get(2), ft?.get(3), ft?.get(4), sets, food)
+
+    @Test fun `volume excludes warmups and treats nulls as zero`() =
+        assertEquals(1125.0, Stats.dayVolume(day("d", listOf(set(135.0, 5, warm = true), set(225.0, 5), set(null, 10)))), 0.0)
+    @Test fun `e1rm is Epley with no rep cap and null for warmups or missing data`() {
+        assertEquals(225.0 * (1 + 5 / 30.0), Stats.e1rm(set(225.0, 5))!!, 1e-9)
+        assertEquals(100.0 * (1 + 20 / 30.0), Stats.e1rm(set(100.0, 20))!!, 1e-9)   // 20 reps still estimates (Doug, 2026-09-13)
+        assertNull(Stats.e1rm(set(225.0, 5, warm = true))); assertNull(Stats.e1rm(set(null, 5))); assertNull(Stats.e1rm(set(225.0, 0)))
+    }
+    @Test fun `fuel prefers ft and falls back to itemized food and is null when neither`() {
+        assertEquals(2410.0, Stats.fuel(day("d", ft = listOf(2410.0, 188.0, 71.0, 230.0, 33.0)))!!.calories, 0.0)
+        assertEquals(380.0, Stats.fuel(day("d", food = listOf(ClientFoodEntry("Oats", 2.0, 380.0, 13.0, 6.6, 68.0, 10.0, 0))))!!.calories, 0.0)
+        assertNull(Stats.fuel(day("d")))
+    }
+    @Test fun `weekly buckets align to the end key newest last and average only logged days`() {
+        val c = Client("a", "Doug", "lb", null, 0, Goal(2400, 190, 70, 220, 34), listOf(
+            day("2026-09-12", listOf(set(225.0, 5)), ft = listOf(2400.0, 190.0, 70.0, 220.0, 34.0)),
+            day("2026-09-05", listOf(set(200.0, 5)), ft = listOf(2000.0, 150.0, 60.0, 200.0, 30.0))))
+        val weeks = Stats.weeklyBuckets(c, 2, endKey = "2026-09-13")
+        assertEquals(listOf("2026-09-06", "2026-09-13"), weeks.map { it.endKey })
+        assertEquals(2400, weeks[1].kcalAvg); assertEquals(1.0, weeks[1].proteinHitRate!!, 0.0); assertEquals(0.0, weeks[0].proteinHitRate!!, 0.0)
+        assertEquals(1, weeks[1].sessions); assertEquals(1125.0, weeks[1].volume, 0.0)
+    }
+    @Test fun `per-lift e1rm series is keyed by exercise name in day order`() {
+        val c = Client("a", "Doug", "lb", null, 0, null, listOf(day("2026-09-01", listOf(set(200.0, 5))), day("2026-09-08", listOf(set(225.0, 5)))))
+        assertEquals(listOf("2026-09-01", "2026-09-08"), Stats.perLiftE1rm(c).getValue("Back Squat").map { it.first })
+    }
+
+    // --- Edges the brief leaves open, needed by later screens ---
+
+    @Test fun `a client with no days at all yields empty series and null-averaged buckets rather than crashing`() {
+        val c = Client("a", "Doug", "lb", null, 0, Goal(2400, 190, 70, 220, 34), emptyList())
+        val weeks = Stats.weeklyBuckets(c, 2, endKey = "2026-09-13")
+        assertEquals(2, weeks.size)
+        weeks.forEach {
+            assertEquals(0, it.sessions); assertEquals(0, it.sets); assertEquals(0.0, it.volume, 0.0)
+            assertNull(it.kcalAvg); assertNull(it.proteinAvg); assertNull(it.proteinHitRate); assertNull(it.stepsAvg)
+        }
+        assertTrue(Stats.bodyweightSeries(c).isEmpty())
+        assertTrue(Stats.perLiftE1rm(c).isEmpty())
+    }
+
+    @Test fun `a week with training but no logged food has null averages, not zero`() {
+        val c = Client("a", "Doug", "lb", null, 0, Goal(2400, 190, 70, 220, 34), listOf(
+            day("2026-09-12", listOf(set(225.0, 5)))))
+        val week = Stats.weeklyBuckets(c, 1, endKey = "2026-09-13").single()
+        assertEquals(1, week.sessions); assertEquals(1125.0, week.volume, 0.0)
+        assertNull(week.kcalAvg); assertNull(week.proteinAvg); assertNull(week.proteinHitRate); assertNull(week.stepsAvg)
+    }
+
+    @Test fun `a set with reps but no weight contributes nothing to volume and does not crash the e1rm estimate`() {
+        val s = set(null, 20)
+        assertEquals(0.0, Stats.dayVolume(day("d", listOf(s))), 0.0)
+        assertNull(Stats.e1rm(s))
+    }
+
+    @Test fun `bodyweight series skips days with no bodyweight and stays in chronological order`() {
+        val c = Client("a", "Doug", "lb", null, 0, null, listOf(
+            day("2026-09-05", bw = 180.0),
+            day("2026-09-10"),
+            day("2026-09-01", bw = 178.0)))
+        assertEquals(listOf("2026-09-01" to 178.0, "2026-09-05" to 180.0), Stats.bodyweightSeries(c))
+    }
+}
