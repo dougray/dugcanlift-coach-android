@@ -177,10 +177,18 @@ data class Client(
     val days: List<TrainingDay>
 ) {
     /**
-     * Days since the most recent day that was actually **logged** — has sets,
-     * food totals, or food entries — not merely imported (an empty day from
-     * the shared link doesn't count, and `lastImportedAtEpochMs` is ignored
-     * entirely). Null when the client has never logged anything.
+     * Days since the client's most recent stored day. **Any** stored day counts —
+     * a bodyweight-only or steps-only day is the client reporting in, and the
+     * silence banner exists to find people who have stopped talking to their
+     * coach, not people who trained somewhere else. `lastImportedAtEpochMs` is
+     * ignored entirely. Null when the client has no days at all.
+     *
+     * This matches Coach iOS's `Client.daysSinceLastLoggedDay`
+     * (`Sources/Shared/Models.swift`), which takes the max over every stored day
+     * with no filter. Android previously required sets, food totals or food
+     * entries, so a client who only ever weighed in read "Nothing logged yet"
+     * here and "Logged today" on the phone, and sat permanently in the silence
+     * banner while sending data daily. Doug's call, 2026-09-13: match iOS.
      */
     fun daysSinceLastLoggedDay(today: String): Int? {
         // Non-throwing throughout: this is called from inside RosterScreen's composition, where an
@@ -190,7 +198,6 @@ data class Client(
         // so the old maxOfOrNull over raw strings picked exactly the key it could not parse.
         if (DayKey.parse(today) == null) return null
         val latest = days
-            .filter { it.sets.isNotEmpty() || it.foodEntries.isNotEmpty() || it.foodCalories != null }
             .mapNotNull { DayKey.parse(it.dayKey) }
             .maxOrNull() ?: return null
         return DayKey.daysBetween(latest.toString(), today)

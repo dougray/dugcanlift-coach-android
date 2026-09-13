@@ -19,9 +19,24 @@ class ClientRepositoryTest {
         val repo = ClientRepository(tmp.root); repo.save(client("a1")); repo.save(client("b2"))
         assertEquals(setOf("a1.json", "b2.json"), tmp.root.resolve("clients").list()!!.toSet())
     }
-    @Test fun `days since last LOGGED day ignores empty days and import time`() {
-        val c = client("a1", day("2026-09-01", listOf(ExerciseSet("Row", null, null, 10, null, null, null, false))), day("2026-09-12"))
+    @Test fun `days since last logged day ignores import time`() {
+        // lastImportedAtEpochMs is 0 on every client built by the helper; the answer must come
+        // from the day keys alone, never from when the coach happened to tap the link.
+        val c = client("a1", day("2026-09-01", listOf(ExerciseSet("Row", null, null, 10, null, null, null, false))))
         assertEquals(12, c.daysSinceLastLoggedDay(today = "2026-09-13"))
+    }
+    // Matching Coach iOS (Models.swift's daysSinceLastLoggedDay takes the max over every stored day
+    // with no filter). A client who only weighs in is still reporting to their coach, so they must
+    // not read "Nothing logged yet" on Android while reading "Logged today" on the phone.
+    @Test fun `a bodyweight-only day counts as logged, as it does on iOS`() {
+        val c = client("a1",
+            day("2026-09-01", listOf(ExerciseSet("Row", null, null, 10, null, null, null, false))),
+            TrainingDay("2026-09-12", null, null, 209.4, null, null, null, null, null, null, emptyList(), emptyList()))
+        assertEquals(1, c.daysSinceLastLoggedDay(today = "2026-09-13"))
+    }
+    @Test fun `a steps-only day counts as logged, as it does on iOS`() {
+        val c = client("a1", TrainingDay("2026-09-12", null, null, null, 8421L, null, null, null, null, null, emptyList(), emptyList()))
+        assertEquals(1, c.daysSinceLastLoggedDay(today = "2026-09-13"))
     }
     @Test fun `a client who never logged is null not zero`() = assertNull(client("a1").daysSinceLastLoggedDay("2026-09-13"))
     @Test fun `a corrupt file is skipped rather than crashing the roster`() {
