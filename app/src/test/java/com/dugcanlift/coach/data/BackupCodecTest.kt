@@ -43,8 +43,23 @@ class BackupCodecTest {
 
     // --- Beyond the brief's four ---
 
-    @Test fun `a file whose clients array is missing entirely restores an empty roster, not a crash`() {
-        val r = BackupCodec.restore("""{"v":2}""")
+    // --- Finding 1: a missing top-level `clients` key must fail the decode, exactly like iOS's
+    // non-optional `var clients: [BackupClient]` (BackupCodec.swift:15) does -- not decode to an
+    // empty roster, which BackupService.restore would then pass straight to
+    // ClientRepository.replaceAll and delete every client already on the device. An explicitly
+    // empty `"clients": []` is a legitimate file (iOS accepts it too) and must still restore as an
+    // empty roster, not fail.
+
+    @Test(expected = Exception::class) fun `a file whose clients key is missing entirely fails to decode`() {
+        BackupCodec.restore("""{"v":2}""")
+    }
+
+    @Test(expected = Exception::class) fun `a file whose clients key is not an array fails to decode`() {
+        BackupCodec.restore("""{"v":2,"clients":"oops"}""")
+    }
+
+    @Test fun `a file with an explicitly empty clients array restores an empty roster`() {
+        val r = BackupCodec.restore("""{"v":2,"clients":[]}""")
         assertTrue(r.clients.isEmpty())
         assertNull(r.preservedLibrary)
     }

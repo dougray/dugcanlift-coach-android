@@ -31,6 +31,23 @@ class LinkFragmentTest {
     @Test fun `a caption trailing a bare hash fragment is dropped too`() =
         assertEquals("1zABCDEF", fragmentFrom("#1zABCDEF sent via LIFT"))
 
+    // --- Finding 2: a mail client that wraps a pasted link in angle brackets, or a sentence that
+    // ends with it, leaves a trailing character that is not part of the base64url alphabet. iOS
+    // (dugcanlift-kit ShareLink.swift:132) trims at the first such character; match it here instead
+    // of only cutting at whitespace, so a link copied out of Mail imports the same on both devices.
+
+    @Test fun `a trailing angle bracket from a mail client is dropped`() =
+        assertEquals("1zABCDEF", fragmentFrom("https://www.dugcanlift.com/coach/#1zABCDEF>"))
+
+    @Test fun `a trailing full stop ending a sentence is dropped`() =
+        assertEquals("1zABCDEF", fragmentFrom("Check my week: https://www.dugcanlift.com/coach/#1zABCDEF."))
+
+    @Test fun `a trailing close-paren is dropped`() =
+        assertEquals("1zABCDEF", fragmentFrom("(https://www.dugcanlift.com/coach/#1zABCDEF)"))
+
+    @Test fun `a clean fragment with no trailing junk is unchanged`() =
+        assertEquals("1zABCDEF", fragmentFrom("https://www.dugcanlift.com/coach/#1zABCDEF"))
+
     // --- degenerate input must reduce to something the decoder rejects, not something valid-looking ---
 
     @Test fun `a literal empty string reduces to an empty fragment the decoder rejects`() {

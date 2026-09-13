@@ -181,8 +181,9 @@ fun ConnectScreen(repo: ClientRepository, onBack: () -> Unit) {
 
             Spacer(modifier = Modifier.height(24.dp))
             Text(
-                "Everything stays on this device. There's no account and no server -- " +
-                    "a backup file is the only way to move your roster to another device.",
+                "Everything stays on this device. There's no account and no server — " +
+                    "a backup file is the only way to move your roster, your recipes and " +
+                    "your workouts to another device.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
