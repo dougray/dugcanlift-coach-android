@@ -20,4 +20,52 @@ class LinkFragmentTest {
 
     @Test fun `an empty string yields an empty fragment`() =
         assertEquals("", fragmentFrom("   "))
+
+    @Test fun `a caption trailing the link after the hash is dropped`() =
+        assertEquals("XYZ777", fragmentFrom("Check my week -> https://www.dugcanlift.com/coach/#XYZ777 thanks!"))
+
+    @Test fun `a caption trailing a bare hash fragment is dropped too`() =
+        assertEquals("1zABCDEF", fragmentFrom("#1zABCDEF sent via LIFT"))
+}
+
+class FragmentToImportTest {
+    @Test fun `a VIEW intent's data fragment is used as-is, no matter the action or extras`() =
+        assertEquals("XYZ777", fragmentToImport(dataFragment = "XYZ777", action = "android.intent.action.VIEW", extraText = null))
+
+    @Test fun `a data fragment wins even when SEND extras are also present`() =
+        assertEquals("XYZ777", fragmentToImport(dataFragment = "XYZ777", action = "android.intent.action.SEND", extraText = "ignored#nope"))
+
+    @Test fun `ACTION_SEND with a full URL containing a fragment extracts just the fragment`() =
+        assertEquals(
+            "XYZ777",
+            fragmentToImport(dataFragment = null, action = "android.intent.action.SEND", extraText = "https://www.dugcanlift.com/coach/#XYZ777")
+        )
+
+    @Test fun `ACTION_SEND with a URL that has no fragment falls back to the whole text`() =
+        assertEquals(
+            "https://www.dugcanlift.com/coach/",
+            fragmentToImport(dataFragment = null, action = "android.intent.action.SEND", extraText = "https://www.dugcanlift.com/coach/")
+        )
+
+    @Test fun `ACTION_SEND with shared text that is a bare fragment imports it directly`() =
+        assertEquals("XYZ777", fragmentToImport(dataFragment = null, action = "android.intent.action.SEND", extraText = "XYZ777"))
+
+    @Test fun `ACTION_SEND with surrounding caption words keeps only the fragment token`() =
+        assertEquals(
+            "XYZ777",
+            fragmentToImport(
+                dataFragment = null,
+                action = "android.intent.action.SEND",
+                extraText = "Check my week -> https://www.dugcanlift.com/coach/#XYZ777 thanks!"
+            )
+        )
+
+    @Test fun `a null EXTRA_TEXT on ACTION_SEND yields no import`() =
+        assertNull(fragmentToImport(dataFragment = null, action = "android.intent.action.SEND", extraText = null))
+
+    @Test fun `an empty EXTRA_TEXT on ACTION_SEND yields no import`() =
+        assertNull(fragmentToImport(dataFragment = null, action = "android.intent.action.SEND", extraText = ""))
+
+    @Test fun `a non-SEND, non-VIEW-with-data action yields no import`() =
+        assertNull(fragmentToImport(dataFragment = null, action = "android.intent.action.MAIN", extraText = "XYZ777"))
 }

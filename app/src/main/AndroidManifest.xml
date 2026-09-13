@@ -18,11 +18,33 @@
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
+            android:launchMode="singleTop"
             android:theme="@style/Theme.Coach">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Tap-to-import: a lifter's shared link opens Coach and imports instead of a web
+                 page. autoVerify requires assetlinks.json to be live on the site (see the
+                 dugcanlift-site .well-known/assetlinks.json branch); until then Android falls
+                 back to the disambiguation sheet instead of auto-opening Coach. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="www.dugcanlift.com"
+                    android:pathPrefix="/coach/" />
+            </intent-filter>
+
+            <!-- Share-sheet target: a coach can also share the link text directly into Coach. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
     </application>

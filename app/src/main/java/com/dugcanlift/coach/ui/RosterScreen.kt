@@ -21,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,6 +51,14 @@ import kotlinx.coroutines.launch
  *   addition to this screen performing the import itself (it already holds [repo]) -- a hook for
  *   callers that need to react to an import attempt beyond this screen's own snackbar/refresh.
  * @param onConnect called when the bottom bar's Connect action is tapped.
+ * @param pendingImportFragment a fragment extracted from a tap-to-import intent (App Links or a
+ *   share-sheet target) waiting to be imported -- see [com.dugcanlift.coach.MainActivity]. Handled
+ *   exactly once via a [LaunchedEffect] keyed on its value, then [onImportHandled] is called to
+ *   clear it so the same fragment is never imported twice (e.g. if this screen recomposes, or the
+ *   activity is recreated on rotation and redelivers null here since [MainActivity] only sets a
+ *   fresh value from a genuinely new intent).
+ * @param onImportHandled called once the pending import above has been submitted, so the caller
+ *   can clear it.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -57,7 +66,9 @@ fun RosterScreen(
     repo: ClientRepository,
     onOpen: (String) -> Unit,
     onImport: (String) -> Unit,
-    onConnect: () -> Unit = {}
+    onConnect: () -> Unit = {},
+    pendingImportFragment: String? = null,
+    onImportHandled: () -> Unit = {}
 ) {
     var clients by remember { mutableStateOf<List<Client>>(repo.all()) }
     var showPasteSheet by remember { mutableStateOf(false) }
@@ -82,6 +93,16 @@ fun RosterScreen(
             ImportResult.Malformed -> scope.launch {
                 snackbarHostState.showSnackbar("That doesn't look like a LIFT link.")
             }
+        }
+    }
+
+    // Tap-to-import: submit exactly once per non-null value, then hand it back to the caller to
+    // clear -- this is what keeps a rotation (which redelivers the same Composable state but not a
+    // fresh pendingImportFragment; see MainActivity) from importing the same link twice.
+    LaunchedEffect(pendingImportFragment) {
+        pendingImportFragment?.let { fragment ->
+            handleSubmit(fragment)
+            onImportHandled()
         }
     }
 
