@@ -67,4 +67,33 @@ class BackupCodecTest {
         assertEquals("Chicken Breast", day.foodEntries[0].foodName)
         assertEquals(2, day.sets.size)
     }
+
+    // --- Item 4: Coach Android reads `days` more leniently than iOS's non-optional [BackupDay]
+    // would -- see the doc comment on BackupCodec.clientFromJson for why that is a deliberate,
+    // pinned choice rather than an accident.
+
+    @Test fun `a client object missing its days key restores with an empty list, not a crash`() {
+        val json = """{"v":2,"clients":[{"id":"nodays","name":"No Days","displayUnit":"lb","lastImportedAt":0}]}"""
+        val r = BackupCodec.restore(json)
+        assertEquals(emptyList<TrainingDay>(), r.clients.single().days)
+    }
+
+    // --- Item 5: an absent or null lastImportedAt falls back to "now", never a crash or a bogus
+    // 1970/2001 date.
+
+    @Test fun `a missing lastImportedAt falls back to roughly the current time`() {
+        val json = """{"v":2,"clients":[{"id":"a","name":"Doug","displayUnit":"lb","days":[]}]}"""
+        val before = System.currentTimeMillis()
+        val c = BackupCodec.restore(json).clients.single()
+        val after = System.currentTimeMillis()
+        assertTrue(c.lastImportedAtEpochMs in before..after)
+    }
+
+    @Test fun `a null lastImportedAt falls back to roughly the current time`() {
+        val json = """{"v":2,"clients":[{"id":"a","name":"Doug","displayUnit":"lb","lastImportedAt":null,"days":[]}]}"""
+        val before = System.currentTimeMillis()
+        val c = BackupCodec.restore(json).clients.single()
+        val after = System.currentTimeMillis()
+        assertTrue(c.lastImportedAtEpochMs in before..after)
+    }
 }

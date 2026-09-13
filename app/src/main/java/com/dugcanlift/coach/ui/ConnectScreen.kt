@@ -31,7 +31,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.dugcanlift.coach.data.BackupCodec
 import com.dugcanlift.coach.data.ClientRepository
-import org.json.JSONObject
+import com.dugcanlift.coach.data.PreservedLibraryStore
 import java.io.File
 
 private const val PREFS_NAME = "connect"
@@ -55,17 +55,8 @@ private fun inviteText(coachName: String, coachEmail: String): String {
 /** Where this device's own copy of the opaque library (recipes/meals/routines/sessions) from the
  * most recent restore is kept, so a later Save Backup can carry it back out untouched -- otherwise
  * the round trip promised by [BackupCodec] would only hold within a single restore-then-export
- * call, not across app runs. */
+ * call, not across app runs. See [PreservedLibraryStore] for the load/update rules. */
 private fun preservedLibraryFile(context: Context) = File(context.filesDir, "preserved-library.json")
-
-private fun loadPreservedLibrary(context: Context): JSONObject? =
-    preservedLibraryFile(context).takeIf { it.exists() }
-        ?.let { runCatching { JSONObject(it.readText()) }.getOrNull() }
-
-private fun savePreservedLibrary(context: Context, library: JSONObject?) {
-    val f = preservedLibraryFile(context)
-    if (library == null) f.delete() else f.writeText(library.toString())
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -90,7 +81,7 @@ fun ConnectScreen(repo: ClientRepository, onBack: () -> Unit) {
     val createBackupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
         try {
-            val json = BackupCodec.export(repo.all(), loadPreservedLibrary(context))
+            val json = BackupCodec.export(repo.all(), PreservedLibraryStore.load(preservedLibraryFile(context)))
             context.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) }
                 ?: throw IllegalStateException("Couldn't open that location.")
             statusMessage = "Backup saved."
@@ -108,7 +99,7 @@ fun ConnectScreen(repo: ClientRepository, onBack: () -> Unit) {
                 ?: throw IllegalStateException("Couldn't access that file.")
             val result = BackupCodec.restore(json)
             repo.replaceAll(result.clients)
-            savePreservedLibrary(context, result.preservedLibrary)
+            PreservedLibraryStore.update(preservedLibraryFile(context), result.preservedLibrary)
             statusMessage = "Restored ${result.clients.size} clients."
             statusIsError = false
         } catch (e: Exception) {

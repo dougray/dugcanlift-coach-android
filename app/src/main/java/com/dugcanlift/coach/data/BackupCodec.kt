@@ -15,7 +15,7 @@ private const val FOUNDATION_EPOCH_OFFSET_SECONDS = 978_307_200L
 /** Names of the four library arrays this file may carry that Coach Android has no model for. */
 private val LIBRARY_KEYS = listOf("recipes", "meals", "routines", "sessions")
 
-private fun JSONObject.optStringOrNull(name: String): String? = if (has(name) && !isNull(name)) getString(name) else null
+// optStringOrNull lives in JsonExtensions.kt -- shared with Models.kt.
 
 /**
  * [clients] decoded from the file, in Coach Android's own model. [preservedLibrary] holds
@@ -73,6 +73,18 @@ object BackupCodec {
         return root.toString()
     }
 
+    /**
+     * Deliberately more lenient than iOS: Swift's `BackupClient.days` is a non-optional
+     * `[BackupDay]`, so a client object with no `days` key at all fails iOS's decode outright and
+     * rejects the whole file. Here a missing `days` key defaults to an empty list instead of
+     * throwing. This is the same call [ClientRepository] already makes for its own per-client
+     * files ("a corrupt file is skipped, not fatal") applied to backups: Coach Android is both a
+     * reader and a writer of this format, always emits `days` itself, and a stricter read buys no
+     * safety against its own output -- it only makes a hand-edited or partially-transcribed file
+     * (or a future, more minimal encoder) an all-or-nothing failure instead of restoring the
+     * client with no training days. Pinned by
+     * `a client object missing its days key restores with an empty list, not a crash`.
+     */
     private fun clientFromJson(json: JSONObject): Client {
         val lastImportedAtEpochMs = if (json.has("lastImportedAt") && !json.isNull("lastImportedAt")) {
             val foundationSeconds = json.getDouble("lastImportedAt")

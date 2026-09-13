@@ -8,7 +8,7 @@ import org.json.JSONObject
 private fun JSONObject.optLongOrNull(name: String): Long? = if (has(name) && !isNull(name)) getLong(name) else null
 private fun JSONObject.optIntOrNull(name: String): Int? = if (has(name) && !isNull(name)) getInt(name) else null
 private fun JSONObject.optDoubleOrNull(name: String): Double? = if (has(name) && !isNull(name)) getDouble(name) else null
-private fun JSONObject.optStringOrNull(name: String): String? = if (has(name) && !isNull(name)) getString(name) else null
+// optStringOrNull lives in JsonExtensions.kt -- shared with BackupCodec.kt.
 
 data class Goal(
     val calories: Int,
