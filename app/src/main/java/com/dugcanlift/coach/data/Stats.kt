@@ -91,6 +91,17 @@ object Stats {
             WeekStats(end, sessions, sets, volume, kcalAvg, proteinAvg, proteinHitRate, stepsAvg)
         }
 
+    /**
+     * Average of [WeekStats.proteinHitRate] across [weeks], excluding weeks that logged nothing to
+     * compute a rate from (`null`) -- never averaging in a zero for a week that simply wasn't
+     * logged, the same null-exclusion rule [weeklyBuckets] itself applies to each week individually.
+     * Null when every week has nothing to average, or [weeks] itself is empty.
+     */
+    fun avgProteinHitRate(weeks: List<WeekStats>): Double? {
+        val rates = weeks.mapNotNull { it.proteinHitRate }
+        return if (rates.isEmpty()) null else rates.average()
+    }
+
     /** Bodyweight over time: days with no bodyweight logged are skipped; result is in chronological (day key) order. */
     fun bodyweightSeries(client: Client): List<Pair<String, Double>> =
         client.days.mapNotNull { day -> day.bodyweightLb?.let { day.dayKey to it } }.sortedBy { it.first }

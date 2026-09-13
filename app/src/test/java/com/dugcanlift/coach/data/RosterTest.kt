@@ -57,4 +57,26 @@ class RosterTest {
         val state = Roster.buildViewState(emptyList(), today = "2026-09-13")
         assertTrue(state.rows.isEmpty()); assertTrue(state.silentNames.isEmpty())
     }
+
+    @Test fun `a future-dated last log renders Logged today, never a negative count`() {
+        // A day two days ahead of "today" (clock skew, or a client on a different device clock).
+        val c = client("a", "A", listOf(loggedDay("2026-09-15")))
+        val row = Roster.buildViewState(listOf(c), today = "2026-09-13").rows.single()
+        assertEquals("Logged today", row.label)
+        assertFalse(row.label.contains("-"))
+    }
+
+    @Test fun `two clients with the same silence count keep their original relative order, not alphabetical`() {
+        val alpha = client("a", "Alpha", listOf(loggedDay("2026-09-06"))) // 7 days silent
+        val bravo = client("b", "Bravo", listOf(loggedDay("2026-09-06"))) // also 7 days silent
+        assertEquals(
+            listOf("Alpha", "Bravo"),
+            Roster.buildViewState(listOf(alpha, bravo), today = "2026-09-13").rows.map { it.client.name }
+        )
+        // Reversed input stays reversed -- proves this is input-order stability, not a coincidental match.
+        assertEquals(
+            listOf("Bravo", "Alpha"),
+            Roster.buildViewState(listOf(bravo, alpha), today = "2026-09-13").rows.map { it.client.name }
+        )
+    }
 }

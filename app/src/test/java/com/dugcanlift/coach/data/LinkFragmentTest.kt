@@ -1,8 +1,12 @@
 package com.dugcanlift.coach.data
 import org.junit.Assert.*
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 class LinkFragmentTest {
+    @get:Rule val tmp = TemporaryFolder()
+
     @Test fun `a full share URL reduces to its fragment`() =
         assertEquals("1zABCDEF", fragmentFrom("https://www.dugcanlift.com/coach/#1zABCDEF"))
 
@@ -26,6 +30,20 @@ class LinkFragmentTest {
 
     @Test fun `a caption trailing a bare hash fragment is dropped too`() =
         assertEquals("1zABCDEF", fragmentFrom("#1zABCDEF sent via LIFT"))
+
+    // --- degenerate input must reduce to something the decoder rejects, not something valid-looking ---
+
+    @Test fun `a literal empty string reduces to an empty fragment the decoder rejects`() {
+        val reduced = fragmentFrom("")
+        assertEquals("", reduced)
+        assertEquals(ImportResult.Malformed, ShareLinkImporter.import(reduced, ClientRepository(tmp.root)))
+    }
+
+    @Test fun `a lone hash with nothing after it reduces to an empty fragment the decoder rejects`() {
+        val reduced = fragmentFrom("#")
+        assertEquals("", reduced)
+        assertEquals(ImportResult.Malformed, ShareLinkImporter.import(reduced, ClientRepository(tmp.root)))
+    }
 }
 
 class FragmentToImportTest {

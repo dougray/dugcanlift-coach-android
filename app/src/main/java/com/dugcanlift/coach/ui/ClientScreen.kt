@@ -23,6 +23,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,6 +42,8 @@ import com.dugcanlift.coach.ui.charts.LineChart
 import com.dugcanlift.coach.ui.theme.DclAccent
 import com.dugcanlift.coach.ui.theme.DclMuted
 import com.dugcanlift.kit.DayKey
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private val WEEK_OPTIONS = listOf(4, 8, 12)
 
@@ -53,7 +56,15 @@ private val WEEK_OPTIONS = listOf(4, 8, 12)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ClientScreen(clientId: String, repo: ClientRepository, onBack: () -> Unit) {
-    val client = remember(clientId) { repo.get(clientId) }
+    var client by remember(clientId) { mutableStateOf<Client?>(null) }
+    var loaded by remember(clientId) { mutableStateOf(false) }
+
+    // Loads off the main thread; keyed on clientId so navigating between clients (or back to the
+    // same one) always re-reads the latest saved data rather than reusing stale state.
+    LaunchedEffect(clientId) {
+        client = withContext(Dispatchers.IO) { repo.get(clientId) }
+        loaded = true
+    }
 
     Scaffold(
         topBar = {
@@ -63,12 +74,14 @@ fun ClientScreen(clientId: String, repo: ClientRepository, onBack: () -> Unit) {
             )
         }
     ) { padding ->
-        if (client == null) {
-            Column(modifier = Modifier.padding(padding).fillMaxSize().padding(16.dp)) {
+        when {
+            // Brief IO read in flight -- nothing to show yet, and nothing was shown at this point
+            // before either; avoids a spurious flash of the "couldn't be loaded" message below.
+            !loaded -> Unit
+            client == null -> Column(modifier = Modifier.padding(padding).fillMaxSize().padding(16.dp)) {
                 Text("This client's data couldn't be loaded.", style = MaterialTheme.typography.bodyLarge)
             }
-        } else {
-            ClientDetail(client = client, modifier = Modifier.padding(padding).fillMaxSize())
+            else -> ClientDetail(client = client!!, modifier = Modifier.padding(padding).fillMaxSize())
         }
     }
 }
@@ -94,8 +107,7 @@ private fun ClientDetail(client: Client, modifier: Modifier = Modifier) {
         weeksChronological.mapNotNull { week -> week.kcalAvg?.let { week.endKey to it.toDouble() } }
     }
     val goalCalories = client.goal?.calories?.toDouble()
-    val proteinHitRates = remember(weeksChronological) { weeksChronological.mapNotNull { it.proteinHitRate } }
-    val avgProteinHitRate = if (proteinHitRates.isEmpty()) null else proteinHitRates.average()
+    val avgProteinHitRate = remember(weeksChronological) { Stats.avgProteinHitRate(weeksChronological) }
 
     val bodyweightPoints = remember(client, unit) {
         Stats.bodyweightSeries(client).map { (day, lb) -> day to displayWeightValue(lb, unit) }

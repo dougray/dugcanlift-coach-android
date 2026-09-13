@@ -77,6 +77,23 @@ class StatsTest {
         assertNull(Stats.e1rm(s))
     }
 
+    private fun week(rate: Double?) = WeekStats("2026-09-13", 0, 0, 0.0, null, null, rate, null)
+
+    // --- avgProteinHitRate: the same null-exclusion averaging rule as every other average here ---
+
+    @Test fun `avgProteinHitRate is null when every week has nothing to average`() =
+        assertNull(Stats.avgProteinHitRate(listOf(week(null), week(null))))
+
+    @Test fun `avgProteinHitRate is null for an empty list of weeks`() =
+        assertNull(Stats.avgProteinHitRate(emptyList()))
+
+    @Test fun `avgProteinHitRate excludes null weeks rather than averaging them in as zero`() =
+        // (1.0 + 0.5) / 2 = 0.75 -- the null week must not count as a third entry or a zero.
+        assertEquals(0.75, Stats.avgProteinHitRate(listOf(week(1.0), week(null), week(0.5)))!!, 1e-9)
+
+    @Test fun `avgProteinHitRate averages every week when none are null`() =
+        assertEquals(0.6, Stats.avgProteinHitRate(listOf(week(0.4), week(0.6), week(0.8)))!!, 1e-9)
+
     @Test fun `bodyweight series skips days with no bodyweight and stays in chronological order`() {
         val c = Client("a", "Doug", "lb", null, 0, null, listOf(
             day("2026-09-05", bw = 180.0),

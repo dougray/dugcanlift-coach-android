@@ -10,8 +10,9 @@ class ClientDisplayTest {
         reps: Int? = null,
         rpe: Double? = null,
         durationSec: Double? = null,
+        distanceMeters: Double? = null,
         warm: Boolean = false
-    ) = ExerciseSet("Back Squat", "Barbell", weightLb, reps, rpe, durationSec, null, warm)
+    ) = ExerciseSet("Back Squat", "Barbell", weightLb, reps, rpe, durationSec, distanceMeters, warm)
 
     // --- formatWeight: the kilogram conversion and the em-dash-for-null rule ---
 
@@ -51,6 +52,29 @@ class ClientDisplayTest {
 
     @Test fun `a weighted set converts to kg for display`() =
         assertEquals("102.1 × 5 @ RPE 8", formatSetLine(set(weightLb = 225.0, reps = 5, rpe = 8.0), "kg"))
+
+    // --- distance rendering: a distance-only set must never look identical to an unlogged one ---
+
+    @Test fun `a distance-only set with neither reps nor weight renders its distance alone, not an em dash`() =
+        assertEquals("500m", formatSetLine(set(distanceMeters = 500.0), "lb"))
+
+    @Test fun `a distance-only set still carries its RPE`() =
+        assertEquals("40m @ RPE 7", formatSetLine(set(distanceMeters = 40.0, rpe = 7.0), "lb"))
+
+    @Test fun `distance paired with a duration is never dropped`() =
+        assertEquals("1:30, 500m", formatSetLine(set(durationSec = 90.0, distanceMeters = 500.0), "lb"))
+
+    @Test fun `distance alongside reps and weight is appended, not dropped`() =
+        assertEquals("225 × 5, 40m", formatSetLine(set(weightLb = 225.0, reps = 5, distanceMeters = 40.0), "lb"))
+
+    @Test fun `distance alongside reps alone is appended, not dropped`() =
+        assertEquals("8 reps, 40m", formatSetLine(set(reps = 8, distanceMeters = 40.0), "lb"))
+
+    @Test fun `distance alongside weight alone is appended, not dropped`() =
+        assertEquals("225, 40m", formatSetLine(set(weightLb = 225.0, distanceMeters = 40.0), "lb"))
+
+    @Test fun `a null distance never appears in the rendered line`() =
+        assertEquals("225 × 5", formatSetLine(set(weightLb = 225.0, reps = 5, distanceMeters = null), "lb"))
 
     // --- lift key splitting for display ---
 

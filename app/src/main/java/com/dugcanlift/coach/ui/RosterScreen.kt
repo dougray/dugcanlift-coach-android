@@ -38,7 +38,9 @@ import com.dugcanlift.coach.data.RosterRow
 import com.dugcanlift.coach.data.ShareLinkImporter
 import com.dugcanlift.coach.ui.theme.DclAccent
 import com.dugcanlift.coach.ui.theme.DclMuted
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * The coach's roster: clients quietest-first, a banner naming anyone silent 7+ days, and the
@@ -70,28 +72,33 @@ fun RosterScreen(
     pendingImportFragment: String? = null,
     onImportHandled: () -> Unit = {}
 ) {
-    var clients by remember { mutableStateOf<List<Client>>(repo.all()) }
+    var clients by remember { mutableStateOf<List<Client>>(emptyList()) }
     var showPasteSheet by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
     val viewState = remember(clients) { Roster.buildViewState(clients) }
 
+    // Loads off the main thread; re-fires (fresh disk read) every time this composable is entered
+    // fresh -- including on return from ClientScreen, since navigating away disposes this
+    // composition and navigating back re-runs it -- so the roster always reflects the latest saves.
+    LaunchedEffect(Unit) {
+        clients = withContext(Dispatchers.IO) { repo.all() }
+    }
+
     fun handleSubmit(fragment: String) {
         onImport(fragment)
-        when (val result = ShareLinkImporter.import(fragment, repo)) {
-            is ImportResult.Imported -> {
-                clients = repo.all()
-                showPasteSheet = false
-                scope.launch {
+        scope.launch {
+            when (val result = withContext(Dispatchers.IO) { ShareLinkImporter.import(fragment, repo) }) {
+                is ImportResult.Imported -> {
+                    clients = withContext(Dispatchers.IO) { repo.all() }
+                    showPasteSheet = false
                     snackbarHostState.showSnackbar("Imported ${result.daysImported} days for ${result.clientName}")
                 }
-            }
-            ImportResult.UnsupportedVersion -> scope.launch {
-                snackbarHostState.showSnackbar("That link is from a newer LIFT — update Coach.")
-            }
-            ImportResult.Malformed -> scope.launch {
-                snackbarHostState.showSnackbar("That doesn't look like a LIFT link.")
+                ImportResult.UnsupportedVersion ->
+                    snackbarHostState.showSnackbar("That link is from a newer LIFT — update Coach.")
+                ImportResult.Malformed ->
+                    snackbarHostState.showSnackbar("That doesn't look like a LIFT link.")
             }
         }
     }

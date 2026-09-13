@@ -70,20 +70,40 @@ fun formatDuration(seconds: Double): String {
     return if (minutes > 0) String.format(Locale.US, "%d:%02d", minutes, secs) else "${secs}s"
 }
 
+/** A distance in metres, e.g. 500.0 -> "500m", 42.5 -> "42.5m". Never null-checked here -- callers omit the call entirely for a null distance. */
+fun formatDistance(meters: Double): String = "${trimmedNumber(meters)}m"
+
 /**
  * Renders one set the way a coach reads it -- "225 × 5 @ RPE 8" -- weight in [unit], with
  * missing pieces simply omitted rather than shown as zero: a bodyweight set skips the weight
  * (`"8 reps"`, not `"0 × 8"`), a set with no RPE skips the "@ RPE" suffix, and a timed set
  * with neither weight nor reps shows its duration instead.
+ *
+ * [ExerciseSet.distanceMeters] (a sled push, a row logged for metres, a carry) is never dropped:
+ * it's appended, comma-separated, to whatever else the set logged -- `"225 × 5, 40m"`,
+ * `"8 reps, 40m"`, or a bare duration paired with it (`"1:30, 500m"`) -- and when distance is the
+ * *only* thing logged (no reps, weight, or duration) it becomes the whole descriptor (`"500m"`)
+ * rather than falling through to the em dash, which used to render a real distance-only set
+ * identically to a set nobody logged at all.
  */
 fun formatSetLine(set: ExerciseSet, unit: String): String {
     val reps = set.reps
     val weight = set.weightLb
-    val descriptor = when {
+    val duration = set.durationSec
+    val distance = set.distanceMeters
+
+    val base: String? = when {
         reps != null && weight != null -> "${formatWeight(weight, unit)} × $reps"
         reps != null -> "$reps reps"
-        set.durationSec != null -> formatDuration(set.durationSec)
+        duration != null -> formatDuration(duration)
         weight != null -> formatWeight(weight, unit)
+        else -> null
+    }
+
+    val descriptor = when {
+        base != null && distance != null -> "$base, ${formatDistance(distance)}"
+        base != null -> base
+        distance != null -> formatDistance(distance)
         else -> "—"
     }
     return set.rpe?.let { "$descriptor @ RPE ${trimmedNumber(it)}" } ?: descriptor
