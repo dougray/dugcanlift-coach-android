@@ -1,8 +1,9 @@
 package com.dugcanlift.coach
 
 import android.app.Application
+import com.dugcanlift.coach.data.ClientRepository
 
-/** Placeholder Application class. Nothing to initialize yet — later tasks
- * wire up the ClientRepository's storage directory and any app-wide state
- * here rather than in an Activity. */
-class CoachApp : Application()
+/** Owns the app's single [ClientRepository], backed by this device's private files dir. */
+class CoachApp : Application() {
+    val repo: ClientRepository by lazy { ClientRepository(filesDir) }
+}

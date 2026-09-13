@@ -1,0 +1,187 @@
+package com.dugcanlift.coach.ui
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.BottomAppBar
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import com.dugcanlift.coach.data.Client
+import com.dugcanlift.coach.data.ClientRepository
+import com.dugcanlift.coach.data.ImportResult
+import com.dugcanlift.coach.data.Roster
+import com.dugcanlift.coach.data.RosterRow
+import com.dugcanlift.coach.data.ShareLinkImporter
+import com.dugcanlift.coach.ui.theme.DclAccent
+import com.dugcanlift.coach.ui.theme.DclMuted
+import kotlinx.coroutines.launch
+
+/**
+ * The coach's roster: clients quietest-first, a banner naming anyone silent 7+ days, and the
+ * paste-a-link entry point (a bottom sheet, or the empty state's own button when there are no
+ * clients yet). All the sorting/labelling/banner logic lives in [Roster] -- this composable only
+ * renders [Roster.buildViewState]'s output and reacts to user actions.
+ *
+ * @param onOpen called with a client's id when its row is tapped (navigates to `client/{id}`).
+ * @param onImport called with the raw pasted fragment whenever an import is attempted, in
+ *   addition to this screen performing the import itself (it already holds [repo]) -- a hook for
+ *   callers that need to react to an import attempt beyond this screen's own snackbar/refresh.
+ * @param onConnect called when the bottom bar's Connect action is tapped.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RosterScreen(
+    repo: ClientRepository,
+    onOpen: (String) -> Unit,
+    onImport: (String) -> Unit,
+    onConnect: () -> Unit = {}
+) {
+    var clients by remember { mutableStateOf<List<Client>>(repo.all()) }
+    var showPasteSheet by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
+    val viewState = remember(clients) { Roster.buildViewState(clients) }
+
+    fun handleSubmit(fragment: String) {
+        onImport(fragment)
+        when (val result = ShareLinkImporter.import(fragment, repo)) {
+            is ImportResult.Imported -> {
+                clients = repo.all()
+                showPasteSheet = false
+                scope.launch {
+                    snackbarHostState.showSnackbar("Imported ${result.daysImported} days for ${result.clientName}")
+                }
+            }
+            ImportResult.UnsupportedVersion -> scope.launch {
+                snackbarHostState.showSnackbar("That link is from a newer LIFT — update Coach.")
+            }
+            ImportResult.Malformed -> scope.launch {
+                snackbarHostState.showSnackbar("That doesn't look like a LIFT link.")
+            }
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Roster") },
+                actions = {
+                    TextButton(onClick = { showPasteSheet = true }) { Text("Paste a Link") }
+                }
+            )
+        },
+        snackbarHost = {
+            SnackbarHost(snackbarHostState) { data ->
+                Snackbar(snackbarData = data)
+            }
+        },
+        bottomBar = {
+            BottomAppBar {
+                Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp), contentAlignment = Alignment.CenterEnd) {
+                    TextButton(onClick = onConnect) { Text("Connect") }
+                }
+            }
+        }
+    ) { padding ->
+        if (viewState.rows.isEmpty()) {
+            RosterEmptyState(
+                modifier = Modifier.padding(padding).fillMaxSize(),
+                onPasteClick = { showPasteSheet = true }
+            )
+        } else {
+            Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+                if (viewState.silentNames.isNotEmpty()) {
+                    SilenceBanner(names = viewState.silentNames)
+                }
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    items(viewState.rows, key = { it.client.id }) { row ->
+                        RosterRowItem(row = row, onClick = { onOpen(row.client.id) })
+                        HorizontalDivider()
+                    }
+                }
+            }
+        }
+    }
+
+    if (showPasteSheet) {
+        PasteLinkSheet(
+            onSubmit = ::handleSubmit,
+            onDismissRequest = { showPasteSheet = false }
+        )
+    }
+}
+
+@Composable
+private fun SilenceBanner(names: List<String>, modifier: Modifier = Modifier) {
+    val noun = if (names.size == 1) "client" else "clients"
+    Text(
+        text = "${names.size} $noun logged nothing in a week: ${names.joinToString(", ")}",
+        style = MaterialTheme.typography.bodyMedium,
+        color = DclAccent,
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+    )
+}
+
+@Composable
+private fun RosterRowItem(row: RosterRow, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        Text(text = row.client.name, style = MaterialTheme.typography.titleMedium)
+        Text(
+            text = row.label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if ((row.daysSinceLastLogged ?: Int.MAX_VALUE) >= Roster.SILENCE_THRESHOLD_DAYS) DclAccent else DclMuted
+        )
+    }
+}
+
+@Composable
+private fun RosterEmptyState(onPasteClick: () -> Unit, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.padding(32.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "No Clients Yet",
+            style = MaterialTheme.typography.headlineSmall
+        )
+        Text(
+            text = "Paste a log link from a client to get started.",
+            style = MaterialTheme.typography.bodyLarge,
+            color = DclMuted,
+            modifier = Modifier.padding(top = 8.dp, bottom = 24.dp)
+        )
+        TextButton(onClick = onPasteClick) { Text("Paste a Link") }
+    }
+}

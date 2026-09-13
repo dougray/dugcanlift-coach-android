@@ -5,27 +5,18 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
 import com.dugcanlift.coach.ui.theme.CoachTheme
 
-/** Placeholder screen. Later tasks replace this with the roster/import flow. */
+/** Hosts the app's single [CoachNavHost] (roster / client / connect) over the one [CoachApp]-owned repository. */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        val repo = (application as CoachApp).repo
         setContent {
             CoachTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Text(
-                        text = "Coach",
-                        style = MaterialTheme.typography.headlineMedium,
-                        modifier = Modifier.padding(innerPadding)
-                    )
-                }
+                CoachNavHost(repo = repo, modifier = Modifier.fillMaxSize())
             }
         }
     }
