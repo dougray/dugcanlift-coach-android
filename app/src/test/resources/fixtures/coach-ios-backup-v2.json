@@ -1,0 +1,81 @@
+{
+  "v": 2,
+  "clients": [
+    {
+      "id": "c4a9f21e",
+      "name": "Alex Morgan",
+      "displayUnit": "lb",
+      "platform": "ios",
+      "lastImportedAt": 780000000,
+      "goal": {"calories": 2400, "proteinG": 190, "fatG": 70, "carbsG": 220, "fiberG": 34},
+      "days": [
+        {
+          "dayKey": "2026-09-10",
+          "sessionName": "Push Day",
+          "focus": "STRENGTH",
+          "bodyweightLb": 181.4,
+          "steps": 8452,
+          "foodCalories": 2410.0,
+          "foodProteinG": 188.0,
+          "foodFatG": 71.0,
+          "foodCarbsG": 230.0,
+          "foodFiberG": 33.0,
+          "sets": [
+            {"exerciseName": "Bench Press", "equipment": "Barbell", "weightLb": 185.0, "reps": 5, "rpe": 8.0, "durationSec": null, "distanceMeters": null, "isWarmup": false},
+            {"exerciseName": "Bench Press", "equipment": "Barbell", "weightLb": 205.0, "reps": 3, "rpe": 9.0, "durationSec": null, "distanceMeters": null, "isWarmup": false}
+          ],
+          "foodEntries": [
+            {"foodName": "Chicken Breast", "servings": 2.0, "calories": 330.0, "proteinG": 62.0, "fatG": 8.0, "carbsG": 0.0, "fiberG": 0.0, "meal": 1}
+          ]
+        }
+      ]
+    }
+  ],
+  "recipes": [
+    {
+      "id": "3f6a9d2e-8b1c-4e7a-9c3d-1a2b3c4d5e6f",
+      "name": "Overnight Oats",
+      "servings": 2.0,
+      "steps": ["Combine oats and milk", "Refrigerate overnight", "Top with berries"],
+      "ingredients": ["1 cup rolled oats", "2 cups almond milk", "1 cup mixed berries"],
+      "nutritionPerServing": {"calories": 320.0, "proteinG": 12.0, "carbsG": 52.0, "fatG": 8.0, "fiberG": 7.0, "sugarG": 9.0, "sodiumMg": 140.0}
+    }
+  ],
+  "meals": [
+    {
+      "id": "7b2e4f1a-9c8d-4a3b-8e5f-2d1c3b4a5e6f",
+      "recipeID": "3f6a9d2e-8b1c-4e7a-9c3d-1a2b3c4d5e6f",
+      "recipeName": "Overnight Oats",
+      "dayKey": "2026-09-10",
+      "meal": "breakfast",
+      "servings": 1.0,
+      "snapshotNutrition": {"calories": 320.0, "proteinG": 12.0, "carbsG": 52.0, "fatG": 8.0, "fiberG": 7.0, "sugarG": 9.0, "sodiumMg": 140.0},
+      "clientID": "c4a9f21e"
+    }
+  ],
+  "routines": [
+    {
+      "id": "9d1c2b3a-4e5f-4a6b-9c7d-8e9f0a1b2c3d",
+      "name": "Push Day",
+      "exercises": [
+        {
+          "name": "Bench Press",
+          "equipment": "Barbell",
+          "note": "Pause at chest",
+          "sets": [
+            {"targetWeightKg": 83.9, "targetReps": 5, "targetRPE": 8.0, "targetDurationSec": null, "targetDistanceMeters": null},
+            {"targetWeightKg": 93.0, "targetReps": 3, "targetRPE": 9.0, "targetDurationSec": null, "targetDistanceMeters": null}
+          ]
+        }
+      ]
+    }
+  ],
+  "sessions": [
+    {
+      "id": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "clientID": "c4a9f21e",
+      "dayKey": "2026-09-10",
+      "routineID": "9d1c2b3a-4e5f-4a6b-9c7d-8e9f0a1b2c3d"
+    }
+  ]
+}
