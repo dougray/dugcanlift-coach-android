@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+   API 31+. Two separate questions, answered differently on purpose.
+
+   cloud-backup goes to Google Drive, off the device, so everything is
+   excluded — see the note on allowBackup in the manifest.
+
+   device-transfer is the direct phone-to-phone copy when someone sets up a new
+   handset. That never leaves the user's own hardware and is the one case where
+   moving the log is the whole point, so it is allowed.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="file" path="." />
+        <include domain="sharedpref" path="." />
+    </device-transfer>
+</data-extraction-rules>

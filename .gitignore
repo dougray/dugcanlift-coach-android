@@ -1,0 +1,42 @@
+# Android Studio / IntelliJ
+.idea/
+*.iml
+
+# Gradle
+.gradle/
+**/build/
+
+# Local Android SDK configuration
+local.properties
+
+# Android generated artifacts
+*.apk
+*.aab
+
+# Release build output
+/release/
+/app/release/
+
+# Native build
+.externalNativeBuild/
+.cxx/
+
+# Signing credentials - NEVER COMMIT
+*.jks
+*.keystore
+*.p12
+keystore.properties
+
+# Secrets / environment files
+.env
+.env.*
+secrets.properties
+
+# macOS
+.DS_Store
+
+# Generated captures
+captures/
+
+# Claude Code worktrees
+.claude/worktrees/
