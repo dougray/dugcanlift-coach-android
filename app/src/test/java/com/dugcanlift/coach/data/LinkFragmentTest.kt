@@ -1,4 +1,5 @@
 package com.dugcanlift.coach.data
+import com.dugcanlift.kit.*
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -6,6 +7,8 @@ import org.junit.rules.TemporaryFolder
 
 class LinkFragmentTest {
     @get:Rule val tmp = TemporaryFolder()
+    private fun freshFragment() =
+        ShareLinkCodec.encodeFragment(SharePayload(ShareClient("a1b2c3d4", "Doug", platform = "ios"), null, "2026-09-01", "2026-09-13", 1, emptyList()))
 
     @Test fun `a full share URL reduces to its fragment`() =
         assertEquals("1zABCDEF", fragmentFrom("https://www.dugcanlift.com/coach/#1zABCDEF"))
@@ -61,9 +64,49 @@ class LinkFragmentTest {
         assertEquals("", reduced)
         assertEquals(ImportResult.Malformed, ShareLinkImporter.import(reduced, ClientRepository(tmp.root)))
     }
+
+    // --- Bare-fragment parity: iOS's decode(link:) (ShareLink.swift:169-174) routes a bare
+    // fragment through the same decode(fragment:) as a #-bearing URL, so the same base64url
+    // trim (ShareLink.swift:132) applies whether or not a `#` was present. A bare fragment pasted
+    // with trailing punctuation must be cut and still import, matching a #-bearing link with the
+    // same trailing junk. ---
+
+    @Test fun `a bare fragment with a trailing full stop is cut to a valid fragment and imports`() {
+        val repo = ClientRepository(tmp.root)
+        val fragment = freshFragment()
+        val reduced = fragmentFrom("$fragment.")
+        assertEquals(fragment, reduced)
+        assertTrue(ShareLinkImporter.import(reduced, repo) is ImportResult.Imported)
+    }
+
+    @Test fun `a bare fragment with a trailing angle bracket is cut to a valid fragment and imports`() {
+        val repo = ClientRepository(tmp.root)
+        val fragment = freshFragment()
+        val reduced = fragmentFrom("$fragment>")
+        assertEquals(fragment, reduced)
+        assertTrue(ShareLinkImporter.import(reduced, repo) is ImportResult.Imported)
+    }
+
+    @Test fun `a bare fragment with a trailing close-paren is cut to a valid fragment and imports`() {
+        val repo = ClientRepository(tmp.root)
+        val fragment = freshFragment()
+        val reduced = fragmentFrom("$fragment)")
+        assertEquals(fragment, reduced)
+        assertTrue(ShareLinkImporter.import(reduced, repo) is ImportResult.Imported)
+    }
+
+    @Test fun `a clean bare fragment passes through unchanged and imports successfully`() {
+        val repo = ClientRepository(tmp.root)
+        val fragment = freshFragment()
+        val reduced = fragmentFrom(fragment)
+        assertEquals(fragment, reduced)
+        assertTrue(ShareLinkImporter.import(reduced, repo) is ImportResult.Imported)
+    }
 }
 
 class FragmentToImportTest {
+    @get:Rule val tmp = TemporaryFolder()
+
     @Test fun `a VIEW intent's data fragment is used as-is, no matter the action or extras`() =
         assertEquals("XYZ777", fragmentToImport(dataFragment = "XYZ777", action = "android.intent.action.VIEW", extraText = null))
 
@@ -76,11 +119,19 @@ class FragmentToImportTest {
             fragmentToImport(dataFragment = null, action = "android.intent.action.SEND", extraText = "https://www.dugcanlift.com/coach/#XYZ777")
         )
 
-    @Test fun `ACTION_SEND with a URL that has no fragment falls back to the whole text`() =
-        assertEquals(
-            "https://www.dugcanlift.com/coach/",
-            fragmentToImport(dataFragment = null, action = "android.intent.action.SEND", extraText = "https://www.dugcanlift.com/coach/")
-        )
+    // Was pinned to the literal intermediate string ("https://www.dugcanlift.com/coach/"), an
+    // implementation detail no user ever observes -- both the pre-fix (whitespace-only trim, which
+    // keeps the whole string) and post-fix (base64url-cut, which stops at "https") reductions of
+    // this input start with 'h' where the codec expects the version character '1', so both fail
+    // to import the same way (ImportResult.UnsupportedVersion, decoded via ShareLinkImporter.import
+    // exactly as RosterScreen calls it on a real share). What actually matters, and what iOS also
+    // guarantees, is that sharing a fragment-less URL never imports successfully; assert that end
+    // to end instead of pinning the intermediate value, so a correct change to the reduction (like
+    // the base64url-cut fix applied to bare fragments below) doesn't have to fight this test.
+    @Test fun `ACTION_SEND with a URL that has no fragment fails to import`() {
+        val fragment = fragmentToImport(dataFragment = null, action = "android.intent.action.SEND", extraText = "https://www.dugcanlift.com/coach/")
+        assertEquals(ImportResult.UnsupportedVersion, ShareLinkImporter.import(fragment!!, ClientRepository(tmp.root)))
+    }
 
     @Test fun `ACTION_SEND with shared text that is a bare fragment imports it directly`() =
         assertEquals("XYZ777", fragmentToImport(dataFragment = null, action = "android.intent.action.SEND", extraText = "XYZ777"))
