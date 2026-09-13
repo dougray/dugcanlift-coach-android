@@ -110,4 +110,80 @@ class StatsTest {
         assertEquals(1, weeks.single().sessions)
         assertEquals(1125.0, weeks.single().volume, 0.0)
     }
+
+    // --- historySpanWeeks: chart-all-history -- the selectable 4/8/12 window is gone, replaced by
+    // a span computed from the client's own data (oldest day through today, rounded up to whole
+    // weeks) so ClientScreen always charts the client's entire history.
+
+    @Test fun `history span covers a known number of weeks, rounded up`() {
+        // Oldest day is exactly 14 days before today -- the third 7-day block back, so this must
+        // round up to 3 whole weeks (weeks 1-2 don't reach a day that old).
+        val c = Client("a", "Doug", "lb", null, 0, null, listOf(
+            day("2026-08-30", listOf(set(200.0, 5))),
+            day("2026-09-13", listOf(set(225.0, 5)))))
+        assertEquals(3, Stats.historySpanWeeks(c, "2026-09-13"))
+        assertEquals(3, Stats.weeklyBuckets(c, Stats.historySpanWeeks(c, "2026-09-13"), "2026-09-13").size)
+    }
+
+    @Test fun `a client with a single day produces exactly one bucket`() {
+        val c = Client("a", "Doug", "lb", null, 0, null, listOf(day("2026-09-13", listOf(set(225.0, 5)))))
+        assertEquals(1, Stats.historySpanWeeks(c, "2026-09-13"))
+        val weeks = Stats.weeklyBuckets(c, Stats.historySpanWeeks(c, "2026-09-13"), "2026-09-13")
+        assertEquals(1, weeks.size)
+        assertEquals(1, weeks.single().sessions)
+    }
+
+    @Test fun `a client with no days produces no buckets at all, not a single empty one`() {
+        val c = Client("a", "Doug", "lb", null, 0, null, emptyList())
+        assertEquals(0, Stats.historySpanWeeks(c, "2026-09-13"))
+        assertTrue(Stats.weeklyBuckets(c, Stats.historySpanWeeks(c, "2026-09-13"), "2026-09-13").isEmpty())
+    }
+
+    // A client restored from an old backup could hold a day key that's syntactically valid --
+    // requireDayKey lets it through -- but absurdly far in the past. Without a cap this would ask
+    // weeklyBuckets for tens of thousands of mostly-empty buckets.
+    @Test fun `an absurdly old but syntactically valid day key is capped, not taken literally`() {
+        val c = Client("a", "Doug", "lb", null, 0, null, listOf(day("0001-01-01", listOf(set(200.0, 5)))))
+        val span = Stats.historySpanWeeks(c, "2026-09-13")
+        assertEquals(Stats.MAX_HISTORY_SPAN_WEEKS, span)
+        // Must not attempt to allocate/compute anywhere near the literal ~739,000 weeks that date
+        // implies -- weeklyBuckets must complete and return exactly the capped count.
+        assertEquals(Stats.MAX_HISTORY_SPAN_WEEKS, Stats.weeklyBuckets(c, span, "2026-09-13").size)
+    }
+
+    // --- weeklyBuckets grouping rewrite: re-filtering client.days once per bucket is quadratic
+    // once historySpanWeeks can ask for a hundred-plus buckets. This fixture pins the exact
+    // per-bucket values across three buckets with mixed sessions/food/steps -- and one unparseable
+    // key thrown in -- so the single-pass grouping rewrite is provably behaviour-identical.
+    @Test fun `fixed multi-week fixture produces unchanged bucket values after the grouping rewrite`() {
+        fun fullDay(key: String, sets: List<ExerciseSet>, steps: Long?, ft: List<Double>?) =
+            TrainingDay(key, null, null, null, steps, ft?.get(0), ft?.get(1), ft?.get(2), ft?.get(3), ft?.get(4), sets, emptyList())
+
+        val c = Client("a", "Doug", "lb", null, 0, Goal(2400, 190, 70, 220, 34), listOf(
+            fullDay("2026-09-08", listOf(set(200.0, 5)), 7000, listOf(2000.0, 150.0, 60.0, 200.0, 30.0)),
+            fullDay("2026-09-13", listOf(set(225.0, 5)), 8000, listOf(2500.0, 200.0, 70.0, 220.0, 34.0)),
+            fullDay("2026-09-18", emptyList(), 9000, listOf(2200.0, 160.0, 65.0, 210.0, 32.0)),
+            fullDay("2026-09-25", listOf(set(250.0, 3)), null, null),
+            fullDay("2026-9-1", listOf(set(999.0, 99)), 1, listOf(1.0, 1.0, 1.0, 1.0, 1.0)) // unparseable -- must be skipped
+        ))
+
+        val weeks = Stats.weeklyBuckets(c, 3, "2026-09-27")
+        assertEquals(listOf("2026-09-13", "2026-09-20", "2026-09-27"), weeks.map { it.endKey })
+
+        val w0 = weeks[0] // 2026-09-07..09-13: the two earliest real days
+        assertEquals(2, w0.sessions); assertEquals(2, w0.sets); assertEquals(2125.0, w0.volume, 0.0)
+        assertEquals(2250, w0.kcalAvg); assertEquals(175, w0.proteinAvg)
+        assertEquals(0.5, w0.proteinHitRate!!, 1e-9) // only the 200g day clears 0.95*190=180.5
+        assertEquals(7500, w0.stepsAvg)
+
+        val w1 = weeks[1] // 2026-09-14..09-20: a rest day with food logged but no sets
+        assertEquals(0, w1.sessions); assertEquals(0, w1.sets); assertEquals(0.0, w1.volume, 0.0)
+        assertEquals(2200, w1.kcalAvg); assertEquals(160, w1.proteinAvg)
+        assertEquals(0.0, w1.proteinHitRate!!, 0.0) // 160g doesn't clear 180.5
+        assertEquals(9000, w1.stepsAvg)
+
+        val w2 = weeks[2] // 2026-09-21..09-27: trained, nothing logged for food or steps
+        assertEquals(1, w2.sessions); assertEquals(1, w2.sets); assertEquals(750.0, w2.volume, 0.0)
+        assertNull(w2.kcalAvg); assertNull(w2.proteinAvg); assertNull(w2.proteinHitRate); assertNull(w2.stepsAvg)
+    }
 }

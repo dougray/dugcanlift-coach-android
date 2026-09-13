@@ -105,7 +105,9 @@ fun RosterScreen(
                 ImportResult.UnsupportedVersion ->
                     snackbarHostState.showSnackbar("That link is from a newer LIFT — update Coach.")
                 ImportResult.Malformed ->
-                    snackbarHostState.showSnackbar("That doesn't look like a LIFT link.")
+                    snackbarHostState.showSnackbar(
+                        "That doesn't look like a valid LIFT log link. Double-check you copied the whole thing."
+                    )
             }
         }
     }

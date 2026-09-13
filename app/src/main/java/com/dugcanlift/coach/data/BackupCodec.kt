@@ -62,9 +62,17 @@ data class RestoreResult(val clients: List<Client>, val preservedLibrary: JSONOb
 object BackupCodec {
     fun restore(json: String): RestoreResult {
         val root = JSONObject(json)
-        val clients = root.optJSONArray("clients")?.let { arr ->
-            (0 until arr.length()).map { clientFromJson(arr.getJSONObject(it)) }
-        }.orEmpty()
+        // `clients` is non-optional on iOS (BackupCodec.swift:15), so a file missing it -- a LIFT
+        // client-app backup, a web-app export, Coach Android's own preserved-library.json -- must
+        // fail the whole decode there, not silently produce an empty list: BackupService.restore
+        // passes an empty list straight to ClientRepository.replaceAll, which deletes every client
+        // already on the device and reports "Restored 0 clients." as success. optJSONArray returns
+        // null both when the key is absent and when it is present but not a JSON array, so either
+        // case throws here; an explicitly empty `"clients": []` still decodes to an empty roster,
+        // exactly as iOS accepts it.
+        val clientsArray = root.optJSONArray("clients")
+            ?: throw org.json.JSONException("Missing or invalid 'clients' array")
+        val clients = (0 until clientsArray.length()).map { clientFromJson(clientsArray.getJSONObject(it)) }
 
         var preserved: JSONObject? = null
         for (key in root.keys()) {

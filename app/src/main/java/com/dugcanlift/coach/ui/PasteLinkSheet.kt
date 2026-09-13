@@ -22,8 +22,9 @@ import com.dugcanlift.coach.data.fragmentFrom
 
 /**
  * The paste-a-link bottom sheet. Accepts either a full share URL or a bare fragment -- the text
- * field takes whatever the client pasted, and Submit reduces it with [fragmentFrom] before handing
+ * field takes whatever the client pasted, and Import reduces it with [fragmentFrom] before handing
  * it to [onSubmit], so callers always receive a clean fragment ready for `ShareLinkImporter.import`.
+ * Title, field label and button wording match Coach iOS's `PasteLinkView` exactly.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -32,12 +33,12 @@ fun PasteLinkSheet(onSubmit: (String) -> Unit, onDismissRequest: () -> Unit = {}
 
     ModalBottomSheet(onDismissRequest = onDismissRequest) {
         Column(modifier = Modifier.padding(24.dp).fillMaxWidth()) {
-            Text("Paste a link", style = MaterialTheme.typography.titleMedium)
+            Text("Import Log", style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(16.dp))
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
-                label = { Text("LIFT share link") },
+                label = { Text("Paste the link a client sent you") },
                 singleLine = false,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -47,7 +48,7 @@ fun PasteLinkSheet(onSubmit: (String) -> Unit, onDismissRequest: () -> Unit = {}
                 enabled = text.isNotBlank(),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Submit")
+                Text("Import")
             }
             Spacer(modifier = Modifier.height(8.dp))
         }

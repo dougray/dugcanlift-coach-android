@@ -45,13 +45,19 @@ import com.dugcanlift.kit.DayKey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-private val WEEK_OPTIONS = listOf(4, 8, 12)
+/**
+ * Minimum on-screen width per weekly bar/point in the volume and fuel charts. A fixed slot width
+ * (rather than squeezing every bucket into the screen's width) is what keeps a two-year, 104-bucket
+ * history legible instead of compressing into an unreadable smear -- the same
+ * scroll-instead-of-squeeze choice [WeeklySummaryTable] already makes with [TABLE_COLUMN_WIDTH].
+ */
+private val CHART_WEEK_SLOT_WIDTH = 28.dp
 
 /**
- * One client's detail: a weekly summary table (4/8/12 weeks, selectable), training volume,
- * fuel-vs-goal, bodyweight and per-lift e1RM charts, and an expandable session log. Everything
- * here is read from [Stats] over the client loaded fresh from [repo] -- never recomputed here --
- * so re-opening this screen after a re-import always shows the latest numbers.
+ * One client's detail: a weekly summary table covering the client's entire history, training
+ * volume, fuel-vs-goal, bodyweight and per-lift e1RM charts, and an expandable session log.
+ * Everything here is read from [Stats] over the client loaded fresh from [repo] -- never
+ * recomputed here -- so re-opening this screen after a re-import always shows the latest numbers.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -88,14 +94,23 @@ fun ClientScreen(clientId: String, repo: ClientRepository, onBack: () -> Unit) {
 
 @Composable
 private fun ClientDetail(client: Client, modifier: Modifier = Modifier) {
-    var selectedWeeks by remember { mutableStateOf(WEEK_OPTIONS.first()) }
     val today = remember { DayKey.today() }
     val unit = client.displayUnit
 
+    // The client's whole history, in whole weeks: from their oldest logged day through today
+    // (capped -- see Stats.MAX_HISTORY_SPAN_WEEKS), zero for a client with no days at all.
+    val spanWeeks = remember(client, today) { Stats.historySpanWeeks(client, today) }
+
     // Oldest-first for charts (left-to-right reads as time passing); the table itself is
     // newest-first below so a coach sees the most recent week without scrolling.
-    val weeksChronological = remember(client, selectedWeeks, today) {
-        Stats.weeklyBuckets(client, selectedWeeks, today)
+    val weeksChronological = remember(client, spanWeeks, today) {
+        Stats.weeklyBuckets(client, spanWeeks, today)
+    }
+
+    // A wide history needs a wide canvas -- see CHART_WEEK_SLOT_WIDTH -- rather than squeezing
+    // every bucket into the screen's width, which is what turns 104 weekly bars into a smear.
+    val weeklyChartWidth = remember(weeksChronological) {
+        CHART_WEEK_SLOT_WIDTH * weeksChronological.size.coerceAtLeast(1)
     }
 
     val volumeBars = remember(weeksChronological, unit) {
@@ -125,28 +140,30 @@ private fun ClientDetail(client: Client, modifier: Modifier = Modifier) {
     LazyColumn(modifier = modifier, contentPadding = PaddingValues(bottom = 32.dp)) {
         item {
             SectionTitle("Weekly Summary")
-            WeekSelector(selected = selectedWeeks, onSelect = { selectedWeeks = it })
-            Spacer(modifier = Modifier.height(8.dp))
             WeeklySummaryTable(weeks = weeksChronological.sortedByDescending { it.endKey }, unit = unit)
         }
 
         item {
             SectionTitle("Training Volume")
-            BarChart(
-                values = volumeBars,
-                barColor = DclAccent,
-                modifier = Modifier.padding(horizontal = 16.dp)
-            )
+            Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                BarChart(
+                    values = volumeBars,
+                    barColor = DclAccent,
+                    modifier = Modifier.width(weeklyChartWidth).padding(horizontal = 16.dp)
+                )
+            }
         }
 
         item {
             SectionTitle("Fuel vs Goal")
-            LineChart(
-                points = fuelPoints,
-                lineColor = DclAccent,
-                goal = goalCalories,
-                modifier = Modifier.padding(horizontal = 16.dp)
-            )
+            Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                LineChart(
+                    points = fuelPoints,
+                    lineColor = DclAccent,
+                    goal = goalCalories,
+                    modifier = Modifier.width(weeklyChartWidth).padding(horizontal = 16.dp)
+                )
+            }
             Text(
                 text = "Protein goal hit ${formatPercentOrDash(avgProteinHitRate)} of logged weeks",
                 style = MaterialTheme.typography.bodyMedium,
@@ -214,24 +231,6 @@ private fun SectionTitle(text: String, modifier: Modifier = Modifier) {
         fontWeight = FontWeight.Bold,
         modifier = modifier.padding(horizontal = 16.dp, vertical = 12.dp)
     )
-}
-
-@Composable
-private fun WeekSelector(selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier.padding(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        WEEK_OPTIONS.forEach { weeks ->
-            Text(
-                text = "$weeks wk",
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = if (weeks == selected) FontWeight.Bold else FontWeight.Normal,
-                color = if (weeks == selected) DclAccent else DclMuted,
-                modifier = Modifier.clickable { onSelect(weeks) }
-            )
-        }
-    }
 }
 
 private val TABLE_COLUMN_WIDTH = 76.dp

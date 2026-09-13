@@ -1,6 +1,7 @@
 package com.dugcanlift.coach.data
 
 import com.dugcanlift.kit.DayKey
+import java.time.temporal.ChronoUnit
 import kotlin.math.roundToInt
 
 /** A day's food totals, whichever source produced them (device `ft` totals or the sum of itemized entries). */
@@ -68,11 +69,32 @@ object Stats {
      * least one set. Averages (kcal, protein, steps) and the protein hit rate consider only
      * days that actually logged the thing being averaged — never dividing by seven, and never
      * zero when nothing was logged: they are null instead.
+     *
+     * Groups every stored day into its bucket in a single pass over [Client.days] rather than
+     * re-filtering the whole list once per bucket -- with [historySpanWeeks] now able to ask for
+     * a hundred-plus buckets covering a client's whole history, the old approach was quadratic in
+     * the number of days. A day whose key [daysBetweenOrNull] can't place (unparseable, or simply
+     * older than the oldest bucket this call was asked for) lands in no bucket, same as before.
      */
-    fun weeklyBuckets(client: Client, weeks: Int, endKey: String): List<WeekStats> =
-        (0 until weeks).map { i ->
-            val end = DayKey.adding(-7 * (weeks - 1 - i), endKey)
-            val bucketDays = client.days.filter { day -> daysBetweenOrNull(day.dayKey, end)?.let { it in 0..6 } == true }
+    fun weeklyBuckets(client: Client, weeks: Int, endKey: String): List<WeekStats> {
+        if (weeks <= 0) return emptyList()
+
+        // bucketsFromNewest[0] is the 7 days ending on endKey itself; bucketsFromNewest[k] is the
+        // 7-day block k weeks further back. Filled in one pass, then read back out oldest-first below.
+        val bucketsFromNewest = Array(weeks) { mutableListOf<TrainingDay>() }
+        for (day in client.days) {
+            val distance = daysBetweenOrNull(day.dayKey, endKey) ?: continue
+            if (distance < 0) continue
+            val bucketFromNewest = distance / 7
+            if (bucketFromNewest >= weeks) continue
+            bucketsFromNewest[bucketFromNewest].add(day)
+        }
+
+        val goal = client.goal
+        return (0 until weeks).map { i ->
+            val bucketFromNewest = weeks - 1 - i
+            val end = DayKey.adding(-7 * bucketFromNewest, endKey)
+            val bucketDays = bucketsFromNewest[bucketFromNewest]
 
             val sessions = bucketDays.count { it.sets.isNotEmpty() }
             val sets = bucketDays.sumOf { it.sets.size }
@@ -81,7 +103,6 @@ object Stats {
             val fuels = bucketDays.mapNotNull { fuel(it) }
             val kcalAvg = fuels.takeIf { it.isNotEmpty() }?.let { (it.sumOf { f -> f.calories } / it.size).roundToInt() }
             val proteinAvg = fuels.takeIf { it.isNotEmpty() }?.let { (it.sumOf { f -> f.proteinG } / it.size).roundToInt() }
-            val goal = client.goal
             val proteinHitRate = if (fuels.isEmpty() || goal == null) null
                 else fuels.count { it.proteinG >= 0.95 * goal.proteinG }.toDouble() / fuels.size
 
@@ -90,6 +111,27 @@ object Stats {
 
             WeekStats(end, sessions, sets, volume, kcalAvg, proteinAvg, proteinHitRate, stepsAvg)
         }
+    }
+
+    /** Ten years: comfortably beyond any real client's tenure, but far short of the tens of thousands
+     * of weekly buckets a single absurd-but-syntactically-valid day key (e.g. a restored file holding
+     * "0001-01-01") would otherwise demand of [historySpanWeeks] and, through it, [weeklyBuckets]. */
+    const val MAX_HISTORY_SPAN_WEEKS = 520
+
+    /**
+     * Weeks needed for [weeklyBuckets] to cover a client's entire history: from their oldest stored
+     * day through [today], rounded up to whole 7-day buckets so the oldest day always lands inside
+     * the earliest bucket. Zero for a client with no days at all (or none with a key
+     * [DayKey.parse] accepts) -- there is nothing to chart, and callers should treat that as the
+     * existing empty state rather than requesting a single meaningless bucket. Capped at
+     * [MAX_HISTORY_SPAN_WEEKS]; see its doc for why.
+     */
+    fun historySpanWeeks(client: Client, today: String): Int {
+        val oldest = client.days.mapNotNull { DayKey.parse(it.dayKey) }.minOrNull() ?: return 0
+        val end = DayKey.parse(today) ?: return 0
+        val days = ChronoUnit.DAYS.between(oldest, end).toInt().coerceAtLeast(0)
+        return (days / 7 + 1).coerceAtMost(MAX_HISTORY_SPAN_WEEKS)
+    }
 
     /**
      * Average of [WeekStats.proteinHitRate] across [weeks], excluding weeks that logged nothing to
