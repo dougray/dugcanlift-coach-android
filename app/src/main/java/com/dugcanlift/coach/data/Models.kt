@@ -2,7 +2,21 @@ package com.dugcanlift.coach.data
 
 import com.dugcanlift.kit.DayKey
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
+
+/**
+ * A `dayKey` that `ISO_LOCAL_DATE` rejects -- `"2026-9-3"` (unpadded), `""`, anything a
+ * hand-edited, truncated or third-party-encoded file can carry -- parses perfectly well as JSON
+ * and then throws out of [Client.daysSinceLastLoggedDay] and [Stats.weeklyBuckets], both of which
+ * run inside composition. The roster is the only route to Connect, so that crash loop has no exit
+ * but clearing app data. Rejecting the day where it enters the app is the first of two defences;
+ * the second is that neither of those two functions throws any more even if one slips past.
+ */
+internal fun requireDayKey(key: String): String {
+    if (DayKey.parse(key) == null) throw JSONException("dayKey \"$key\" is not a yyyy-MM-dd date")
+    return key
+}
 
 /** Reads [name] from [this], or null if absent or JSON null. */
 private fun JSONObject.optLongOrNull(name: String): Long? = if (has(name) && !isNull(name)) getLong(name) else null
@@ -137,7 +151,7 @@ data class TrainingDay(
 
     companion object {
         fun fromJson(json: JSONObject): TrainingDay = TrainingDay(
-            dayKey = json.getString("dayKey"),
+            dayKey = requireDayKey(json.getString("dayKey")),
             sessionName = json.optStringOrNull("sessionName"),
             focus = json.optStringOrNull("focus"),
             bodyweightLb = json.optDoubleOrNull("bodyweightLb"),
@@ -168,10 +182,19 @@ data class Client(
      * the shared link doesn't count, and `lastImportedAtEpochMs` is ignored
      * entirely). Null when the client has never logged anything.
      */
-    fun daysSinceLastLoggedDay(today: String): Int? =
-        days.filter { it.sets.isNotEmpty() || it.foodEntries.isNotEmpty() || it.foodCalories != null }
-            .maxOfOrNull { it.dayKey }
-            ?.let { DayKey.daysBetween(it, today) }
+    fun daysSinceLastLoggedDay(today: String): Int? {
+        // Non-throwing throughout: this is called from inside RosterScreen's composition, where an
+        // exception is an unrecoverable crash loop (see [requireDayKey]). An unparseable key is not
+        // a date the app can reason about, so it cannot be "the most recent logged day" -- the
+        // newest key that IS parseable is. Note "2026-9-3" sorts AFTER "2026-09-06" as a string,
+        // so the old maxOfOrNull over raw strings picked exactly the key it could not parse.
+        if (DayKey.parse(today) == null) return null
+        val latest = days
+            .filter { it.sets.isNotEmpty() || it.foodEntries.isNotEmpty() || it.foodCalories != null }
+            .mapNotNull { DayKey.parse(it.dayKey) }
+            .maxOrNull() ?: return null
+        return DayKey.daysBetween(latest.toString(), today)
+    }
 
     fun toJson(): JSONObject = JSONObject().apply {
         put("id", id)

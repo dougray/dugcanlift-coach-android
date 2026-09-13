@@ -44,4 +44,67 @@ class ClientRepositoryTest {
             // expected -- a genuine failure propagates instead of being swallowed
         }
     }
+
+    // --- Round 6 [I-3]: replaceAll must never destroy the roster it is replacing before the new
+    // one is safely on disk. A day carrying a non-finite number cannot be serialised (org.json
+    // refuses NaN on the JVM and on Android alike), which is a faithful stand-in for the full-disk
+    // IOException the review's scenario hits on client four of ten.
+    private fun unserialisableClient(id: String) = Client(id, "Doug", "lb", "and", 0, null,
+        listOf(TrainingDay("2026-09-10", null, null, null, null, Double.NaN, null, null, null, null, emptyList(), emptyList())))
+
+    @Test fun `a replaceAll that fails partway leaves the previous roster intact`() {
+        val repo = ClientRepository(tmp.root)
+        repo.save(client("a1")); repo.save(client("b2")); repo.save(client("c3"))
+        try {
+            repo.replaceAll(listOf(client("n1"), client("n2"), unserialisableClient("n3"), client("n4")))
+            fail("expected replaceAll to fail rather than half-replace the roster")
+        } catch (e: Exception) {
+            // expected -- the caller is told the restore failed, and the old roster is still there
+        }
+        assertEquals(setOf("a1", "b2", "c3"), repo.all().map { it.id }.toSet())
+    }
+
+    // --- Round 6 [I-4]: a file all() cannot read is not an absent client. replaceAll is the step
+    // that turns "invisible" into "permanently destroyed", so it must keep what it cannot read.
+    @Test fun `replaceAll preserves a client file it cannot read instead of deleting it`() {
+        val repo = ClientRepository(tmp.root)
+        repo.save(client("a1"))
+        tmp.root.resolve("clients/bad.json").writeText("{not json")
+        repo.replaceAll(listOf(client("z9")))
+        assertEquals(listOf("z9"), repo.all().map { it.id })
+        assertTrue("an unreadable file must be kept, never deleted", tmp.root.resolve("unreadable/bad.json").exists())
+    }
+
+    // --- Round 6 [I-8]: c.i comes off an untrusted link with no charset constraint in
+    // SHARE-FORMAT.md, and goes straight into File(dir, "$id.json").
+    @Test fun `an id with a path separator stays inside the clients directory and still reads back`() {
+        val root = tmp.newFolder("store")
+        val repo = ClientRepository(root)
+        repo.save(client("../../escape"))
+        repo.save(client("a/b"))
+        assertEquals(2, root.resolve("clients").listFiles()!!.size)
+        assertEquals("../../escape", repo.get("../../escape")!!.id)
+        assertEquals("a/b", repo.get("a/b")!!.id)
+        assertEquals(setOf("../../escape", "a/b"), repo.all().map { it.id }.toSet())
+        assertFalse("nothing may be written outside clients/", tmp.root.resolve("escape.json").exists())
+    }
+
+    @Test fun `an ordinary id keeps its plain filename so already-stored clients stay readable`() {
+        val repo = ClientRepository(tmp.root)
+        repo.save(client("a1b2c3d4"))
+        assertTrue(tmp.root.resolve("clients/a1b2c3d4.json").exists())
+        assertEquals("a1b2c3d4", repo.get("a1b2c3d4")!!.id)
+    }
+
+    // --- Round 6 [I-4]: the roster must keep skipping a file it cannot read, but anything that
+    // WRITES the roster out has to know that happened -- export is sourced from all().
+    @Test fun `load reports the files it could not read while all still skips them`() {
+        val repo = ClientRepository(tmp.root)
+        repo.save(client("a1"))
+        tmp.root.resolve("clients/bad.json").writeText("{not json")
+        val stored = repo.load()
+        assertEquals(listOf("a1"), stored.clients.map { it.id })
+        assertEquals(listOf("bad.json"), stored.unreadableFiles)
+        assertEquals(listOf("a1"), repo.all().map { it.id })
+    }
 }

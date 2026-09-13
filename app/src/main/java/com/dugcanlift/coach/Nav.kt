@@ -11,6 +11,7 @@ import com.dugcanlift.coach.data.ClientRepository
 import com.dugcanlift.coach.ui.ClientScreen
 import com.dugcanlift.coach.ui.ConnectScreen
 import com.dugcanlift.coach.ui.RosterScreen
+import java.util.Base64
 
 /** The app's three routes: the roster, one client's detail, and Connect. */
 object Routes {
@@ -19,7 +20,27 @@ object Routes {
     const val CONNECT = "connect"
     const val CLIENT_ID_ARG = "clientId"
 
-    fun client(clientId: String) = "client/$clientId"
+    /**
+     * The client id goes into a route *segment*, and it comes off an untrusted link: SHARE-FORMAT.md
+     * puts no charset constraint on `c.i`. Interpolating it raw meant an id containing `%` (or `#`,
+     * or `/`) produced a route that did not round-trip back through
+     * `backStackEntry.arguments?.getString("clientId")`, so `repo.get` missed and the coach saw
+     * "This client's data couldn't be loaded." for a client that was sitting right there, with no
+     * way to ever open them.
+     *
+     * Base64url without padding, rather than percent-encoding: its alphabet is exactly
+     * `[A-Za-z0-9_-]`, so there is nothing left for Navigation's own URI decoding to decode, and no
+     * double-decoding hazard in either direction. Nothing persists a route, so this changes no
+     * stored state.
+     */
+    fun client(clientId: String) = "client/${encodeClientId(clientId)}"
+
+    fun encodeClientId(clientId: String): String =
+        Base64.getUrlEncoder().withoutPadding().encodeToString(clientId.toByteArray(Charsets.UTF_8))
+
+    /** The inverse of [encodeClientId]; null for a segment that is not one this app produced. */
+    fun decodeClientId(segment: String): String? =
+        runCatching { String(Base64.getUrlDecoder().decode(segment), Charsets.UTF_8) }.getOrNull()
 }
 
 /**
@@ -53,7 +74,7 @@ fun CoachNavHost(
             )
         }
         composable(Routes.CLIENT) { backStackEntry ->
-            val clientId = backStackEntry.arguments?.getString(Routes.CLIENT_ID_ARG).orEmpty()
+            val clientId = Routes.decodeClientId(backStackEntry.arguments?.getString(Routes.CLIENT_ID_ARG).orEmpty()).orEmpty()
             ClientScreen(clientId = clientId, repo = repo, onBack = { navController.popBackStack() })
         }
         composable(Routes.CONNECT) {

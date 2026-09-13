@@ -96,4 +96,23 @@ class BackupCodecTest {
         val after = System.currentTimeMillis()
         assertTrue(c.lastImportedAtEpochMs in before..after)
     }
+
+    // --- Round 6 [I-9]: this is [C-1]'s failure class reached through unknown top-level keys. A
+    // newer Coach iOS file's own arrays must round-trip untouched, exactly as the four library
+    // arrays do, or the next Save Backup writes them away permanently.
+    @Test fun `an unknown top-level key from a newer file survives restore and export`() {
+        val newer = """{"v":3,"clients":[],"programs":[{"id":"p1","name":"5-3-1"}],"coachNotes":{"x":1}}"""
+        val r = BackupCodec.restore(newer)
+        val out = JSONObject(BackupCodec.export(r.clients, r.preservedLibrary))
+        assertEquals(JSONObject(newer).getJSONArray("programs").toString(), out.getJSONArray("programs").toString())
+        assertEquals(JSONObject(newer).getJSONObject("coachNotes").toString(), out.getJSONObject("coachNotes").toString())
+    }
+
+    // `v` and `clients` are this codec's own envelope, not cargo -- they must not be duplicated
+    // into the preserved set and written back out from two places.
+    @Test fun `the codec's own envelope keys are not preserved as unknown cargo`() {
+        val r = BackupCodec.restore("""{"v":2,"clients":[],"programs":[]}""")
+        assertFalse(r.preservedLibrary!!.has("v"))
+        assertFalse(r.preservedLibrary!!.has("clients"))
+    }
 }

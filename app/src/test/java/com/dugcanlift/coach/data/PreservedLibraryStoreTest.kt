@@ -140,4 +140,50 @@ class PreservedLibraryStoreTest {
             .map { out.getJSONArray("recipes").getJSONObject(it).getString("id") }.toSet()
         assertEquals(setOf("A", "B"), ids)
     }
+
+    // --- Round 6 [C-1]: this cache holds the one thing Coach Android cannot regenerate (the
+    // coach's recipes and routines), so it must be written the way ClientRepository.save already
+    // writes a client -- staged, then moved into place -- and a cache that cannot be read must be
+    // surfaced, never silently equivalent to "this device has no library".
+
+    @Test fun `a staged write that cannot complete leaves the previous cache intact`() {
+        PreservedLibraryStore.update(file(), JSONObject().put("recipes", JSONArray(listOf(entry("A", "Recipe A")))))
+
+        // Occupy the staging path so the write fails before the live cache is touched. A bare
+        // writeText has no staging file: it truncates the live cache first, which is exactly how a
+        // device killed mid-write ends up with a truncated preserved-library.json.
+        File(tmp.root, "preserved-library.json.tmp").mkdirs()
+        try {
+            PreservedLibraryStore.update(file(), JSONObject().put("recipes", JSONArray(listOf(entry("B", "Recipe B")))))
+            fail("expected the staged write to fail rather than overwrite the live cache")
+        } catch (e: Exception) {
+            // expected -- a genuine failure propagates instead of destroying the cache
+        }
+
+        val recipes = PreservedLibraryStore.load(file())!!.getJSONArray("recipes")
+        assertEquals(1, recipes.length())
+        assertEquals("A", recipes.getJSONObject(0).getString("id"))
+    }
+
+    @Test fun `a truncated cache is surfaced, never read as no library at all`() {
+        // Half a write: valid JSON prefix, no closing braces -- what a kill mid-writeText leaves.
+        file().writeText("{\"recipes\": [{\"id\": \"A\"")
+        try {
+            PreservedLibraryStore.load(file())
+            fail("expected an unreadable cache to be reported, not read as null")
+        } catch (e: Exception) {
+            // expected -- the caller must be able to refuse to export a backup with no library
+        }
+    }
+
+    // --- Round 6 [I-9]: the cache is where a newer iOS file's unknown top-level keys have to
+    // survive between Restore and the next Save Backup, so merge cannot be scoped to four names.
+    @Test fun `an unknown top-level key survives the cache merge alongside the known arrays`() {
+        PreservedLibraryStore.update(file(), JSONObject().put("recipes", JSONArray(listOf(entry("A", "A")))).put("programs", JSONArray(listOf(entry("P1", "5-3-1")))))
+        PreservedLibraryStore.update(file(), JSONObject().put("recipes", JSONArray(listOf(entry("B", "B")))))
+
+        val cached = PreservedLibraryStore.load(file())!!
+        assertEquals(1, cached.getJSONArray("programs").length())
+        assertEquals("P1", cached.getJSONArray("programs").getJSONObject(0).getString("id"))
+    }
 }

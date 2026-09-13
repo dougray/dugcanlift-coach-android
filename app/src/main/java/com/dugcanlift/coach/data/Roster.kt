@@ -32,8 +32,13 @@ object Roster {
 
     fun buildViewState(clients: List<Client>, today: String = DayKey.today()): RosterViewState {
         val silenceRank = { days: Int? -> days ?: Int.MAX_VALUE }
+        // runCatching is the belt to daysSinceLastLoggedDay's braces: this runs inside
+        // RosterScreen's composition, and one client whose stored data cannot be reasoned about
+        // must cost that client's label, never the whole roster. Connect -- the only screen with
+        // "Restore from Backup" -- is reachable only through this list, so a throw here strands the
+        // coach with no way to restore a good backup short of clearing app data.
         val sorted = clients
-            .map { it to it.daysSinceLastLoggedDay(today) }
+            .map { it to runCatching { it.daysSinceLastLoggedDay(today) }.getOrNull() }
             .sortedByDescending { (_, days) -> silenceRank(days) }
 
         val rows = sorted.map { (client, days) -> RosterRow(client, days, label(days)) }

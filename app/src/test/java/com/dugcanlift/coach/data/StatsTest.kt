@@ -101,4 +101,13 @@ class StatsTest {
             day("2026-09-01", bw = 178.0)))
         assertEquals(listOf("2026-09-01" to 178.0, "2026-09-05" to 180.0), Stats.bodyweightSeries(c))
     }
+
+    // --- Round 6 [C-2]: weeklyBuckets calls the throwing daysBetween on every stored day key, from
+    // inside ClientScreen's composition. One bad key must be skipped, not fatal.
+    @Test fun `a day with an unparseable key is skipped rather than throwing out of the bucket walk`() {
+        val c = Client("a", "A", "lb", null, 0, null, listOf(day("2026-9-3", listOf(set(225.0, 5))), day("2026-09-13", listOf(set(225.0, 5)))))
+        val weeks = Stats.weeklyBuckets(c, 1, "2026-09-13")
+        assertEquals(1, weeks.single().sessions)
+        assertEquals(1125.0, weeks.single().volume, 0.0)
+    }
 }

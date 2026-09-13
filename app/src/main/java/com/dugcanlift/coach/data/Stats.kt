@@ -72,7 +72,7 @@ object Stats {
     fun weeklyBuckets(client: Client, weeks: Int, endKey: String): List<WeekStats> =
         (0 until weeks).map { i ->
             val end = DayKey.adding(-7 * (weeks - 1 - i), endKey)
-            val bucketDays = client.days.filter { DayKey.daysBetween(it.dayKey, end) in 0..6 }
+            val bucketDays = client.days.filter { day -> daysBetweenOrNull(day.dayKey, end)?.let { it in 0..6 } == true }
 
             val sessions = bucketDays.count { it.sets.isNotEmpty() }
             val sets = bucketDays.sumOf { it.sets.size }
@@ -126,4 +126,15 @@ object Stats {
     }
 
     private fun liftKey(name: String, equipment: String?): String = "${name.trim()}|${(equipment ?: "").trim()}"
+
+    /**
+     * [DayKey.daysBetween] throws on a key `ISO_LOCAL_DATE` rejects, and [weeklyBuckets] calls it
+     * for every stored day from inside ClientScreen's composition. A day the app cannot place on a
+     * calendar belongs in no bucket -- it is skipped, never fatal. See `requireDayKey`.
+     */
+    private fun daysBetweenOrNull(from: String, to: String): Int? {
+        val a = DayKey.parse(from) ?: return null
+        val b = DayKey.parse(to) ?: return null
+        return DayKey.daysBetween(a.toString(), b.toString())
+    }
 }

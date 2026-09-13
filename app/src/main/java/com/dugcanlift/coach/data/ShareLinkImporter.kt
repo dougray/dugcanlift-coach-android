@@ -1,30 +1,82 @@
 package com.dugcanlift.coach.data
 import com.dugcanlift.kit.*
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 sealed class ImportResult { data class Imported(val clientId: String, val clientName: String, val daysImported: Int) : ImportResult(); object UnsupportedVersion : ImportResult(); object Malformed : ImportResult() }
 
 /** Coach iOS's ShareLinkImporter, rule for rule: find-or-create by id, goal replaces, each wire day REPLACES the stored day, others untouched. */
 object ShareLinkImporter {
-    fun import(fragment: String, repo: ClientRepository, nowEpochMs: Long = System.currentTimeMillis()): ImportResult {
+
+    /**
+     * Serialises the whole read-merge-write. `Files.move` makes each individual *write* atomic; it
+     * does nothing for a lost update, and this function is read-modify-write over the entire
+     * client file. RosterScreen dispatches an import per user action, so a pasted link importing
+     * while a share-sheet link arrives gave two coroutines the same `existing`, each merging its
+     * own days onto it and each writing the whole file -- the loser's days simply gone, under a
+     * snackbar reporting success. `RosterLoader` (round 4) serialised the roster *reads*; the
+     * writes are the ones that lose data.
+     *
+     * A blocking lock rather than a `Mutex` on purpose: every caller is already on
+     * `Dispatchers.IO` (RosterScreen wraps this in `withContext(Dispatchers.IO)`), an import is
+     * short, and keeping this a plain function means it is still correct if some future caller is
+     * not in a coroutine at all.
+     */
+    private val importLock = ReentrantLock()
+
+    fun import(fragment: String, repo: ClientRepository, nowEpochMs: Long = System.currentTimeMillis()): ImportResult =
+        importLock.withLock { runImport(fragment, repo, nowEpochMs) }
+
+    private fun runImport(fragment: String, repo: ClientRepository, nowEpochMs: Long): ImportResult {
         val p = when (val r = ShareLinkCodec.decode(fragment)) {
             is ShareDecodeResult.Success -> r.payload
             ShareDecodeResult.UnsupportedVersion -> return ImportResult.UnsupportedVersion
             ShareDecodeResult.MalformedPayload -> return ImportResult.Malformed
         }
+
+        // ShareDecodeResult.Success means "the JSON parsed", not "this payload is safe to use".
+        // `r` is taken as a bare string and `k` as a bare int by the codec, so a link carrying
+        // "r":"not-a-date" or "k":2000000000 decoded as Success and then threw out of
+        // DayKey.adding, killing the process instead of showing "That doesn't look like a LIFT
+        // link." Coach iOS guards exactly this, per day:
+        // `guard let dayKey = DayKey.adding(days: wireDay.k, to: payload.r) else { continue }`
+        // (coach-ios/Sources/Shared/ShareLinkImporter.swift:27). Matched here: a day whose date
+        // cannot be resolved is skipped, and a payload that yields nothing usable from days it
+        // actually carried is the malformed link the coach should be told about. A payload with no
+        // days at all is untouched by this -- a goal-only update is legitimate.
+        val resolved = p.days.mapNotNull { d -> resolveDayKey(d.dayOffset, p.startDay)?.let { it to d } }
+        if (p.days.isNotEmpty() && resolved.isEmpty()) return ImportResult.Malformed
+
         val existing = repo.get(p.client.id)
         val goal = p.goal?.let { Goal(it.calories, it.proteinG, it.fatG, it.carbsG, it.fiberG) } ?: existing?.goal
-        val incoming = p.days.associate { d -> DayKey.adding(d.dayOffset, p.startDay) to toDay(d, DayKey.adding(d.dayOffset, p.startDay)) }
+        val incoming = resolved.associate { (key, d) -> key to toDay(d, key) }
         val kept = existing?.days?.filter { it.dayKey !in incoming } ?: emptyList()
         val client = Client(p.client.id, p.client.name, p.client.unit, p.client.platform ?: existing?.platform, nowEpochMs, goal, (kept + incoming.values).sortedBy { it.dayKey })
         repo.save(client)
         return ImportResult.Imported(client.id, client.name, incoming.size)
     }
 
+    /** `r` + `k` as a real calendar date, or null for any `r` or `k` no calendar can resolve. */
+    private fun resolveDayKey(dayOffset: Int, startDay: String): String? =
+        runCatching { DayKey.adding(dayOffset, startDay) }.getOrNull()?.takeIf { DayKey.parse(it) != null }
+
     private fun toDay(d: ShareDay, key: String): TrainingDay {
-        val sets = d.exercises.flatMap { ex -> ex.sets.map { s -> ExerciseSet(ex.name, ex.equipment.ifEmpty { null }, s.weightLb, s.reps, s.rpe, s.durationSec, s.distanceMeters, s.isWarmup) } }
+        val sets = d.exercises.flatMap { ex -> ex.sets.map { s -> ExerciseSet(ex.name, ex.equipment.ifEmpty { null }, s.weightLb.finite(), s.reps, s.rpe.finite(), s.durationSec.finite(), s.distanceMeters.finite(), s.isWarmup) } }
         // Per-serving on the wire; as-eaten in the store. LIFT iOS sends servings=1 (no-op); LIFT Android sends real counts.
-        val food = d.food.orEmpty().map { f -> ClientFoodEntry(f.name, f.servings, f.calories * f.servings, f.proteinG * f.servings, f.fatG * f.servings, f.carbsG * f.servings, f.fiberG * f.servings, f.meal) }
+        val food = d.food.orEmpty().mapNotNull { f ->
+            val entry = ClientFoodEntry(f.name, f.servings, f.calories * f.servings, f.proteinG * f.servings, f.fatG * f.servings, f.carbsG * f.servings, f.fiberG * f.servings, f.meal)
+            entry.takeIf { listOf(it.servings, it.calories, it.proteinG, it.fatG, it.carbsG, it.fiberG).all { v -> v.isFinite() } }
+        }
         val ft = d.foodTotals
-        return TrainingDay(key, d.sessionName, d.focus, d.bodyweightLb, d.steps, ft?.get(0), ft?.get(1), ft?.get(2), ft?.get(3), ft?.get(4), sets, food)
+        return TrainingDay(requireDayKey(key), d.sessionName, d.focus, d.bodyweightLb.finite(), d.steps, ft?.get(0).finite(), ft?.get(1).finite(), ft?.get(2).finite(), ft?.get(3).finite(), ft?.get(4).finite(), sets, food)
     }
+
+    /**
+     * The kit's `ft` reader is `a.optDouble(it)` with no NaN guard (unlike its `optDoubleOrNull`,
+     * which has one), so `"ft":[2410,188,71,230,"x"]` decodes to a NaN fifth value -- and
+     * `JSONObject.put("foodFiberG", NaN)` throws from inside `repo.save`, killing the process on a
+     * link the coach cannot see anything wrong with. A value JSON cannot represent is not a
+     * measurement: it is absent, which this app already models properly everywhere else.
+     */
+    private fun Double?.finite(): Double? = this?.takeIf { it.isFinite() }
 }

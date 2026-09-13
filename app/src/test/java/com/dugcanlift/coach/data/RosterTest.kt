@@ -79,4 +79,24 @@ class RosterTest {
             Roster.buildViewState(listOf(bravo, alpha), today = "2026-09-13").rows.map { it.client.name }
         )
     }
+
+    // --- Round 6 [C-2]: a client already on disk carrying a day key ISO_LOCAL_DATE rejects must
+    // not be able to throw out of buildViewState. It runs inside RosterScreen's composition, and
+    // Connect -- the only screen with "Restore from Backup" -- is reachable only through the
+    // roster, so a throw here is unrecoverable without clearing app data.
+    @Test fun `one client with an unparseable day key does not take the whole roster down`() {
+        val bad = client("bad", "Bad", listOf(loggedDay("2026-9-3")))
+        val good = client("good", "Good", listOf(loggedDay("2026-09-13")))
+        val state = Roster.buildViewState(listOf(bad, good), today = "2026-09-13")
+        assertEquals(setOf("Bad", "Good"), state.rows.map { it.client.name }.toSet())
+        assertNull(state.rows.single { it.client.id == "bad" }.daysSinceLastLogged)
+        assertEquals(0, state.rows.single { it.client.id == "good" }.daysSinceLastLogged)
+    }
+
+    // "2026-9-3" sorts AFTER "2026-09-06" as a string, so the unparseable key is the one the old
+    // maxOfOrNull picked -- the newest key the app can actually reason about is the right answer.
+    @Test fun `an unparseable day key is ignored in favour of the newest parseable logged day`() {
+        val c = client("a", "A", listOf(loggedDay("2026-9-3"), loggedDay("2026-09-06")))
+        assertEquals(7, c.daysSinceLastLoggedDay("2026-09-13"))
+    }
 }

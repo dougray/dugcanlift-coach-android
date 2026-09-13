@@ -121,10 +121,25 @@ about it are easy to get backwards:
   backwards shifts every client's import date by 31 years and the resulting
   number still looks like a plausible timestamp — it doesn't crash, it just
   quietly lies. Both directions are pinned by `BackupCodecTest`.
-- **`recipes`, `meals`, `routines`, and `sessions` are carried opaquely.**
+- **Every top-level key this codec does not model is carried opaquely** —
+  `recipes`, `meals`, `routines`, `sessions`, and anything a newer Coach iOS
+  file adds. Preservation is by *exclusion* (everything but `v` and `clients`),
+  not by an enumerated list: a list only protects the keys someone remembered
+  to add to it, and a `programs` array from a future iOS build would be read,
+  dropped, and then written away permanently by the next Save Backup.
+  `PreservedLibraryStore` merges over the union of both sides' keys for the
+  same reason. `v` is still written as 2 — echoing back an unknown version
+  would claim a compatibility this codec does not have.
+- **The preserved-library cache is written atomically and its corruption is
+  visible.** `PreservedLibraryStore.load` *throws* on an unreadable cache
+  rather than returning null, because "no library" and "the library is on disk
+  but unreadable" have opposite correct responses: the first exports a file
+  with no library keys, the second must refuse to export at all. That file
+  holds the one thing this app cannot regenerate.
+- **The four library arrays are the concrete case today.**
   Coach Android has no models for Cook, Train, or session logs yet — this is
-  a coach's iOS-only data. `BackupCodec.restore` preserves whichever of
-  those four top-level keys are present as raw, undecoded `JSONObject`/
+  a coach's iOS-only data. `BackupCodec.restore` preserves whichever
+  unmodelled top-level keys are present as raw, undecoded `JSONObject`/
   `JSONArray` values (`RestoreResult.preservedLibrary`), and `export` writes
   them straight back out unchanged. **Never parse them into a model, and
   never drop them** — a v1 backup file (no library at all) must round-trip
@@ -166,11 +181,37 @@ Services dependency of any kind, ever.
 `TrainingDay`, and `Client` — plain data classes with `toJson()`/`fromJson()`
 companions over `org.json`, field names matching the Kotlin property names.
 
+**A `dayKey` is validated where it enters the app** (`requireDayKey`). A key
+`ISO_LOCAL_DATE` rejects — `"2026-9-3"`, `""` — parses fine as JSON and then
+throws out of `Client.daysSinceLastLoggedDay` and `Stats.weeklyBuckets`, both
+of which run inside composition; since the roster is the only route to Connect,
+that is an unrecoverable crash loop. Those two functions are also non-throwing
+now, as a second line of defence, and `Roster.buildViewState` guards each
+client separately so one bad client costs a label, not the roster.
+
 `data/ClientRepository.kt` stores one client per file at
-`clients/<id>.json`, written atomically (`.tmp` then rename) so saving one
-client never touches another's file and a crash mid-write never leaves a
-half-written file behind. A corrupt file is skipped, not fatal — `all()`
-returns every other client rather than crashing the roster.
+`clients/<id>.json`, written atomically (`.tmp` then `Files.move`, via
+`data/AtomicFile.kt`) so saving one client never touches another's file and a
+crash mid-write never leaves a half-written file behind. Three rules there are
+load-bearing:
+
+- **A corrupt file is skipped, never destroyed.** `all()` returns every other
+  client rather than crashing the roster, but `load()` also reports what it
+  could not read, and anything that *writes* the roster out must use `load()`:
+  an export sourced from `all()` silently omits the damaged client, and the
+  next restore then deletes it for good. `replaceAll` moves a file it cannot
+  decode into `<root>/unreadable/` instead of deleting it.
+- **`replaceAll` is transactional.** Every client is serialised and staged to a
+  `.new` file before anything is moved into place, so a failure (full disk, a
+  value that will not serialise) leaves the previous roster completely intact.
+  It used to delete everything first and save in a loop, which turned a failure
+  on client four of ten into seven destroyed clients under a message blaming
+  the *file*.
+- **The id is not trusted as a file name.** `c.i` comes off an untrusted link
+  with no charset constraint. An id that is not `[A-Za-z0-9_-]{1,64}` is hashed
+  to a single-segment name (`~<sha256>.json`); ids that already match keep
+  their existing `<id>.json`, so nothing stored by an earlier build moves. The
+  nav route encodes it too — see `Routes.encodeClientId`.
 
 `Client.daysSinceLastLoggedDay(today)` counts from the most recent day that
 was actually **logged** — has sets, food totals, or food entries — not
@@ -195,3 +236,30 @@ of winning. Both `RosterScreen` call sites go through the same `RosterLoader`
 instance now. If you add a third place that reloads the roster, route it
 through the same loader rather than writing `clients` directly, or the same
 class of bug comes back.
+
+## Backup and restore live in `BackupService`, not in Connect
+
+`ConnectScreen`'s two file-picker callbacks do nothing but launch
+`data/BackupService.kt` and render its `BackupOutcome`. Everything else — the
+roster read, the JSON serialise, the content-resolver stream (opened *inside*
+the service's `withContext(Dispatchers.IO)`, so the SAF call is off the main
+thread too), `replaceAll`, and the library-cache update — happens there. Two
+earlier rounds moved exactly this work off the main thread in `RosterScreen`
+and `ClientScreen`; the backup path landed afterwards and put it back in the
+one place that does the most I/O. Keep it out of the Composable: it is also
+the only way any of it can be tested, since this repo has no Compose harness.
+
+Each failure stage reports what actually failed. "That doesn't look like a
+valid backup file." covers the decode, and *only* the decode — a write that
+failed says so and says the existing roster is unchanged, and a library-cache
+problem after a successful client restore does not claim the file was bad.
+
+## Imports are serialised
+
+`ShareLinkImporter.import` is read-modify-write over a whole client file, and
+`RosterScreen` dispatches one per user action — a pasted link importing while a
+share-sheet link arrives is two coroutines reading the same client and both
+writing. It takes a lock for the whole operation. `Files.move` makes each write
+atomic; it does nothing about a lost update. `RosterLoader` serialises the
+roster *reads*; this serialises the *writes*, which are the ones that lose
+data.

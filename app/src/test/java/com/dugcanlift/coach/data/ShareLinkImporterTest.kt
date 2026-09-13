@@ -172,4 +172,51 @@ class ShareLinkImporterTest {
         assertEquals(1.0, f.servings, 0.0)
         assertEquals(164.0, f.calories, 0.0); assertEquals(6.0, f.proteinG, 0.0); assertEquals(14.0, f.fatG, 0.0); assertEquals(6.0, f.carbsG, 0.0); assertEquals(3.5, f.fiberG, 0.0)
     }
+
+    // --- Round 6 [I-1]: ShareDecodeResult.Success means "the JSON parsed", not "the payload is
+    // safe to use". All three inputs below decode as Success today and then kill the process
+    // instead of showing "That doesn't look like a LIFT link." Coach iOS guards the first case
+    // explicitly (coach-ios/Sources/Shared/ShareLinkImporter.swift:27 --
+    // `guard let dayKey = DayKey.adding(days: wireDay.k, to: payload.r) else { continue }`).
+    // Hand-built JSON through the uncompressed 'u' codec, because the typed SharePayload API
+    // cannot express any of these.
+    private fun rawFragment(json: String) = "1u" + CompactEncoding.base64Url(json.toByteArray())
+    private fun rawLink(r: String, days: String) =
+        rawFragment("""{"v":1,"c":{"i":"a1b2c3d4","n":"Doug","u":"lb"},"r":"$r","t":"$r","z":1,"x":[],"d":$days}""")
+
+    @Test fun `a start day that is not a date reports the malformed error instead of crashing`() {
+        val repo = ClientRepository(tmp.root)
+        assertEquals(ImportResult.Malformed, ShareLinkImporter.import(rawLink("not-a-date", """[{"k":0,"bw":180}]"""), repo))
+        assertTrue(repo.all().isEmpty())
+    }
+
+    // The review's second reproduction -- `"k": 2000000000` throwing DateTimeException ("Invalid
+    // value for Year") -- does NOT reproduce, and the reason matters: the codec reads `k` with
+    // `optInt`, so it is always bounded by Int, and even Int.MAX_VALUE days past a valid `r` is
+    // year 5881637, comfortably inside LocalDate's +999999999 limit. No `k` can throw while `r` is
+    // valid. The day-level skip below still exists (it is Coach iOS's own rule, and it is what
+    // stops any future throw in DayKey.adding from reaching the roster), but what an absurd `k`
+    // actually produces today is an ordinary, far-future day -- which is the same "outside the
+    // r..t window" case the review separately assessed as real and benign.
+    @Test fun `an absurd day offset lands on a far-future day rather than crashing`() {
+        val repo = ClientRepository(tmp.root)
+        val r = ShareLinkImporter.import(rawLink("2026-09-01", """[{"k":2000000000,"bw":180},{"k":2,"bw":181}]"""), repo) as ImportResult.Imported
+        assertEquals(2, r.daysImported)
+        assertEquals(listOf("+5477840-09-06", "2026-09-03"), repo.get("a1b2c3d4")!!.days.map { it.dayKey }.sorted())
+    }
+
+    @Test fun `a payload whose days cannot be resolved at all reports the malformed error`() {
+        val repo = ClientRepository(tmp.root)
+        assertEquals(ImportResult.Malformed, ShareLinkImporter.import(rawLink("nonsense", """[{"k":0,"bw":180},{"k":2,"bw":181}]"""), repo))
+        assertTrue(repo.all().isEmpty())
+    }
+
+    @Test fun `a non-numeric food total is dropped rather than poisoning the save with NaN`() {
+        val repo = ClientRepository(tmp.root)
+        val r = ShareLinkImporter.import(rawLink("2026-09-01", """[{"k":0,"ft":[2410,188,71,230,"x"]}]"""), repo) as ImportResult.Imported
+        assertEquals(1, r.daysImported)
+        val d = repo.get("a1b2c3d4")!!.days.single()
+        assertEquals(2410.0, d.foodCalories!!, 0.0)
+        assertNull(d.foodFiberG)
+    }
 }

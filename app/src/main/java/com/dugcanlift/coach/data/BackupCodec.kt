@@ -12,18 +12,29 @@ import org.json.JSONObject
  */
 private const val FOUNDATION_EPOCH_OFFSET_SECONDS = 978_307_200L
 
-/** Names of the four library arrays this file may carry that Coach Android has no model for. */
-private val LIBRARY_KEYS = listOf("recipes", "meals", "routines", "sessions")
+/**
+ * The only two top-level keys this codec models itself. Everything else in the file --
+ * `recipes`/`meals`/`routines`/`sessions` today, whatever a newer Coach iOS adds tomorrow -- is
+ * opaque cargo, preserved byte-for-byte. See [RestoreResult.preservedLibrary].
+ */
+private val ENVELOPE_KEYS = setOf("v", "clients")
 
 // optStringOrNull lives in JsonExtensions.kt -- shared with Models.kt.
 
 /**
- * [clients] decoded from the file, in Coach Android's own model. [preservedLibrary] holds
- * whichever of `recipes`/`meals`/`routines`/`sessions` were present in the file, as the exact
- * JSON values that were parsed -- never decoded into models -- so [BackupCodec.export] can write
- * them straight back out untouched. `null` means the file had none of the four keys (a v1 file,
- * or a v2 file with no library yet), which must round-trip to "no library keys", not to "delete
- * the library."
+ * [clients] decoded from the file, in Coach Android's own model. [preservedLibrary] holds every
+ * top-level key that is not part of this codec's own envelope ([ENVELOPE_KEYS]) -- the four
+ * library arrays, and anything else the file carried -- as the exact JSON values that were parsed,
+ * never decoded into models, so [BackupCodec.export] can write them straight back out untouched.
+ * `null` means the file had nothing beyond the envelope (a v1 file, or a v2 file with no library
+ * yet), which must round-trip to "no library keys", not to "delete the library."
+ *
+ * Round 6: this used to be a fixed list of four key names, which meant a future Coach iOS file's
+ * own top-level array (`programs`, say) was read, dropped on the floor, and then written away
+ * permanently by the next Save Backup -- the identical failure class as losing the library,
+ * reached through a key nobody had thought to enumerate. Preserving by exclusion rather than by
+ * enumeration is what makes "never lose what you do not understand" hold for keys that do not
+ * exist yet.
  */
 data class RestoreResult(val clients: List<Client>, val preservedLibrary: JSONObject?)
 
@@ -35,7 +46,7 @@ data class RestoreResult(val clients: List<Client>, val preservedLibrary: JSONOb
  * `id`, `name`, `displayUnit`, `platform`, `goal` and `days` (and everything nested under a day --
  * sets and food entries) already share field names with [Client]'s own JSON shape, so this codec
  * only has custom handling for the top-level client envelope: `lastImportedAt`'s 2001-epoch
- * conversion, and the four opaque library arrays. See [LIBRARY_KEYS] and
+ * conversion, and the opaque top-level cargo. See [ENVELOPE_KEYS] and
  * [FOUNDATION_EPOCH_OFFSET_SECONDS].
  *
  * Clients restore by **replace** -- callers pass [RestoreResult.clients] to
@@ -43,6 +54,10 @@ data class RestoreResult(val clients: List<Client>, val preservedLibrary: JSONOb
  * arrays are opaque cargo: Coach Android does not have Cook, Train or Sessions yet, so they are
  * carried as-is rather than parsed and rebuilt, which is what keeps a phone -> Android -> phone
  * round trip from losing a coach's recipes.
+ *
+ * `v` is still written as 2 -- the format Coach Android actually produces -- even when the restored
+ * file claimed a higher version. Echoing an unknown `v` back would claim a compatibility this codec
+ * does not have; carrying the unknown keys is what actually protects the data.
  */
 object BackupCodec {
     fun restore(json: String): RestoreResult {
@@ -52,11 +67,10 @@ object BackupCodec {
         }.orEmpty()
 
         var preserved: JSONObject? = null
-        for (key in LIBRARY_KEYS) {
-            if (root.has(key) && !root.isNull(key)) {
-                val library = preserved ?: JSONObject().also { preserved = it }
-                library.put(key, root.get(key))
-            }
+        for (key in root.keys()) {
+            if (key in ENVELOPE_KEYS || root.isNull(key)) continue
+            val library = preserved ?: JSONObject().also { preserved = it }
+            library.put(key, root.get(key))
         }
         return RestoreResult(clients, preserved)
     }
@@ -66,8 +80,11 @@ object BackupCodec {
         root.put("v", 2)
         root.put("clients", JSONArray(clients.map { clientToJson(it) }))
         if (preservedLibrary != null) {
-            for (key in LIBRARY_KEYS) {
-                if (preservedLibrary.has(key)) root.put(key, preservedLibrary.get(key))
+            // Every preserved key, not a fixed list -- and never one of this codec's own envelope
+            // keys, which are written above and must not be sourced from the cargo.
+            for (key in preservedLibrary.keys()) {
+                if (key in ENVELOPE_KEYS || preservedLibrary.isNull(key)) continue
+                root.put(key, preservedLibrary.get(key))
             }
         }
         return root.toString()

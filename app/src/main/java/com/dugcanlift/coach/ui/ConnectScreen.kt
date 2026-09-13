@@ -21,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
@@ -29,10 +30,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.dugcanlift.coach.data.BackupCodec
+import com.dugcanlift.coach.data.BackupOutcome
+import com.dugcanlift.coach.data.BackupService
 import com.dugcanlift.coach.data.ClientRepository
-import com.dugcanlift.coach.data.PreservedLibraryStore
 import java.io.File
+import kotlinx.coroutines.launch
 
 private const val PREFS_NAME = "connect"
 private const val PREF_COACH_NAME = "coachName"
@@ -54,8 +56,8 @@ private fun inviteText(coachName: String, coachEmail: String): String {
 
 /** Where this device's own copy of the opaque library (recipes/meals/routines/sessions) from the
  * most recent restore is kept, so a later Save Backup can carry it back out untouched -- otherwise
- * the round trip promised by [BackupCodec] would only hold within a single restore-then-export
- * call, not across app runs. See [PreservedLibraryStore] for the load/update rules. */
+ * the round trip promised by `BackupCodec` would only hold within a single restore-then-export
+ * call, not across app runs. See `PreservedLibraryStore` for the load/update rules. */
 private fun preservedLibraryFile(context: Context) = File(context.filesDir, "preserved-library.json")
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -78,34 +80,24 @@ fun ConnectScreen(repo: ClientRepository, onBack: () -> Unit) {
         prefs.edit().putString(PREF_COACH_EMAIL, value).apply()
     }
 
+    // All the file work lives in BackupService, off the main thread -- these callbacks do nothing
+    // but launch it and render the outcome. See BackupService for why.
+    val scope = rememberCoroutineScope()
+    val backups = remember(repo, context) { BackupService(repo, preservedLibraryFile(context)) }
+
+    fun show(outcome: BackupOutcome) {
+        statusMessage = outcome.message
+        statusIsError = outcome.isError
+    }
+
     val createBackupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
-        try {
-            val json = BackupCodec.export(repo.all(), PreservedLibraryStore.load(preservedLibraryFile(context)))
-            context.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) }
-                ?: throw IllegalStateException("Couldn't open that location.")
-            statusMessage = "Backup saved."
-            statusIsError = false
-        } catch (e: Exception) {
-            statusMessage = "Couldn't create a backup: ${e.message}"
-            statusIsError = true
-        }
+        scope.launch { show(backups.export { context.contentResolver.openOutputStream(uri) }) }
     }
 
     val restoreBackupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
-        try {
-            val json = context.contentResolver.openInputStream(uri)?.bufferedReader()?.readText()
-                ?: throw IllegalStateException("Couldn't access that file.")
-            val result = BackupCodec.restore(json)
-            repo.replaceAll(result.clients)
-            PreservedLibraryStore.update(preservedLibraryFile(context), result.preservedLibrary)
-            statusMessage = "Restored ${result.clients.size} clients."
-            statusIsError = false
-        } catch (e: Exception) {
-            statusMessage = "That doesn't look like a valid backup file."
-            statusIsError = true
-        }
+        scope.launch { show(backups.restore { context.contentResolver.openInputStream(uri) }) }
     }
 
     Scaffold(

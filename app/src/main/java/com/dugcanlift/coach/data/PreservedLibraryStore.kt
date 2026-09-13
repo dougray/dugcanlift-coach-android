@@ -4,28 +4,70 @@ import java.io.File
 import org.json.JSONArray
 import org.json.JSONObject
 
+/** Thrown when the cache file exists but cannot be parsed -- see [PreservedLibraryStore.load]. */
+class PreservedLibraryUnreadableException(file: File, cause: Throwable) :
+    Exception("The preserved library cache (${file.name}) exists but could not be read.", cause)
+
 /**
- * The coach's cached copy of the opaque library (recipes/meals/routines/sessions) from the most
+ * What [PreservedLibraryStore.read] found on disk. [Unreadable] is deliberately NOT collapsed into
+ * [Absent]: "this device has no library" and "this device's library is on disk but unreadable" have
+ * opposite correct responses -- the first exports a backup with no library keys, the second must
+ * refuse to export at all, because writing that backup is what makes the loss permanent.
+ */
+sealed class LibraryCache {
+    object Absent : LibraryCache()
+    data class Present(val library: JSONObject) : LibraryCache()
+    data class Unreadable(val cause: Throwable) : LibraryCache()
+}
+
+/** Whether [PreservedLibraryStore.update] had to set a corrupt cache aside before writing. */
+data class LibraryUpdateResult(val quarantinedCorruptCache: Boolean)
+
+/**
+ * The coach's cached copy of the opaque library (recipes/meals/routines/sessions, plus any
+ * top-level key a newer Coach iOS file carries that Coach Android has no model for) from the most
  * recent restore that carried one, kept on disk so a later Save Backup can carry it back out
  * untouched even across app runs -- otherwise the round trip [BackupCodec] promises would only
  * hold within a single restore-then-export call, not across app runs.
  *
  * This is the only piece of state spanning two separate user actions -- Restore now, Save later
  * -- which is exactly why it needs direct tests rather than only Compose-level ones.
+ *
+ * Two properties are load-bearing and were added in round 6:
+ *
+ * 1. **The write is staged** ([writeTextAtomically]), the same way [ClientRepository.save] writes a
+ *    client. This file holds the data the app deliberately does not understand and cannot
+ *    regenerate; a bare `writeText` truncated by a device kill silently turns a coach's 40 recipes
+ *    and 12 routines into a parse error.
+ * 2. **A parse error is surfaced, not swallowed.** [load] throws
+ *    [PreservedLibraryUnreadableException] rather than returning `null`, so an export refuses
+ *    instead of writing `{"v":2,"clients":[...]}` with no library and reporting "Backup saved."
  */
 object PreservedLibraryStore {
-    // Mirrors BackupCodec's private LIBRARY_KEYS (same four names) -- kept as a separate literal
-    // here rather than widening that file's visibility just for this.
-    private val LIBRARY_KEYS = listOf("recipes", "meals", "routines", "sessions")
 
-    fun load(file: File): JSONObject? =
-        file.takeIf { it.exists() }?.let { runCatching { JSONObject(it.readText()) }.getOrNull() }
+    /** Never throws: the three states, as found. */
+    fun read(file: File): LibraryCache {
+        if (!file.exists()) return LibraryCache.Absent
+        return runCatching { JSONObject(file.readText()) }
+            .fold({ LibraryCache.Present(it) }, { LibraryCache.Unreadable(it) })
+    }
+
+    /**
+     * The cached library, or `null` when there is none. Throws
+     * [PreservedLibraryUnreadableException] when the file is there but unreadable -- callers that
+     * are about to write a backup must fail loudly rather than quietly omit the library.
+     */
+    fun load(file: File): JSONObject? = when (val cache = read(file)) {
+        is LibraryCache.Absent -> null
+        is LibraryCache.Present -> cache.library
+        is LibraryCache.Unreadable -> throw PreservedLibraryUnreadableException(file, cache.cause)
+    }
 
     /**
      * Applies one restore's result to the cache. [RestoreResult.preservedLibrary] is `null` when
-     * the restored file carried none of the four library keys (a v1 file, or a v2 file with no
-     * library yet) -- coach-ios's BackupCodec.swift documents the rule this must follow: an older
-     * backup must never delete newer work sitting on the device, so a restore with no library
+     * the restored file carried nothing beyond the keys this app models (a v1 file, or a v2 file
+     * with no library yet) -- coach-ios's BackupCodec.swift documents the rule this must follow: an
+     * older backup must never delete newer work sitting on the device, so a restore with no library
      * leaves the cache exactly as it was.
      *
      * A non-null library is *merged* into the cache, per array, keyed by `id` -- the same rule
@@ -46,24 +88,54 @@ object PreservedLibraryStore {
      * treating that as "no collision" (always keep, on both sides) is the only choice that can't
      * silently drop data because identity couldn't be determined; the alternative (treat as always-
      * colliding, i.e. drop it) is exactly the failure mode this fix exists to close.
+     *
+     * An unreadable cache is *set aside* (renamed `<name>.corrupt-<millis>`), never overwritten and
+     * never merged blind: the bytes stay on the device for recovery, the new library is written
+     * cleanly, and the caller is told through [LibraryUpdateResult] so a restore can say so instead
+     * of silently self-healing.
      */
-    fun update(file: File, library: JSONObject?) {
-        if (library == null) return
-        val cache = load(file)
+    fun update(file: File, library: JSONObject?): LibraryUpdateResult {
+        if (library == null) return LibraryUpdateResult(quarantinedCorruptCache = false)
+        var quarantined = false
+        val cache = when (val found = read(file)) {
+            is LibraryCache.Absent -> null
+            is LibraryCache.Present -> found.library
+            is LibraryCache.Unreadable -> {
+                moveIntoPlace(file, File(file.parentFile, "${file.name}.corrupt-${System.currentTimeMillis()}"))
+                quarantined = true
+                null
+            }
+        }
         val merged = if (cache == null) library else merge(cache, library)
-        file.writeText(merged.toString())
+        writeTextAtomically(file, merged.toString())
+        return LibraryUpdateResult(quarantinedCorruptCache = quarantined)
     }
 
+    /**
+     * Merges over the *union* of both sides' keys, not a fixed list of four names. Scoping this to
+     * `recipes`/`meals`/`routines`/`sessions` was the same defect as dropping the library outright,
+     * one level down: a `programs` array from a newer Coach iOS file survived [BackupCodec.restore]
+     * and was then erased here, on the way to the disk that was supposed to be preserving it.
+     *
+     * Two arrays merge by id (above). Anything else -- a scalar, an object, a type that changed
+     * between versions -- cannot be merged item-wise, so the incoming file's value wins when it has
+     * one and the cache's is kept when it does not. Nothing is dropped because its shape was
+     * unfamiliar.
+     */
     private fun merge(cache: JSONObject, incoming: JSONObject): JSONObject {
         val result = JSONObject()
-        for (key in LIBRARY_KEYS) {
-            val cacheArr = cache.optJSONArray(key)
-            val incomingArr = incoming.optJSONArray(key)
+        val keys = LinkedHashSet<String>()
+        cache.keys().forEach { keys.add(it) }
+        incoming.keys().forEach { keys.add(it) }
+        for (key in keys) {
+            val cached = cache.takeIf { it.has(key) && !it.isNull(key) }?.get(key)
+            val fresh = incoming.takeIf { it.has(key) && !it.isNull(key) }?.get(key)
             when {
-                cacheArr == null && incomingArr == null -> Unit
-                cacheArr == null -> result.put(key, incomingArr)
-                incomingArr == null -> result.put(key, cacheArr)
-                else -> result.put(key, mergeById(cacheArr, incomingArr))
+                cached == null && fresh == null -> Unit
+                cached == null -> result.put(key, fresh)
+                fresh == null -> result.put(key, cached)
+                cached is JSONArray && fresh is JSONArray -> result.put(key, mergeById(cached, fresh))
+                else -> result.put(key, fresh)
             }
         }
         return result
