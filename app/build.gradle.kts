@@ -43,7 +43,19 @@ android {
     }
 
     buildTypes {
+        // A debug build installs as its own application id, so it can sit on the
+        // same phone as a release build without replacing it. It also means the
+        // debug signing key can be named in the site's assetlinks.json against
+        // `com.dugcanlift.coach.debug` without ever being able to claim links on
+        // behalf of the real app — which is why the release entry there names
+        // only the release key.
+        debug {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+            resValue("string", "app_name", "Coach (debug)")
+        }
         release {
+            resValue("string", "app_name", "Coach")
             optimization {
                 enable = false
             }
@@ -58,6 +70,9 @@ android {
     }
     buildFeatures {
         compose = true
+        // The debug and release build types each set their own app_name, so the
+        // launcher shows which one you are looking at.
+        resValues = true
     }
 }
 
