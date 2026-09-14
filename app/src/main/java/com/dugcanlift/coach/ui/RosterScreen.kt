@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.BottomAppBar
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -230,6 +231,10 @@ private fun RosterEmptyState(onPasteClick: () -> Unit, modifier: Modifier = Modi
             color = DclMuted,
             modifier = Modifier.padding(top = 8.dp, bottom = 24.dp)
         )
-        TextButton(onClick = onPasteClick) { Text("Paste a Link") }
+        // Filled, not text: the browser build renders a primary action as a
+        // solid accent pill. On an empty roster this is the only thing to do,
+        // and a text button reads as optional. The one in the top bar stays a
+        // text button -- a filled pill in a toolbar shouts.
+        Button(onClick = onPasteClick) { Text("Paste a Link") }
     }
 }
