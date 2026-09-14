@@ -22,24 +22,26 @@ class BackupCodecTest {
         assertEquals(780_000_000L + 978_307_200L, c.lastImportedAtEpochMs / 1000)
     }
 
-    @Test fun `the cargo arrays survive a round trip untouched`() {
-        // `recipes` and `meals` left this list when Cook began modelling them --
-        // they now round-trip through data classes, which is asserted below and
-        // in CookBackupRoundTripTest rather than by byte-identity. The Train
-        // half is still opaque and must stay byte-for-byte.
-        val r = BackupCodec.restore(fixture())
-        val out = JSONObject(BackupCodec.export(r.clients, r.preservedLibrary, r.recipes, r.meals))
-        val orig = JSONObject(fixture())
-        for (k in listOf("routines", "sessions")) assertEquals(orig.opt(k)?.toString(), out.opt(k)?.toString())
+    @Test fun `a key this codec does not model survives untouched`() {
+        // All four library arrays are modelled now -- recipes and meals since
+        // Cook, routines and sessions since Train -- so the byte-for-byte
+        // guarantee has to be demonstrated with a key nothing understands.
+        // That is the case it exists for: a future Coach iOS array nobody here
+        // has heard of must not be dropped by the next Save Backup.
+        val withCargo = JSONObject(fixture())
+            .put("programs", org.json.JSONArray().put(JSONObject().put("id", "p9").put("name", "Block A")))
+        val r = BackupCodec.restore(withCargo.toString())
+        val out = JSONObject(BackupCodec.export(r.clients, r.preservedLibrary, r.recipes, r.meals, r.routines, r.sessions))
+        assertEquals(withCargo.getJSONArray("programs").toString(), out.getJSONArray("programs").toString())
         assertEquals(2, out.getInt("v"))
     }
 
     @Test fun `the modelled arrays survive a round trip by value`() {
         val orig = JSONObject(fixture())
         val r = BackupCodec.restore(fixture())
-        val out = JSONObject(BackupCodec.export(r.clients, r.preservedLibrary, r.recipes, r.meals))
+        val out = JSONObject(BackupCodec.export(r.clients, r.preservedLibrary, r.recipes, r.meals, r.routines, r.sessions))
 
-        for (key in listOf("recipes", "meals")) {
+        for (key in listOf("recipes", "meals", "routines", "sessions")) {
             val before = orig.optJSONArray(key) ?: continue
             val after = out.getJSONArray(key)
             assertEquals("$key lost or gained rows", before.length(), after.length())
@@ -55,13 +57,13 @@ class BackupCodecTest {
 
     @Test fun `a v1 file with no library restores clients and writes no library keys`() {
         val v1 = """{"v":1,"clients":[{"id":"a","name":"Doug","displayUnit":"lb","lastImportedAt":0,"days":[]}]}"""
-        val out = JSONObject(BackupCodec.export(BackupCodec.restore(v1).clients, null, emptyList(), emptyList()))
+        val out = JSONObject(BackupCodec.export(BackupCodec.restore(v1).clients, null, emptyList(), emptyList(), emptyList(), emptyList()))
         assertFalse(out.has("recipes")); assertEquals("a", out.getJSONArray("clients").getJSONObject(0).getString("id"))
     }
 
     @Test fun `dates written back are Foundation seconds so iOS reads them`() {
         val c = Client("a", "Doug", "lb", null, 1_758_307_200_000L, null, emptyList())
-        assertEquals(780_000_000.0, JSONObject(BackupCodec.export(listOf(c), null, emptyList(), emptyList())).getJSONArray("clients").getJSONObject(0).getDouble("lastImportedAt"), 0.5)
+        assertEquals(780_000_000.0, JSONObject(BackupCodec.export(listOf(c), null, emptyList(), emptyList(), emptyList(), emptyList())).getJSONArray("clients").getJSONObject(0).getDouble("lastImportedAt"), 0.5)
     }
 
     // --- Beyond the brief's four ---
@@ -92,7 +94,7 @@ class BackupCodecTest {
         val r = BackupCodec.restore(json)
         val c = r.clients.single()
         assertNull(c.goal)
-        val out = JSONObject(BackupCodec.export(r.clients, r.preservedLibrary, r.recipes, r.meals))
+        val out = JSONObject(BackupCodec.export(r.clients, r.preservedLibrary, r.recipes, r.meals, r.routines, r.sessions))
         assertTrue(out.getJSONArray("clients").getJSONObject(0).isNull("goal"))
     }
 
@@ -141,7 +143,7 @@ class BackupCodecTest {
     @Test fun `an unknown top-level key from a newer file survives restore and export`() {
         val newer = """{"v":3,"clients":[],"programs":[{"id":"p1","name":"5-3-1"}],"coachNotes":{"x":1}}"""
         val r = BackupCodec.restore(newer)
-        val out = JSONObject(BackupCodec.export(r.clients, r.preservedLibrary, r.recipes, r.meals))
+        val out = JSONObject(BackupCodec.export(r.clients, r.preservedLibrary, r.recipes, r.meals, r.routines, r.sessions))
         assertEquals(JSONObject(newer).getJSONArray("programs").toString(), out.getJSONArray("programs").toString())
         assertEquals(JSONObject(newer).getJSONObject("coachNotes").toString(), out.getJSONObject("coachNotes").toString())
     }
@@ -169,8 +171,27 @@ class BackupCodecTest {
             val expected = before.get(field)
             val actual = after.opt(field)
             when {
+                // An explicit null that comes back absent is not loss: both
+                // decode to null in every reader of this format, and omitting
+                // them is what keeps a prescribed set from carrying five nulls
+                // for the four fields it does not use. The fixture writes them
+                // because Swift's Codable does; this app does not.
+                expected === JSONObject.NULL && actual == null -> Unit
                 expected is JSONObject && actual is JSONObject ->
                     assertSurvives("$path.$field", expected, actual)
+                // Arrays too. `exercises` is one, and its elements are objects
+                // whose own null-valued keys this app omits -- so comparing the
+                // array as a string fails for the same reason a bare object
+                // would, one level further in.
+                expected is org.json.JSONArray && actual is org.json.JSONArray -> {
+                    assertEquals("$path.$field length", expected.length(), actual.length())
+                    for (i in 0 until expected.length()) {
+                        val b = expected.opt(i)
+                        val a = actual.opt(i)
+                        if (b is JSONObject && a is JSONObject) assertSurvives("$path.$field[$i]", b, a)
+                        else assertEquals("$path.$field[$i]", b?.toString(), a?.toString())
+                    }
+                }
                 expected is Number && actual is Number ->
                     assertEquals("$path.$field", expected.toDouble(), actual.toDouble(), 1e-9)
                 else -> assertEquals("$path.$field", expected.toString(), actual?.toString())

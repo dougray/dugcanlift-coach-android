@@ -73,6 +73,7 @@ fun RosterScreen(
     onImport: (String) -> Unit,
     onConnect: () -> Unit = {},
     onCook: () -> Unit = {},
+    onTrain: () -> Unit = {},
     pendingImportFragment: String? = null,
     onImportHandled: () -> Unit = {}
 ) {
@@ -141,8 +142,9 @@ fun RosterScreen(
         },
         bottomBar = {
             BottomAppBar {
-                // Cook sits beside Connect rather than inside a client, matching
-                // Coach iOS's tab bar. The recipe library belongs to the coach,
+                // Train and Cook sit beside Connect rather than inside a client,
+                // matching Coach iOS's tab bar. With Train here the two apps
+                // finally offer the same four destinations. The recipe library belongs to the coach,
                 // not to any one client, so reaching it through a client made the
                 // library look like it was theirs -- and made it unreachable at
                 // all until the coach had imported someone.
@@ -150,6 +152,7 @@ fun RosterScreen(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                     horizontalArrangement = Arrangement.End
                 ) {
+                    TextButton(onClick = onTrain) { Text("Train") }
                     TextButton(onClick = onCook) { Text("Cook") }
                     TextButton(onClick = onConnect) { Text("Connect") }
                 }

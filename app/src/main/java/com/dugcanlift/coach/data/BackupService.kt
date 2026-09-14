@@ -32,6 +32,7 @@ class BackupService(
     private val repo: ClientRepository,
     private val libraryFile: File,
     private val cook: CookRepository,
+    private val train: TrainRepository,
     private val io: CoroutineDispatcher = Dispatchers.IO
 ) {
     /**
@@ -42,8 +43,8 @@ class BackupService(
      *   export, and the next restore's `replaceAll` would then destroy it for good;
      * - an unreadable preserved-library cache -- the Train half of the library, which this app
      *   still cannot regenerate and which would simply not appear in the written file;
-     * - an unreadable cook library -- the coach's own recipes and planned weeks, now that Cook
-     *   models them rather than carrying them as cargo. `load()` returning an empty library and
+     * - an unreadable cook or train library -- the coach's own recipes, planned weeks, routines
+     *   and booked sessions, now that this app models them rather than carrying them as cargo. `load()` returning an empty library and
      *   `load()` failing look identical to a caller that only reads the lists, which is exactly
      *   why [StoredCookLibrary.isUnreadable] exists: writing the empty one is what would make
      *   the loss permanent on the next restore.
@@ -55,6 +56,14 @@ class BackupService(
                 return@withContext BackupOutcome(
                     "Couldn't create a backup: ${roster.unreadableFiles.size} client file(s) on this " +
                         "device can't be read, and a backup without them would lose them. Nothing was written.",
+                    true
+                )
+            }
+            val trainLibrary = train.load()
+            if (trainLibrary.isUnreadable) {
+                return@withContext BackupOutcome(
+                    "Couldn't create a backup: this device's routines and scheduled sessions " +
+                        "can't be read, and a backup without them would lose them. Nothing was written.",
                     true
                 )
             }
@@ -70,7 +79,9 @@ class BackupService(
                 roster.clients,
                 PreservedLibraryStore.load(libraryFile),
                 library.recipes,
-                library.meals
+                library.meals,
+                trainLibrary.routines,
+                trainLibrary.sessions
             )
             val stream = openOutput() ?: throw IllegalStateException("Couldn't open that location.")
             stream.use { it.write(json.toByteArray()) }
@@ -118,6 +129,7 @@ class BackupService(
             // restored library. iOS merges by id instead; that inconsistency predates Cook and is
             // documented in coach-ios's own BackupCodec.
             cook.replaceAll(decoded.recipes, decoded.meals)
+            train.replaceAll(decoded.routines, decoded.sessions)
         } catch (e: Exception) {
             return@withContext BackupOutcome(
                 "Restored ${decoded.clients.size} clients, but couldn't save this backup's recipes: " +
