@@ -10,7 +10,7 @@ kotlin = "2.2.10"
 composeBom = "2026.02.01"
 json = "20240303"
 robolectric = "4.16.1"
-androidxTestCore = "1.6.1"
+androidxTestCore = "1.7.0"
 kotlinxCoroutinesTest = "1.8.1"
 navigationCompose = "2.10.1"
 
