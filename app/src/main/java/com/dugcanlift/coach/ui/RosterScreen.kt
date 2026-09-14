@@ -3,6 +3,7 @@ package com.dugcanlift.coach.ui
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -70,6 +71,7 @@ fun RosterScreen(
     onOpen: (String) -> Unit,
     onImport: (String) -> Unit,
     onConnect: () -> Unit = {},
+    onCook: () -> Unit = {},
     pendingImportFragment: String? = null,
     onImportHandled: () -> Unit = {}
 ) {
@@ -138,7 +140,16 @@ fun RosterScreen(
         },
         bottomBar = {
             BottomAppBar {
-                Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp), contentAlignment = Alignment.CenterEnd) {
+                // Cook sits beside Connect rather than inside a client, matching
+                // Coach iOS's tab bar. The recipe library belongs to the coach,
+                // not to any one client, so reaching it through a client made the
+                // library look like it was theirs -- and made it unreachable at
+                // all until the coach had imported someone.
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onCook) { Text("Cook") }
                     TextButton(onClick = onConnect) { Text("Connect") }
                 }
             }
