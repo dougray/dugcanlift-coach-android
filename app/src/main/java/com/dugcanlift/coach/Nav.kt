@@ -2,6 +2,7 @@ package com.dugcanlift.coach
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -10,14 +11,16 @@ import androidx.navigation.compose.rememberNavController
 import com.dugcanlift.coach.data.ClientRepository
 import com.dugcanlift.coach.ui.ClientScreen
 import com.dugcanlift.coach.ui.ConnectScreen
+import com.dugcanlift.coach.ui.CookScreen
 import com.dugcanlift.coach.ui.RosterScreen
 import java.util.Base64
 
-/** The app's three routes: the roster, one client's detail, and Connect. */
+/** The app's routes: the roster, one client's detail, Cook, and Connect. */
 object Routes {
     const val ROSTER = "roster"
     const val CLIENT = "client/{clientId}"
     const val CONNECT = "connect"
+    const val COOK = "cook/{clientId}"
     const val CLIENT_ID_ARG = "clientId"
 
     /**
@@ -34,6 +37,10 @@ object Routes {
      * stored state.
      */
     fun client(clientId: String) = "client/${encodeClientId(clientId)}"
+
+    /** Cook for one client. The id is encoded exactly as [client] encodes it, and for the same
+     *  reason -- a raw id containing `%`, `#` or `/` does not round-trip through a route segment. */
+    fun cook(clientId: String) = "cook/${encodeClientId(clientId)}"
 
     fun encodeClientId(clientId: String): String =
         Base64.getUrlEncoder().withoutPadding().encodeToString(clientId.toByteArray(Charsets.UTF_8))
@@ -75,7 +82,21 @@ fun CoachNavHost(
         }
         composable(Routes.CLIENT) { backStackEntry ->
             val clientId = Routes.decodeClientId(backStackEntry.arguments?.getString(Routes.CLIENT_ID_ARG).orEmpty()).orEmpty()
-            ClientScreen(clientId = clientId, repo = repo, onBack = { navController.popBackStack() })
+            ClientScreen(
+                clientId = clientId,
+                repo = repo,
+                onBack = { navController.popBackStack() },
+                onCook = { navController.navigate(Routes.cook(clientId)) }
+            )
+        }
+        composable(Routes.COOK) { backStackEntry ->
+            val clientId = Routes.decodeClientId(backStackEntry.arguments?.getString(Routes.CLIENT_ID_ARG).orEmpty()).orEmpty()
+            val client = remember(clientId) { repo.get(clientId) }
+            CookScreen(
+                clientId = clientId,
+                clientName = client?.name,
+                onBack = { navController.popBackStack() }
+            )
         }
         composable(Routes.CONNECT) {
             ConnectScreen(repo = repo, onBack = { navController.popBackStack() })
