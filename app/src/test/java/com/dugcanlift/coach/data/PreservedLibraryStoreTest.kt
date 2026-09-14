@@ -38,16 +38,17 @@ class PreservedLibraryStoreTest {
     }
 
     @Test fun `a later export still emits the preserved arrays byte-identically`() {
-        // `routines`/`sessions` rather than `recipes`/`meals`: these keys are
-        // stand-ins for "anything this app does not model", and the latter two
-        // stopped qualifying when Cook began decoding them. The mechanism under
-        // test is unchanged -- see CookBackupRoundTripTest for the modelled half.
-        val library = JSONObject().put("routines", "stub").put("sessions", "stub")
+        // Keys nothing models. All four library arrays now have screens behind
+        // them -- recipes and meals since Cook, routines and sessions since
+        // Train -- so a stand-in for "anything this app does not understand"
+        // has to be something else entirely. The browser build's own `plans`
+        // and `workouts` qualify, and so does a key no build has invented yet.
+        val library = JSONObject().put("plans", "stub").put("programs", "stub")
         PreservedLibraryStore.update(file(), library)
 
         val reloaded = PreservedLibraryStore.load(file())
-        val out = JSONObject(BackupCodec.export(emptyList(), reloaded, emptyList(), emptyList()))
-        for (k in listOf("routines", "sessions")) assertEquals(library.opt(k)?.toString(), out.opt(k)?.toString())
+        val out = JSONObject(BackupCodec.export(emptyList(), reloaded, emptyList(), emptyList(), emptyList(), emptyList()))
+        for (k in listOf("plans", "programs")) assertEquals(library.opt(k)?.toString(), out.opt(k)?.toString())
     }
 
     @Test fun `no cache file yet loads as null`() {
@@ -132,16 +133,16 @@ class PreservedLibraryStoreTest {
     @Test fun `a later export still emits the merged arrays byte-comparably`() {
         PreservedLibraryStore.update(
             file(),
-            JSONObject().put("routines", JSONArray(listOf(entry("A", "A")))).put("sessions", JSONArray(listOf(entry("M", "M"))))
+            JSONObject().put("plans", JSONArray(listOf(entry("A", "A")))).put("programs", JSONArray(listOf(entry("M", "M"))))
         )
-        PreservedLibraryStore.update(file(), JSONObject().put("routines", JSONArray(listOf(entry("B", "B")))))
+        PreservedLibraryStore.update(file(), JSONObject().put("plans", JSONArray(listOf(entry("B", "B")))))
 
         val reloaded = PreservedLibraryStore.load(file())
-        val out = JSONObject(BackupCodec.export(emptyList(), reloaded, emptyList(), emptyList()))
-        for (k in listOf("routines", "sessions")) assertEquals(reloaded?.opt(k)?.toString(), out.opt(k)?.toString())
+        val out = JSONObject(BackupCodec.export(emptyList(), reloaded, emptyList(), emptyList(), emptyList(), emptyList()))
+        for (k in listOf("plans", "programs")) assertEquals(reloaded?.opt(k)?.toString(), out.opt(k)?.toString())
 
-        val ids = (0 until out.getJSONArray("routines").length())
-            .map { out.getJSONArray("routines").getJSONObject(it).getString("id") }.toSet()
+        val ids = (0 until out.getJSONArray("plans").length())
+            .map { out.getJSONArray("plans").getJSONObject(it).getString("id") }.toSet()
         assertEquals(setOf("A", "B"), ids)
     }
 

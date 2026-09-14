@@ -73,11 +73,14 @@ class CookBackupRoundTripTest {
 
     // MARK: - The half that is still cargo
 
-    @Test fun `routines and sessions are still carried untouched`() {
-        val preserved = BackupCodec.restore(iosFile).preservedLibrary
-        assertNotNull(preserved)
-        assertEquals("Push A", preserved!!.getJSONArray("routines").getJSONObject(0).getString("name"))
-        assertEquals(1, preserved.getJSONArray("sessions").length())
+    @Test fun `routines and sessions are modelled now, not carried`() {
+        // They were cargo until Train shipped. This is the assertion that
+        // changed with it -- deliberately, and it is the only one here that did.
+        val restored = BackupCodec.restore(iosFile)
+        assertEquals("Push A", restored.routines.single().name)
+        assertEquals(1, restored.sessions.size)
+        assertTrue("and they have left the cargo bag",
+                   restored.preservedLibrary?.has("routines") != true)
     }
 
     @Test fun `the modelled keys are no longer in the cargo`() {
@@ -104,7 +107,8 @@ class CookBackupRoundTripTest {
         val restored = BackupCodec.restore(iosFile)
         val out = JSONObject(
             BackupCodec.export(restored.clients, restored.preservedLibrary,
-                               restored.recipes, restored.meals)
+                               restored.recipes, restored.meals,
+                               restored.routines, restored.sessions)
         )
         assertEquals("Chili", out.getJSONArray("recipes").getJSONObject(0).getString("name"))
         assertEquals("c1", out.getJSONArray("meals").getJSONObject(0).getString("clientID"))
@@ -116,7 +120,8 @@ class CookBackupRoundTripTest {
         val restored = BackupCodec.restore(webFile)
         val out = JSONObject(
             BackupCodec.export(restored.clients, restored.preservedLibrary,
-                               restored.recipes, restored.meals)
+                               restored.recipes, restored.meals,
+                               restored.routines, restored.sessions)
         )
         // Recipes are rewritten in this app's own spelling...
         assertEquals("500 g beef mince",
@@ -132,7 +137,8 @@ class CookBackupRoundTripTest {
         val restored = BackupCodec.restore(file.toString())
         val out = JSONObject(
             BackupCodec.export(restored.clients, restored.preservedLibrary,
-                               restored.recipes, restored.meals)
+                               restored.recipes, restored.meals,
+                               restored.routines, restored.sessions)
         )
         assertEquals("from a video",
                      out.getJSONArray("recipes").getJSONObject(0).getString("sourceTranscript"))
@@ -143,7 +149,8 @@ class CookBackupRoundTripTest {
         val restored = BackupCodec.restore(file.toString())
         val out = JSONObject(
             BackupCodec.export(restored.clients, restored.preservedLibrary,
-                               restored.recipes, restored.meals)
+                               restored.recipes, restored.meals,
+                               restored.routines, restored.sessions)
         )
         assertEquals("p9", out.getJSONArray("programs").getJSONObject(0).getString("id"))
     }
@@ -160,7 +167,7 @@ class CookBackupRoundTripTest {
         // Matches what this codec has always done for a library it had nothing
         // for, and is safe in both directions: iOS merges the library by id and
         // never deletes from it, so absent and empty mean the same thing there.
-        val out = JSONObject(BackupCodec.export(emptyList(), null, emptyList(), emptyList()))
+        val out = JSONObject(BackupCodec.export(emptyList(), null, emptyList(), emptyList(), emptyList(), emptyList()))
         assertTrue("a v1 file must not sprout v2 keys on the way out", !out.has("recipes"))
         assertTrue(!out.has("meals"))
     }

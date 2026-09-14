@@ -17,15 +17,16 @@ private const val FOUNDATION_EPOCH_OFFSET_SECONDS = 978_307_200L
  * `sessions`, the web build's `plans`/`workouts`/`settings`, whatever a newer Coach iOS adds
  * tomorrow -- is opaque cargo, preserved byte-for-byte. See [RestoreResult.preservedLibrary].
  *
- * `recipes` and `meals` joined this set when Cook arrived. They are the only two the app has
- * screens for; the Train half stays cargo, and must keep behaving exactly as it did.
+ * `recipes` and `meals` joined this set when Cook arrived; `routines` and `sessions` when Train
+ * did. The browser build's own `plans` and `workouts` stay cargo -- different keys carrying
+ * different shapes, which this codec would rather carry whole than half-understand.
  *
  * Note what this does NOT mean. Being modelled is not permission to be lossy: [recipeFromJson]
  * preserves every per-recipe key it has no field for, the same preservation-by-exclusion rule
  * this set applies at the top level, one layer down. A file written by a newer Coach iOS with a
  * field Cook has never heard of still round-trips through this app intact.
  */
-private val ENVELOPE_KEYS = setOf("v", "clients", "recipes", "meals")
+private val ENVELOPE_KEYS = setOf("v", "clients", "recipes", "meals", "routines", "sessions")
 
 // optStringOrNull lives in JsonExtensions.kt -- shared with Models.kt.
 
@@ -52,7 +53,12 @@ data class RestoreResult(
     val recipes: List<Recipe> = emptyList(),
     /** Decoded from `meals`. The web build spells its own under `plans`, a different shape that
      *  stays in [preservedLibrary] rather than being half-understood here. */
-    val meals: List<PlannedMeal> = emptyList()
+    val meals: List<PlannedMeal> = emptyList(),
+    /** Decoded from `routines`. The web build's equivalent is `workouts`, which stays cargo. */
+    val routines: List<Routine> = emptyList(),
+    /** Decoded from `sessions`. A row naming no client is dropped -- see
+     *  [scheduledSessionFromJson]. */
+    val sessions: List<ScheduledSession> = emptyList()
 )
 
 /**
@@ -93,6 +99,9 @@ object BackupCodec {
 
         val recipes = root.optJSONArray("recipes").mapObjectsOrEmpty(::recipeFromJson)
         val meals = root.optJSONArray("meals").mapObjectsOrEmpty(::plannedMealFromJson)
+        val routines = root.optJSONArray("routines").mapObjectsOrEmpty(::routineFromJson)
+        val sessions = root.optJSONArray("sessions")
+            .mapObjectsOrEmpty(::scheduledSessionFromJson).filterNotNull()
 
         var preserved: JSONObject? = null
         for (key in root.keys()) {
@@ -100,7 +109,7 @@ object BackupCodec {
             val library = preserved ?: JSONObject().also { preserved = it }
             library.put(key, root.get(key))
         }
-        return RestoreResult(clients, preserved, recipes, meals)
+        return RestoreResult(clients, preserved, recipes, meals, routines, sessions)
     }
 
     /**
@@ -126,13 +135,17 @@ object BackupCodec {
         clients: List<Client>,
         preservedLibrary: JSONObject?,
         recipes: List<Recipe>,
-        meals: List<PlannedMeal>
+        meals: List<PlannedMeal>,
+        routines: List<Routine>,
+        sessions: List<ScheduledSession>
     ): String {
         val root = JSONObject()
         root.put("v", 2)
         root.put("clients", JSONArray(clients.map { clientToJson(it) }))
         if (recipes.isNotEmpty()) root.put("recipes", JSONArray(recipes.map { it.toJson() }))
         if (meals.isNotEmpty()) root.put("meals", JSONArray(meals.map { it.toJson() }))
+        if (routines.isNotEmpty()) root.put("routines", JSONArray(routines.map { it.toJson() }))
+        if (sessions.isNotEmpty()) root.put("sessions", JSONArray(sessions.map { it.toJson() }))
         if (preservedLibrary != null) {
             // Every preserved key, not a fixed list -- and never one of this codec's own envelope
             // keys, which are written above and must not be sourced from the cargo.
