@@ -1,8 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- minSdk is 26, the same level adaptive icons require, so this is the only
-     launcher icon resource the app needs — no legacy per-density rasters. -->
+     launcher icon resource the app needs — no legacy per-density rasters.
+
+     The foreground is derived from the iOS app icon rather than drawn here: see
+     Resources/Assets.xcassets/AppIcon.appiconset/icon-1024.png in coach-ios.
+     It replaced a placeholder "C" that was committed with "Swap for real artwork
+     before shipping" in its own comment, and then shipped in 1.0 and 1.1. -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@color/ic_launcher_background"/>
-    <foreground android:drawable="@drawable/ic_launcher_foreground"/>
-    <monochrome android:drawable="@drawable/ic_launcher_foreground"/>
+    <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
+    <monochrome android:drawable="@mipmap/ic_launcher_foreground"/>
 </adaptive-icon>
