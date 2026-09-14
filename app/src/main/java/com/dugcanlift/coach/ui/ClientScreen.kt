@@ -61,7 +61,8 @@ private val CHART_WEEK_SLOT_WIDTH = 28.dp
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ClientScreen(clientId: String, repo: ClientRepository, onBack: () -> Unit) {
+fun ClientScreen(clientId: String, repo: ClientRepository, onBack: () -> Unit,
+                 onCook: () -> Unit = {}) {
     var client by remember(clientId) { mutableStateOf<Client?>(null) }
     var loaded by remember(clientId) { mutableStateOf(false) }
 
@@ -76,7 +77,11 @@ fun ClientScreen(clientId: String, repo: ClientRepository, onBack: () -> Unit) {
         topBar = {
             TopAppBar(
                 title = { Text(client?.name ?: clientId) },
-                navigationIcon = { TextButton(onClick = onBack) { Text("Back") } }
+                navigationIcon = { TextButton(onClick = onBack) { Text("Back") } },
+                // Cook is reached from a client rather than from the roster: a
+                // week is planned for someone, and the recipe library is shared
+                // across clients but the week is never.
+                actions = { TextButton(onClick = onCook) { Text("Cook") } }
             )
         }
     ) { padding ->
