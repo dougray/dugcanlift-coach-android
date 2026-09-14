@@ -1,0 +1,14 @@
+version: 2
+updates:
+  - package-ecosystem: gradle
+    directory: /
+    schedule:
+      interval: weekly
+    # The kit is pinned to an exact release tag on purpose (see CLAUDE.md);
+    # bumps to it are a deliberate decision, not a bot PR.
+    ignore:
+      - dependency-name: "com.github.dougray:dugcanlift-kit-android"
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
