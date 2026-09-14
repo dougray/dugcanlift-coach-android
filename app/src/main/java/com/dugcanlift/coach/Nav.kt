@@ -12,6 +12,7 @@ import com.dugcanlift.coach.data.ClientRepository
 import com.dugcanlift.coach.ui.ClientScreen
 import com.dugcanlift.coach.ui.ConnectScreen
 import com.dugcanlift.coach.ui.CookScreen
+import com.dugcanlift.coach.ui.TrainScreen
 import com.dugcanlift.coach.ui.RosterScreen
 import java.util.Base64
 
@@ -21,6 +22,7 @@ object Routes {
     const val CLIENT = "client/{clientId}"
     const val CONNECT = "connect"
     const val COOK = "cook"
+    const val TRAIN = "train"
     const val CLIENT_ID_ARG = "clientId"
 
     /**
@@ -77,6 +79,7 @@ fun CoachNavHost(
                 onImport = { /* import itself is handled inside RosterScreen; this hook is for callers that need to react to a raw import too */ },
                 onConnect = { navController.navigate(Routes.CONNECT) },
                 onCook = { navController.navigate(Routes.COOK) },
+                onTrain = { navController.navigate(Routes.TRAIN) },
                 pendingImportFragment = pendingImportFragment,
                 onImportHandled = onImportHandled
             )
@@ -91,6 +94,9 @@ fun CoachNavHost(
         }
         composable(Routes.COOK) {
             CookScreen(repo = repo, onBack = { navController.popBackStack() })
+        }
+        composable(Routes.TRAIN) {
+            TrainScreen(repo = repo, onBack = { navController.popBackStack() })
         }
         composable(Routes.CONNECT) {
             ConnectScreen(repo = repo, onBack = { navController.popBackStack() })
