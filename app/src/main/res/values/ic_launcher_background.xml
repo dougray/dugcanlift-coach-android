@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Must equal com.dugcanlift.kit.DclPalette.ACCENT (0xFFC1442C). XML can't reference the Kotlin
-         constant, so if the palette ever moves, update this literal to match by hand. -->
-    <color name="ic_launcher_background">#C1442C</color>
+    <!-- The iOS app icon's background, sampled from
+         coach-ios/Resources/Assets.xcassets/AppIcon.appiconset/icon-1024.png. Deliberately NOT
+         DclPalette.ACCENT (0xFFC1442C): the icon is a deeper red than the in-app accent, and
+         matching the accent here is part of what made the Android launcher icon differ from the
+         iPhone's. If the iOS artwork changes, re-derive rather than guess. -->
+    <color name="ic_launcher_background">#B7092D</color>
 </resources>
