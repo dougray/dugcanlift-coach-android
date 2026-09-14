@@ -13,11 +13,19 @@ import org.json.JSONObject
 private const val FOUNDATION_EPOCH_OFFSET_SECONDS = 978_307_200L
 
 /**
- * The only two top-level keys this codec models itself. Everything else in the file --
- * `recipes`/`meals`/`routines`/`sessions` today, whatever a newer Coach iOS adds tomorrow -- is
- * opaque cargo, preserved byte-for-byte. See [RestoreResult.preservedLibrary].
+ * The top-level keys this codec models itself. Everything else in the file -- `routines` and
+ * `sessions`, the web build's `plans`/`workouts`/`settings`, whatever a newer Coach iOS adds
+ * tomorrow -- is opaque cargo, preserved byte-for-byte. See [RestoreResult.preservedLibrary].
+ *
+ * `recipes` and `meals` joined this set when Cook arrived. They are the only two the app has
+ * screens for; the Train half stays cargo, and must keep behaving exactly as it did.
+ *
+ * Note what this does NOT mean. Being modelled is not permission to be lossy: [recipeFromJson]
+ * preserves every per-recipe key it has no field for, the same preservation-by-exclusion rule
+ * this set applies at the top level, one layer down. A file written by a newer Coach iOS with a
+ * field Cook has never heard of still round-trips through this app intact.
  */
-private val ENVELOPE_KEYS = setOf("v", "clients")
+private val ENVELOPE_KEYS = setOf("v", "clients", "recipes", "meals")
 
 // optStringOrNull lives in JsonExtensions.kt -- shared with Models.kt.
 
@@ -36,7 +44,16 @@ private val ENVELOPE_KEYS = setOf("v", "clients")
  * enumeration is what makes "never lose what you do not understand" hold for keys that do not
  * exist yet.
  */
-data class RestoreResult(val clients: List<Client>, val preservedLibrary: JSONObject?)
+data class RestoreResult(
+    val clients: List<Client>,
+    val preservedLibrary: JSONObject?,
+    /** Decoded from `recipes`. Empty when the file carried none -- which must restore as "no
+     *  recipes in this file", never as "delete the ones on this device"; see [BackupService]. */
+    val recipes: List<Recipe> = emptyList(),
+    /** Decoded from `meals`. The web build spells its own under `plans`, a different shape that
+     *  stays in [preservedLibrary] rather than being half-understood here. */
+    val meals: List<PlannedMeal> = emptyList()
+)
 
 /**
  * Reads and writes Coach iOS's `BackupCodec` v2 file
@@ -74,19 +91,48 @@ object BackupCodec {
             ?: throw org.json.JSONException("Missing or invalid 'clients' array")
         val clients = (0 until clientsArray.length()).map { clientFromJson(clientsArray.getJSONObject(it)) }
 
+        val recipes = root.optJSONArray("recipes").mapObjectsOrEmpty(::recipeFromJson)
+        val meals = root.optJSONArray("meals").mapObjectsOrEmpty(::plannedMealFromJson)
+
         var preserved: JSONObject? = null
         for (key in root.keys()) {
             if (key in ENVELOPE_KEYS || root.isNull(key)) continue
             val library = preserved ?: JSONObject().also { preserved = it }
             library.put(key, root.get(key))
         }
-        return RestoreResult(clients, preserved)
+        return RestoreResult(clients, preserved, recipes, meals)
     }
 
-    fun export(clients: List<Client>, preservedLibrary: JSONObject?): String {
+    /**
+     * [recipes] and [meals] are written from models; everything else the file carried rides along
+     * in [preservedLibrary] untouched.
+     *
+     * Neither has a default, deliberately. A default of `emptyList()` would leave every existing
+     * call site compiling unchanged while quietly writing an empty library over a coach's
+     * recipes -- the same silent-loss shape that made preservation-by-exclusion necessary in the
+     * first place. Required parameters make the compiler name every caller instead.
+     *
+     * An empty list writes no key at all, matching what this codec has always done for a library
+     * it had nothing for: a v1 file restored and re-exported does not sprout v2 keys. That is
+     * safe in both directions -- iOS merges the library by id and never deletes from it
+     * (`BackupCodec.swift`: `where !existingRecipes.contains(row.id)`), so absent and empty mean
+     * the same thing there.
+     *
+     * The caller must not pass empty when the library merely failed to load;
+     * [StoredCookLibrary.isUnreadable] exists to make that distinguishable, and [BackupService]
+     * refuses the whole export in that case rather than writing a file that silently drops them.
+     */
+    fun export(
+        clients: List<Client>,
+        preservedLibrary: JSONObject?,
+        recipes: List<Recipe>,
+        meals: List<PlannedMeal>
+    ): String {
         val root = JSONObject()
         root.put("v", 2)
         root.put("clients", JSONArray(clients.map { clientToJson(it) }))
+        if (recipes.isNotEmpty()) root.put("recipes", JSONArray(recipes.map { it.toJson() }))
+        if (meals.isNotEmpty()) root.put("meals", JSONArray(meals.map { it.toJson() }))
         if (preservedLibrary != null) {
             // Every preserved key, not a fixed list -- and never one of this codec's own envelope
             // keys, which are written above and must not be sourced from the cargo.
@@ -137,4 +183,10 @@ object BackupCodec {
         put("goal", client.goal?.toJson() ?: JSONObject.NULL)
         put("days", JSONArray(client.days.map { it.toJson() }))
     }
+}
+
+/** Decodes every JSON object in [this], skipping any element that is not one. */
+private fun <T> JSONArray?.mapObjectsOrEmpty(decode: (JSONObject) -> T): List<T> {
+    if (this == null) return emptyList()
+    return (0 until length()).mapNotNull { i -> (opt(i) as? JSONObject)?.let(decode) }
 }

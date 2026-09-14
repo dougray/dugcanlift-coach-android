@@ -32,6 +32,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.dugcanlift.coach.data.BackupOutcome
 import com.dugcanlift.coach.data.BackupService
+import com.dugcanlift.coach.data.CookRepository
 import com.dugcanlift.coach.data.ClientRepository
 import java.io.File
 import kotlinx.coroutines.launch
@@ -83,7 +84,9 @@ fun ConnectScreen(repo: ClientRepository, onBack: () -> Unit) {
     // All the file work lives in BackupService, off the main thread -- these callbacks do nothing
     // but launch it and render the outcome. See BackupService for why.
     val scope = rememberCoroutineScope()
-    val backups = remember(repo, context) { BackupService(repo, preservedLibraryFile(context)) }
+    val backups = remember(repo, context) {
+        BackupService(repo, preservedLibraryFile(context), CookRepository(context.filesDir))
+    }
 
     fun show(outcome: BackupOutcome) {
         statusMessage = outcome.message
