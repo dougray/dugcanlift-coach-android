@@ -22,23 +22,46 @@ class BackupCodecTest {
         assertEquals(780_000_000L + 978_307_200L, c.lastImportedAtEpochMs / 1000)
     }
 
-    @Test fun `the library arrays survive a round trip untouched`() {
+    @Test fun `the cargo arrays survive a round trip untouched`() {
+        // `recipes` and `meals` left this list when Cook began modelling them --
+        // they now round-trip through data classes, which is asserted below and
+        // in CookBackupRoundTripTest rather than by byte-identity. The Train
+        // half is still opaque and must stay byte-for-byte.
         val r = BackupCodec.restore(fixture())
-        val out = JSONObject(BackupCodec.export(r.clients, r.preservedLibrary))
+        val out = JSONObject(BackupCodec.export(r.clients, r.preservedLibrary, r.recipes, r.meals))
         val orig = JSONObject(fixture())
-        for (k in listOf("recipes", "meals", "routines", "sessions")) assertEquals(orig.opt(k)?.toString(), out.opt(k)?.toString())
+        for (k in listOf("routines", "sessions")) assertEquals(orig.opt(k)?.toString(), out.opt(k)?.toString())
         assertEquals(2, out.getInt("v"))
+    }
+
+    @Test fun `the modelled arrays survive a round trip by value`() {
+        val orig = JSONObject(fixture())
+        val r = BackupCodec.restore(fixture())
+        val out = JSONObject(BackupCodec.export(r.clients, r.preservedLibrary, r.recipes, r.meals))
+
+        for (key in listOf("recipes", "meals")) {
+            val before = orig.optJSONArray(key) ?: continue
+            val after = out.getJSONArray(key)
+            assertEquals("$key lost or gained rows", before.length(), after.length())
+            for (i in 0 until before.length()) {
+                // Every field the fixture carried is still there afterwards,
+                // whether or not this app has a model for it. Key ORDER is not
+                // asserted: org.json does not preserve it and it carries no
+                // meaning, but a missing key would be real data loss.
+                assertSurvives("$key[$i]", before.getJSONObject(i), after.getJSONObject(i))
+            }
+        }
     }
 
     @Test fun `a v1 file with no library restores clients and writes no library keys`() {
         val v1 = """{"v":1,"clients":[{"id":"a","name":"Doug","displayUnit":"lb","lastImportedAt":0,"days":[]}]}"""
-        val out = JSONObject(BackupCodec.export(BackupCodec.restore(v1).clients, null))
+        val out = JSONObject(BackupCodec.export(BackupCodec.restore(v1).clients, null, emptyList(), emptyList()))
         assertFalse(out.has("recipes")); assertEquals("a", out.getJSONArray("clients").getJSONObject(0).getString("id"))
     }
 
     @Test fun `dates written back are Foundation seconds so iOS reads them`() {
         val c = Client("a", "Doug", "lb", null, 1_758_307_200_000L, null, emptyList())
-        assertEquals(780_000_000.0, JSONObject(BackupCodec.export(listOf(c), null)).getJSONArray("clients").getJSONObject(0).getDouble("lastImportedAt"), 0.5)
+        assertEquals(780_000_000.0, JSONObject(BackupCodec.export(listOf(c), null, emptyList(), emptyList())).getJSONArray("clients").getJSONObject(0).getDouble("lastImportedAt"), 0.5)
     }
 
     // --- Beyond the brief's four ---
@@ -69,7 +92,7 @@ class BackupCodecTest {
         val r = BackupCodec.restore(json)
         val c = r.clients.single()
         assertNull(c.goal)
-        val out = JSONObject(BackupCodec.export(r.clients, r.preservedLibrary))
+        val out = JSONObject(BackupCodec.export(r.clients, r.preservedLibrary, r.recipes, r.meals))
         assertTrue(out.getJSONArray("clients").getJSONObject(0).isNull("goal"))
     }
 
@@ -118,7 +141,7 @@ class BackupCodecTest {
     @Test fun `an unknown top-level key from a newer file survives restore and export`() {
         val newer = """{"v":3,"clients":[],"programs":[{"id":"p1","name":"5-3-1"}],"coachNotes":{"x":1}}"""
         val r = BackupCodec.restore(newer)
-        val out = JSONObject(BackupCodec.export(r.clients, r.preservedLibrary))
+        val out = JSONObject(BackupCodec.export(r.clients, r.preservedLibrary, r.recipes, r.meals))
         assertEquals(JSONObject(newer).getJSONArray("programs").toString(), out.getJSONArray("programs").toString())
         assertEquals(JSONObject(newer).getJSONObject("coachNotes").toString(), out.getJSONObject("coachNotes").toString())
     }
@@ -130,4 +153,29 @@ class BackupCodecTest {
         assertFalse(r.preservedLibrary!!.has("v"))
         assertFalse(r.preservedLibrary!!.has("clients"))
     }
+
+    /**
+     * Every field in [before] is still present in [after], with the same value,
+     * however deeply nested.
+     *
+     * Deliberately one-directional: [after] gaining a key is not loss, so it is
+     * not asserted. And deliberately not a string comparison of the whole
+     * object -- org.json does not preserve key order, and the fixture writes
+     * `2.0` where org.json re-emits `2`. Neither is a lost field; a missing key
+     * is, which is the only thing this checks.
+     */
+    private fun assertSurvives(path: String, before: JSONObject, after: JSONObject) {
+        for (field in before.keys()) {
+            val expected = before.get(field)
+            val actual = after.opt(field)
+            when {
+                expected is JSONObject && actual is JSONObject ->
+                    assertSurvives("$path.$field", expected, actual)
+                expected is Number && actual is Number ->
+                    assertEquals("$path.$field", expected.toDouble(), actual.toDouble(), 1e-9)
+                else -> assertEquals("$path.$field", expected.toString(), actual?.toString())
+            }
+        }
+    }
+
 }
