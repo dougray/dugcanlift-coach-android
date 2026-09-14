@@ -1,0 +1,124 @@
+name: Release
+
+# A pushed tag builds, signs and publishes that exact commit. The signing
+# happens on the self-hosted runner on centerpoint, where the release
+# keystore lives; it is never uploaded anywhere. The `sign` job sits behind
+# the `release` environment, so nothing is built with the key until Doug
+# approves the run in the Actions tab.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build (e.g. v1.0)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+  ASSET: coach-android.apk
+  KEYSTORE_PROPERTIES: /keystores/coach.keystore.properties
+  # SHA-256 of the release signing certificate, as apksigner prints it. The
+  # built APK must carry exactly this certificate or nothing is published.
+  # Public information: every installed copy of the app carries it too.
+  RELEASE_CERT_SHA256: f537ebfbefc38775f70355c266191ca0b455fe90163246e3a95653fab26c23c2
+
+jobs:
+  test:
+    name: Test on a GitHub-hosted runner
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
+      - name: Unit tests and lint
+        run: ./gradlew :app:testDebugUnitTest --rerun :app:lintDebug
+
+  sign:
+    name: Build, sign and publish
+    needs: test
+    runs-on: [self-hosted, linux, signer]
+    environment: release
+    timeout-minutes: 45
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          clean: true
+
+      - name: Check the tag matches the app version
+        run: |
+          v=$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' app/build.gradle.kts)
+          if [ "v$v" != "$TAG" ]; then
+            echo "tag $TAG does not match versionName $v" >&2
+            exit 1
+          fi
+
+      - name: Bring in the signing config
+        run: cp "$KEYSTORE_PROPERTIES" keystore.properties
+
+      - name: Build the signed release APK
+        run: ./gradlew :app:assembleRelease
+
+      # Runs even if the build failed: the passwords do not stay in the
+      # checkout between jobs.
+      - name: Remove the signing config
+        if: always()
+        run: rm -f keystore.properties
+
+      - name: Verify the signature
+        run: |
+          got=$(apksigner verify --print-certs app/build/outputs/apk/release/app-release.apk | sed -n 's/.*SHA-256 digest: //p' | head -1)
+          echo "certificate: $got"
+          if [ "$got" != "$RELEASE_CERT_SHA256" ]; then
+            echo "APK is not signed with the release certificate" >&2
+            exit 1
+          fi
+
+      - name: Package with checksums
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk "dist/$ASSET"
+          (cd dist && sha256sum "$ASSET" > SHA256SUMS && cat SHA256SUMS)
+
+      # Creates the release, or on a re-run of an existing tag replaces its
+      # assets. The job's own token is enough; no PAT anywhere.
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "dist/$ASSET" dist/SHA256SUMS --clobber
+          else
+            gh release create "$TAG" "dist/$ASSET" dist/SHA256SUMS \
+              --verify-tag --title "Coach Android ${TAG#v}" --generate-notes
+          fi
+
+      - name: Notify
+        if: always()
+        run: |
+          curl -fsS -o /dev/null \
+            -H "Title: Coach Android ${TAG#v} release ${{ job.status }}" \
+            -d "${{ github.server_url }}/${{ github.repository }}/releases/tag/$TAG" \
+            http://192.168.0.119:8090/homelab || true
