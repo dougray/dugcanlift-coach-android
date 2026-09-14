@@ -20,6 +20,15 @@ ran, which hides a flake instead of surfacing it. Always run these in the
 foreground — nothing here is safe to background, and a 15-minute timeout is
 routine for a from-scratch build.
 
+## CI
+
+`.github/workflows/ci.yml` runs the same unit tests, `lintDebug`, and
+`assembleDebug` on GitHub-hosted `ubuntu-latest` for every PR and push to
+`main`; the `main` ruleset requires that check to pass before a PR merges.
+Never run CI or a runner on this Mac. Actions are pinned by commit SHA and
+Dependabot bumps them weekly; the exact kit pin is deliberately excluded from
+Dependabot.
+
 There is no Compose UI test harness in this repo. Coordination and business
 logic that would otherwise only be reachable from a `@Composable` gets
 extracted into a plain Kotlin class so it can be unit tested directly — see
