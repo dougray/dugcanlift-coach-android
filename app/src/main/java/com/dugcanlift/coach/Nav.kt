@@ -20,7 +20,7 @@ object Routes {
     const val ROSTER = "roster"
     const val CLIENT = "client/{clientId}"
     const val CONNECT = "connect"
-    const val COOK = "cook/{clientId}"
+    const val COOK = "cook"
     const val CLIENT_ID_ARG = "clientId"
 
     /**
@@ -38,9 +38,9 @@ object Routes {
      */
     fun client(clientId: String) = "client/${encodeClientId(clientId)}"
 
-    /** Cook for one client. The id is encoded exactly as [client] encodes it, and for the same
-     *  reason -- a raw id containing `%`, `#` or `/` does not round-trip through a route segment. */
-    fun cook(clientId: String) = "cook/${encodeClientId(clientId)}"
+    /** Cook is the coach's own, not any one client's: the recipe library belongs to them, and
+     *  which client a week is for is picked inside the Plan section. So no id in the route. */
+    const val cook = COOK
 
     fun encodeClientId(clientId: String): String =
         Base64.getUrlEncoder().withoutPadding().encodeToString(clientId.toByteArray(Charsets.UTF_8))
@@ -76,6 +76,7 @@ fun CoachNavHost(
                 onOpen = { clientId -> navController.navigate(Routes.client(clientId)) },
                 onImport = { /* import itself is handled inside RosterScreen; this hook is for callers that need to react to a raw import too */ },
                 onConnect = { navController.navigate(Routes.CONNECT) },
+                onCook = { navController.navigate(Routes.COOK) },
                 pendingImportFragment = pendingImportFragment,
                 onImportHandled = onImportHandled
             )
@@ -85,18 +86,11 @@ fun CoachNavHost(
             ClientScreen(
                 clientId = clientId,
                 repo = repo,
-                onBack = { navController.popBackStack() },
-                onCook = { navController.navigate(Routes.cook(clientId)) }
-            )
-        }
-        composable(Routes.COOK) { backStackEntry ->
-            val clientId = Routes.decodeClientId(backStackEntry.arguments?.getString(Routes.CLIENT_ID_ARG).orEmpty()).orEmpty()
-            val client = remember(clientId) { repo.get(clientId) }
-            CookScreen(
-                clientId = clientId,
-                clientName = client?.name,
                 onBack = { navController.popBackStack() }
             )
+        }
+        composable(Routes.COOK) {
+            CookScreen(repo = repo, onBack = { navController.popBackStack() })
         }
         composable(Routes.CONNECT) {
             ConnectScreen(repo = repo, onBack = { navController.popBackStack() })
