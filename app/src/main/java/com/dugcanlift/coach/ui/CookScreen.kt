@@ -1,5 +1,7 @@
 package com.dugcanlift.coach.ui
 
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -34,6 +36,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.dugcanlift.coach.data.Client
+import com.dugcanlift.coach.data.ClientRepository
 import com.dugcanlift.coach.data.CoachShoppingList
 import com.dugcanlift.coach.data.CookPlanEncoder
 import com.dugcanlift.coach.data.CookRepository
@@ -52,19 +56,19 @@ import kotlinx.coroutines.launch
  * planned meals, and a coach moves between them constantly while planning.
  */
 private enum class CookSection(val label: String) {
-    RECIPES("Recipes"), WEEK("Week"), SHOPPING("Shopping")
+    RECIPES("Recipes"), PLAN("Plan"), SHOPPING("Shopping")
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CookScreen(
-    clientId: String?,
-    clientName: String?,
+    repo: ClientRepository,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val cook = remember { CookRepository(context.filesDir) }
+    val clients = remember { repo.all() }
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
 
@@ -75,6 +79,13 @@ fun CookScreen(
     val library = remember(revision) { cook.load() }
 
     var section by remember { mutableStateOf(CookSection.RECIPES) }
+
+    // Held here rather than inside the Plan section: each section is its own
+    // subtree, so state living below would be torn down and rebuilt on every
+    // section switch and the picked client would be lost on the way to
+    // Shopping -- which reads the same client's week. Coach iOS's CookView
+    // owns it at this level for exactly the same reason.
+    var planClientId by remember { mutableStateOf(clients.firstOrNull()?.id) }
     var editing by remember { mutableStateOf<Recipe?>(null) }
     var confirmingDelete by remember { mutableStateOf<Recipe?>(null) }
 
@@ -83,7 +94,7 @@ fun CookScreen(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
-                title = { Text(if (clientName != null) "Cook — $clientName" else "Cook") },
+                title = { Text("Cook") },
                 navigationIcon = { TextButton(onClick = onBack) { Text("Back") } }
             )
         }
@@ -115,6 +126,8 @@ fun CookScreen(
             Spacer(Modifier.height(12.dp))
 
             val recipesById = library.recipes.associateBy { it.id }
+            val clientId = planClientId
+            val clientName = clients.firstOrNull { it.id == clientId }?.name
             val weekMeals = clientId?.let { library.meals.forClient(it) } ?: emptyList()
 
             when (section) {
@@ -125,7 +138,10 @@ fun CookScreen(
                     onDelete = { confirmingDelete = it }
                 )
 
-                CookSection.WEEK -> WeekList(
+                CookSection.PLAN -> PlanList(
+                    clients = clients,
+                    selectedClientId = clientId,
+                    onPickClient = { planClientId = it },
                     clientName = clientName,
                     meals = weekMeals,
                     recipesById = recipesById,
@@ -256,7 +272,10 @@ private fun RecipeList(
 }
 
 @Composable
-private fun WeekList(
+private fun PlanList(
+    clients: List<Client>,
+    selectedClientId: String?,
+    onPickClient: (String) -> Unit,
     clientName: String?,
     meals: List<PlannedMeal>,
     recipesById: Map<String, Recipe>,
@@ -266,12 +285,35 @@ private fun WeekList(
     onRemove: (PlannedMeal) -> Unit,
     onSend: () -> Unit
 ) {
-    if (clientName == null) {
+    if (clients.isEmpty()) {
         Text(
-            "Open a client first. A week is planned for someone — there is no " +
-                "such thing as a week belonging to nobody.",
+            "No clients yet. A week is planned for someone, so import a client " +
+                "from the roster first — the recipes above are yours either way.",
             style = MaterialTheme.typography.bodyMedium
         )
+        return
+    }
+
+    // Which client this week is for. A meal carries its own clientId, so
+    // switching here shows a different week rather than re-assigning this one.
+    Text("Planning for", style = MaterialTheme.typography.labelMedium)
+    Spacer(Modifier.height(4.dp))
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.horizontalScroll(rememberScrollState())
+    ) {
+        clients.forEach { client ->
+            FilterChip(
+                selected = client.id == selectedClientId,
+                onClick = { onPickClient(client.id) },
+                label = { Text(client.name) }
+            )
+        }
+    }
+    Spacer(Modifier.height(12.dp))
+
+    if (clientName == null) {
+        Text("Pick a client to plan for.", style = MaterialTheme.typography.bodyMedium)
         return
     }
 
