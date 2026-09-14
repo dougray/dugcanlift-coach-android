@@ -24,7 +24,9 @@ class BackupServiceTest {
     private fun client(id: String) = Client(id, "Doug", "lb", "and", 0, null, emptyList())
     private fun libraryFile() = File(tmp.root, "preserved-library.json")
     private fun repo() = ClientRepository(tmp.root)
-    private fun service(repo: ClientRepository = repo()) = BackupService(repo, libraryFile())
+    private fun cook() = CookRepository(tmp.root)
+    private fun service(repo: ClientRepository = repo(), cook: CookRepository = cook()) =
+        BackupService(repo, libraryFile(), cook)
 
     @Test fun `a healthy roster exports and still reports Backup saved`() = runBlocking {
         val repo = repo()
@@ -69,7 +71,7 @@ class BackupServiceTest {
     @Test fun `restore does its reading and writing off the calling thread`() = runBlocking {
         val caller = Thread.currentThread()
         var worker: Thread? = null
-        service().restore { worker = Thread.currentThread(); ByteArrayInputStream(BackupCodec.export(emptyList(), null).toByteArray()) }
+        service().restore { worker = Thread.currentThread(); ByteArrayInputStream(BackupCodec.export(emptyList(), null, emptyList(), emptyList()).toByteArray()) }
         assertNotNull(worker)
         assertNotSame(caller, worker)
     }
@@ -86,7 +88,7 @@ class BackupServiceTest {
     @Test fun `a restore reports the clients it restored`() = runBlocking {
         val repo = repo()
         repo.save(client("old"))
-        val backup = BackupCodec.export(listOf(client("n1"), client("n2")), null)
+        val backup = BackupCodec.export(listOf(client("n1"), client("n2")), null, emptyList(), emptyList())
         val outcome = service(repo).restore { ByteArrayInputStream(backup.toByteArray()) }
         assertEquals("Restored 2 clients.", outcome.message)
         assertFalse(outcome.isError)
@@ -100,7 +102,7 @@ class BackupServiceTest {
         repo.save(client("old"))
         // Occupy the staging path replaceAll must write through.
         tmp.root.resolve("clients/n1.json.new").mkdirs()
-        val backup = BackupCodec.export(listOf(client("n1")), null)
+        val backup = BackupCodec.export(listOf(client("n1")), null, emptyList(), emptyList())
         val outcome = service(repo).restore { ByteArrayInputStream(backup.toByteArray()) }
         assertTrue(outcome.isError)
         assertTrue(outcome.message.startsWith("Couldn't restore that backup:"))
@@ -109,8 +111,11 @@ class BackupServiceTest {
     }
 
     @Test fun `a restore over a corrupt library cache sets it aside and says so`() = runBlocking {
-        libraryFile().writeText("{\"recipes\": [{\"id\": \"A\"")
-        val backup = JSONObject(BackupCodec.export(emptyList(), null)).put("recipes", org.json.JSONArray()).toString()
+        libraryFile().writeText("{\"routines\": [{\"id\": \"A\"")
+        // The backup must carry a key the codec still preserves, or
+        // PreservedLibraryStore.update is handed nothing and never reaches the
+        // corrupt cache it is supposed to quarantine.
+        val backup = JSONObject(BackupCodec.export(emptyList(), null, emptyList(), emptyList())).put("routines", org.json.JSONArray()).toString()
         val outcome = service().restore { ByteArrayInputStream(backup.toByteArray()) }
         assertFalse(outcome.isError)
         assertTrue(outcome.message.contains("set aside"))
