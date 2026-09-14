@@ -18,6 +18,13 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -37,6 +44,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.dugcanlift.coach.data.Client
+import com.dugcanlift.coach.data.EQUIPMENT_FILTERS
+import com.dugcanlift.coach.data.ExerciseLibraryStore
+import com.dugcanlift.coach.data.LibraryExercise
+import com.dugcanlift.coach.data.searchExerciseLibrary
+import com.dugcanlift.coach.data.titleCaseAscii
 import com.dugcanlift.coach.data.ClientRepository
 import com.dugcanlift.coach.data.PrescribedSet
 import com.dugcanlift.coach.data.Routine
@@ -334,7 +346,9 @@ private fun RoutineEditor(routine: Routine, onCancel: () -> Unit, onSave: (Routi
         onDismissRequest = onCancel,
         title = { Text(if (routine.name.isBlank()) "New routine" else "Edit routine") },
         text = {
-            Column {
+            // Scrolls: the picker below can add forty rows to this dialog, and
+            // an AlertDialog's own content does not scroll for you.
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 OutlinedTextField(value = name, onValueChange = { name = it },
                                   label = { Text("Name") }, singleLine = true)
                 Spacer(Modifier.height(8.dp))
@@ -342,6 +356,18 @@ private fun RoutineEditor(routine: Routine, onCancel: () -> Unit, onSave: (Routi
                     value = lines, onValueChange = { lines = it },
                     label = { Text("One exercise per line") },
                     supportingText = { Text("Bench | Barbell | 3 x 8 @ 60") }
+                )
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(12.dp))
+                ExerciseLibraryPicker(
+                    onPick = { exercise ->
+                        // Appended rather than inserted at the cursor: the box
+                        // is a whole routine, and a picked exercise goes at the
+                        // end of it like a typed one would.
+                        lines = if (lines.isBlank()) exercise.routineLine
+                        else lines.trimEnd('\n') + "\n" + exercise.routineLine
+                    }
                 )
             }
         },
@@ -385,3 +411,92 @@ internal fun parseExercises(text: String): List<RoutineExercise> =
             sets = List(setCount) { PrescribedSet(targetWeightKg = load, targetReps = reps) }
         )
     }
+
+/**
+ * Search over the bundled 873, appending a correctly-spelled `name | equipment`
+ * line to the routine box.
+ *
+ * It sits under the text box rather than replacing it. Writing a whole routine
+ * as six lines of text is the fast path and stays the fast path; this is for
+ * the name you want spelled the way the client's app spells it, which is every
+ * name that has to line up with a logged set.
+ *
+ * Typing a line by hand still works, and still works when the asset fails to
+ * load. A coach's own vocabulary is not an error.
+ */
+@Composable
+private fun ExerciseLibraryPicker(onPick: (LibraryExercise) -> Unit) {
+    val context = LocalContext.current
+
+    var library by remember { mutableStateOf<List<LibraryExercise>?>(null) }
+    var loadError by remember { mutableStateOf<String?>(null) }
+    var loading by remember { mutableStateOf(true) }
+    var query by remember { mutableStateOf("") }
+    var filter by remember { mutableStateOf("") }
+
+    LaunchedEffect(Unit) {
+        library = ExerciseLibraryStore.load(context)
+        loadError = ExerciseLibraryStore.lastError
+        loading = false
+    }
+
+    val results = remember(library, query, filter) {
+        library?.let { searchExerciseLibrary(it, query, filter) }.orEmpty()
+    }
+
+    OutlinedTextField(
+        value = query,
+        onValueChange = { query = it },
+        label = { Text("Find an exercise") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth()
+    )
+
+    Spacer(Modifier.height(8.dp))
+
+    when {
+        loading -> Text("Loading the exercise library...",
+                        style = MaterialTheme.typography.bodySmall)
+
+        loadError != null -> Text(
+            "Could not load the exercise library ($loadError). " +
+                "You can still write exercises by hand above.",
+            style = MaterialTheme.typography.bodySmall
+        )
+
+        else -> {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+            ) {
+                FilterChip(selected = filter.isEmpty(), onClick = { filter = "" },
+                           label = { Text("All") })
+                EQUIPMENT_FILTERS.forEach { option ->
+                    FilterChip(
+                        selected = filter == option,
+                        onClick = { filter = if (filter == option) "" else option },
+                        label = { Text(titleCaseAscii(option)) }
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            if (results.isEmpty()) {
+                Text("Nothing matches that.", style = MaterialTheme.typography.bodySmall)
+            } else {
+                results.forEach { hit ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onPick(hit) }
+                            .padding(vertical = 6.dp)
+                    ) {
+                        Text(hit.name, style = MaterialTheme.typography.bodyMedium)
+                        Text(hit.detailLabel, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        }
+    }
+}
