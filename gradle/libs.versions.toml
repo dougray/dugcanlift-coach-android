@@ -1,5 +1,5 @@
 [versions]
-agp = "9.3.1"
+agp = "9.4.0"
 coreKtx = "1.10.1"
 junit = "4.13.2"
 junitVersion = "1.1.5"
@@ -8,10 +8,10 @@ lifecycleRuntimeKtx = "2.6.1"
 activityCompose = "1.8.0"
 kotlin = "2.2.10"
 composeBom = "2026.09.00"
-json = "20240303"
+json = "20260814"
 robolectric = "4.16.1"
 androidxTestCore = "1.7.0"
-kotlinxCoroutinesTest = "1.8.1"
+kotlinxCoroutinesTest = "1.11.0"
 navigationCompose = "2.10.1"
 
 [libraries]
