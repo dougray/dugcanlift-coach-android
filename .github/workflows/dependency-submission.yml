@@ -25,4 +25,10 @@ jobs:
           java-version: 21
 
       - uses: gradle/actions/dependency-submission@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        with:
+          # Only what ships in the APK. The first submission included every
+          # resolved configuration and surfaced ~50 alerts, nearly all netty
+          # and bouncycastle from the Android build tooling, which never
+          # reaches a phone.
+          dependency-graph-include-configurations: '(release|debug)RuntimeClasspath'
 
