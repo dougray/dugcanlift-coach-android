@@ -6,6 +6,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.dugcanlift.coach.data.hasMacros
 
 /**
  * Pins the rule the recipe editor's new macro section holds.
@@ -81,5 +82,38 @@ class RecipeMacroEntryTest {
     fun `clearing every field removes the macros`() {
         val existing = RecipeNutrition(calories = 400.0, proteinG = 30.0)
         assertNull(entered(existing = existing))
+    }
+}
+
+class RecipeNutrientDetailsEntryTest {
+
+    @Test
+    fun `the three are optional and blank stays unknown`() {
+        val n = enteredMacros("420", "30", "40", "12", "5", null, saturatedFat = "4.5", sugar = "", sodium = " ")
+        assertEquals(4.5, n!!.saturatedFatG!!, 1e-9)
+        assertNull(n.sugarG)
+        assertNull(n.sodiumMg)
+    }
+
+    @Test
+    fun `details alone make a figure whose macros read as not entered`() {
+        val n = enteredMacros("", "", "", "", "", null, sodium = "900")
+        assertEquals(900.0, n!!.sodiumMg!!, 1e-9)
+        assertFalse(n.hasMacros)
+        // Reopening the editor shows blank macro fields, not zeros.
+        assertEquals("", macroFieldText(n) { it.calories })
+    }
+
+    @Test
+    fun `a negative or unreadable detail is not a reading`() {
+        assertNull(enteredMacros("", "", "", "", "", null, sugar = "-3", sodium = "lots"))
+    }
+
+    @Test
+    fun `entered macros reopen as typed`() {
+        val n = enteredMacros("420", "", "", "", "", null)
+        assertEquals("420", macroFieldText(n) { it.calories })
+        assertEquals("0", macroFieldText(n) { it.proteinG })
+        assertEquals("", macroFieldText(null) { it.calories })
     }
 }

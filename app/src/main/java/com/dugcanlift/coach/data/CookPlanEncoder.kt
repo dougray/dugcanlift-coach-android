@@ -1,6 +1,8 @@
 package com.dugcanlift.coach.data
 
 import com.dugcanlift.kit.CompactEncoding
+import com.dugcanlift.kit.RecipeNutrition
+import com.dugcanlift.kit.ShareNutrients
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -27,6 +29,19 @@ object CookPlanEncoder {
 
     internal fun slot(meal: String): Int =
         SLOTS.indexOf(meal.trim().lowercase()).takeIf { it >= 0 } ?: 2
+
+    /**
+     * PLAN-FORMAT's `ux`: `[saturatedFatG, sugarG, sodiumMg]` per serving,
+     * trailing nulls trimmed, omitted when none is known. Built by the kit's
+     * `ShareNutrients.itemRow` -- the same tuple, rounding (grams to one decimal,
+     * sodium to whole milligrams, half-up) and trimming SHARE-FORMAT's `fe` uses
+     * -- rather than a second copy of those rules. Only trailing nulls go: a
+     * leading null holds its slot, or sugar would slide into saturated fat.
+     */
+    internal fun uxTuple(n: RecipeNutrition): JSONArray? {
+        val row = ShareNutrients.itemRow(n.details) ?: return null
+        return JSONArray().also { a -> row.forEach { a.put(it ?: JSONObject.NULL) } }
+    }
 
     /**
      * @param lifterId the client's id. The decoder refuses a fragment whose `l`
@@ -56,8 +71,15 @@ object CookPlanEncoder {
             if (recipe.steps.isNotEmpty()) o.put("t", JSONArray(recipe.steps))
             recipe.nutritionPerServing?.let { n ->
                 // Fixed-order tuple; the decoder requires at least five entries
-                // before it reads any of them.
-                o.put("u", JSONArray(listOf(n.calories, n.proteinG, n.carbsG, n.fatG, n.fiberG)))
+                // before it reads any of them. Omitted when no macro was entered
+                // -- PLAN-FORMAT: `u` "must never be sent as zeros", and a recipe
+                // holding only sodium carries five placeholder zeros (see
+                // [hasMacros]). Coach iOS's `PlanLinkEncoder.planRecipe` guards the
+                // same all-zero case.
+                if (n.hasMacros) {
+                    o.put("u", JSONArray(listOf(n.calories, n.proteinG, n.carbsG, n.fatG, n.fiberG)))
+                }
+                uxTuple(n)?.let { o.put("ux", it) }
             }
             r.put(o)
         }

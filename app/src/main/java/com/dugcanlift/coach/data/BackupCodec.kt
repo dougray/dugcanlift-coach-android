@@ -73,10 +73,13 @@ data class RestoreResult(
  * [FOUNDATION_EPOCH_OFFSET_SECONDS].
  *
  * Clients restore by **replace** -- callers pass [RestoreResult.clients] to
- * [ClientRepository.replaceAll], exactly as iOS's own restore replaces its roster. The library
- * arrays are opaque cargo: Coach Android does not have Cook, Train or Sessions yet, so they are
- * carried as-is rather than parsed and rebuilt, which is what keeps a phone -> Android -> phone
- * round trip from losing a coach's recipes.
+ * [ClientRepository.replaceAll], exactly as iOS's own restore replaces its roster. `recipes`,
+ * `meals`, `routines` and `sessions` decode into Cook and Train models, which keep every field
+ * they do not model; any other top-level key is opaque cargo carried as-is. Either way a
+ * phone -> Android -> phone round trip does not lose a coach's library.
+ *
+ * A day's `nutrientTotals` and a food's `saturatedFatG`/`sugarG`/`sodiumMg` are
+ * [TrainingDay.toJson]'s own names; CLAUDE.md "Saturated fat, sugar and sodium" pins them for iOS.
  *
  * `v` is still written as 2 -- the format Coach Android actually produces -- even when the restored
  * file claimed a higher version. Echoing an unknown `v` back would claim a compatibility this codec
