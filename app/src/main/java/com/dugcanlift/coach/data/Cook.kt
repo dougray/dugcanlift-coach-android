@@ -59,6 +59,12 @@ data class Recipe(
     val steps: List<String> = emptyList(),
     /** Per serving. Null means unknown -- not zero. */
     val nutritionPerServing: RecipeNutrition? = null,
+    /** The whole finished dish, in grams. Null until someone weighs it; a recipe
+     *  without it plans by servings exactly as before. Canonical grams whatever
+     *  unit the coach typed -- a converted value never reaches the model. Same
+     *  field and spelling as `Recipe.totalWeightGrams` in LiftCore, so it round
+     *  trips through iOS and web backups unchanged. */
+    val totalWeightGrams: Double? = null,
     /** Keys inside `nutritionPerServing` that [RecipeNutrition] has no field for
      *  -- `sodiumMg` is already one of them in Coach iOS's own fixture. Kept
      *  separately for the same reason [unknownKeys] is: the rule is preservation
@@ -74,6 +80,10 @@ data class Recipe(
         get() = rawIngredients.map { IngredientParser.parse(it) }
 
     val totalNutrition: RecipeNutrition? get() = nutritionPerServing?.scaled(servings)
+
+    /** Grams in one serving, when the dish has been weighed. What a client puts
+     *  on a scale; a count of servings never tells them that. */
+    val gramsPerServing: Double? get() = totalWeightGrams?.let { it / safeServings }
 }
 
 /**
@@ -155,7 +165,9 @@ object CoachShoppingList {
 
 /* ---------------- JSON ---------------- */
 
-private val RECIPE_KEYS = setOf("id", "name", "servings", "ingredients", "steps", "nutritionPerServing")
+private val RECIPE_KEYS = setOf(
+    "id", "name", "servings", "ingredients", "steps", "nutritionPerServing", "totalWeightGrams"
+)
 private val MEAL_KEYS = setOf(
     "id", "recipeID", "recipeId", "recipeName", "dayKey", "date", "meal",
     "servings", "snapshotNutrition", "clientID", "clientId"
@@ -241,6 +253,10 @@ fun recipeFromJson(o: JSONObject): Recipe = Recipe(
     rawIngredients = rawIngredientsFromJson(o.optJSONArray("ingredients")),
     steps = stringsFromJson(o.optJSONArray("steps")),
     nutritionPerServing = nutritionFromJson(o.optJSONObject("nutritionPerServing")),
+    // Zero, negative or non-numeric is "not weighed", never a dish that weighs
+    // nothing -- a per-serving weight divides by nothing sensible otherwise.
+    totalWeightGrams = o.optDouble("totalWeightGrams", Double.NaN)
+        .takeIf { it.isFinite() && it > 0 },
     nutritionUnknownKeys = o.optJSONObject("nutritionPerServing")?.keysOutside(NUTRITION_KEYS),
     unknownKeys = o.keysOutside(RECIPE_KEYS)
 )
@@ -261,6 +277,7 @@ fun Recipe.toJson(): JSONObject {
     o.put("ingredients", JSONArray(rawIngredients))
     o.put("steps", JSONArray(steps))
     nutritionPerServing?.let { o.put("nutritionPerServing", it.toJson(nutritionUnknownKeys)) }
+    totalWeightGrams?.let { o.put("totalWeightGrams", it) }
     return o
 }
 
