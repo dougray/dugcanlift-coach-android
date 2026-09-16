@@ -5,6 +5,9 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import com.dugcanlift.coach.ui.theme.LocalDclDark
+import androidx.compose.runtime.LaunchedEffect
+import androidx.activity.SystemBarStyle
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,6 +41,18 @@ class MainActivity : ComponentActivity() {
         val repo = (application as CoachApp).repo
         setContent {
             CoachTheme {
+                // System bar icons follow the appearance actually drawn. The default
+                // enableEdgeToEdge() follows the phone, which with Light chosen on a
+                // dark phone leaves light icons on parchment.
+                val dark = LocalDclDark.current
+                LaunchedEffect(dark) {
+                    val style = if (dark) {
+                        SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                    } else {
+                        SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+                    }
+                    enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+                }
                 CoachNavHost(
                     repo = repo,
                     modifier = Modifier.fillMaxSize(),

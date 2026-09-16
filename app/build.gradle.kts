@@ -86,7 +86,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
-    implementation("com.github.dougray:dugcanlift-kit-android:1.1.0")
+    implementation("com.github.dougray:dugcanlift-kit-android:1.2.0")
     testImplementation(libs.junit)
     testImplementation(libs.json)
     testImplementation(libs.robolectric)

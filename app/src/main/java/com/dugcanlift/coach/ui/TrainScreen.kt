@@ -1,6 +1,7 @@
 package com.dugcanlift.coach.ui
 
 import androidx.compose.foundation.horizontalScroll
+import com.dugcanlift.coach.ui.theme.dclCardBorder
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -221,7 +222,7 @@ private fun RoutineList(
 
     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         items(routines, key = { it.id }) { routine ->
-            Card(Modifier.fillMaxWidth()) {
+            Card(Modifier.fillMaxWidth(), border = dclCardBorder()) {
                 Column(Modifier.padding(12.dp)) {
                     Text(routine.name.ifBlank { "Untitled" }, style = MaterialTheme.typography.titleMedium)
                     Text(
@@ -292,7 +293,7 @@ private fun ScheduleList(
 
     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         items(sessions, key = { it.id }) { session ->
-            Card(Modifier.fillMaxWidth()) {
+            Card(Modifier.fillMaxWidth(), border = dclCardBorder()) {
                 Column(Modifier.padding(12.dp)) {
                     Text(
                         routinesById[session.routineId]?.name ?: "Deleted routine",

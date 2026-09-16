@@ -70,6 +70,9 @@ fun LineChart(
     height: Dp = 160.dp
 ) {
     val gridColor = MaterialTheme.colorScheme.outline
+    // Captured here because the Canvas lambda below is not composition, and the
+    // palette resolves against the current light or dark appearance.
+    val goalColor = DclMuted
     val values = points.map { it.second }
     val maxValue = (values.maxOrNull() ?: 0.0).coerceAtLeast(goal ?: 0.0)
     // The single-point case keeps its original 0..maxValue scale unchanged (per review: leave
@@ -107,7 +110,7 @@ fun LineChart(
             goal?.let { g ->
                 val y = h - ((g - bottom) / span * h).toFloat()
                 drawLine(
-                    color = DclMuted,
+                    color = goalColor,
                     start = Offset(0f, y),
                     end = Offset(w, y),
                     strokeWidth = 3f,
