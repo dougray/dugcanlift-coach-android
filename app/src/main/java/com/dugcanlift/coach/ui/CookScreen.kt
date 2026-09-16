@@ -48,6 +48,7 @@ import com.dugcanlift.coach.data.CookRepository
 import com.dugcanlift.coach.data.PlannedMeal
 import com.dugcanlift.coach.data.Recipe
 import com.dugcanlift.coach.data.forClient
+import com.dugcanlift.coach.data.hasMacros
 import com.dugcanlift.kit.CaptionRecipe
 import com.dugcanlift.kit.Split
 import com.dugcanlift.coach.data.RecipeWeightUnit
@@ -265,7 +266,7 @@ private fun RecipeList(
                     Text(
                         "Serves ${recipe.servings.trimZeros()} · " +
                             "${recipe.rawIngredients.size} ingredient(s)" +
-                            (recipe.nutritionPerServing?.let { " · ${it.calories.toInt()} kcal/serving" } ?: ""),
+                            (recipe.nutritionPerServing?.takeIf { it.hasMacros }?.let { " · ${it.calories.toInt()} kcal/serving" } ?: ""),
                         style = MaterialTheme.typography.bodySmall
                     )
                     Spacer(Modifier.height(8.dp))
@@ -406,11 +407,15 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
     // whole point below is that an untouched field must not become a measured
     // zero on a client's phone.
     val macros = recipe.nutritionPerServing
-    var calories by remember(recipe.id) { mutableStateOf(macros?.calories?.trimZeros() ?: "") }
-    var protein by remember(recipe.id) { mutableStateOf(macros?.proteinG?.trimZeros() ?: "") }
-    var carbs by remember(recipe.id) { mutableStateOf(macros?.carbsG?.trimZeros() ?: "") }
-    var fat by remember(recipe.id) { mutableStateOf(macros?.fatG?.trimZeros() ?: "") }
-    var fiber by remember(recipe.id) { mutableStateOf(macros?.fiberG?.trimZeros() ?: "") }
+    var calories by remember(recipe.id) { mutableStateOf(macroFieldText(macros) { it.calories }) }
+    var protein by remember(recipe.id) { mutableStateOf(macroFieldText(macros) { it.proteinG }) }
+    var carbs by remember(recipe.id) { mutableStateOf(macroFieldText(macros) { it.carbsG }) }
+    var fat by remember(recipe.id) { mutableStateOf(macroFieldText(macros) { it.fatG }) }
+    var fiber by remember(recipe.id) { mutableStateOf(macroFieldText(macros) { it.fiberG }) }
+    // Saturated fat, sugar, sodium: each optional on its own, blank when unknown.
+    var saturatedFat by remember(recipe.id) { mutableStateOf(macros?.saturatedFatG?.trimZeros() ?: "") }
+    var sugar by remember(recipe.id) { mutableStateOf(macros?.sugarG?.trimZeros() ?: "") }
+    var sodium by remember(recipe.id) { mutableStateOf(macros?.sodiumMg?.trimZeros() ?: "") }
 
     // Weight. The unit is the coach's own display preference, remembered
     // across recipes; the model is always grams.
@@ -561,6 +566,18 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
                 MacroField("Carbs", "g", carbs) { carbs = it }
                 MacroField("Fat", "g", fat) { fat = it }
                 MacroField("Fibre", "g", fiber) { fiber = it }
+
+                Spacer(Modifier.height(8.dp))
+                Text("Also per serving", style = MaterialTheme.typography.labelLarge)
+                Text(
+                    "Optional, and tracked only \u2014 there is no target for these. " +
+                        "Each one you leave blank stays unknown.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Spacer(Modifier.height(8.dp))
+                MacroField("Saturated fat", "g", saturatedFat) { saturatedFat = it }
+                MacroField("Sugar", "g", sugar) { sugar = it }
+                MacroField("Sodium", "mg", sodium) { sodium = it }
             }
         },
         confirmButton = {
@@ -574,7 +591,8 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
                             rawIngredients = ingredients.lines().map { it.trim() }.filter { it.isNotEmpty() },
                             steps = steps.lines().map { it.trim() }.filter { it.isNotEmpty() },
                             nutritionPerServing = enteredMacros(
-                                calories, protein, carbs, fat, fiber, recipe.nutritionPerServing
+                                calories, protein, carbs, fat, fiber, recipe.nutritionPerServing,
+                                saturatedFat = saturatedFat, sugar = sugar, sodium = sodium
                             ),
                             totalWeightGrams = enteredWeightGrams(totalWeight, weightUnit)
                         )
@@ -633,19 +651,41 @@ internal fun enteredMacros(
     carbs: String,
     fat: String,
     fiber: String,
-    existing: RecipeNutrition?
+    existing: RecipeNutrition?,
+    saturatedFat: String = "",
+    sugar: String = "",
+    sodium: String = ""
 ): RecipeNutrition? {
     val values = listOf(calories, protein, carbs, fat, fiber).map { it.trim().toDoubleOrNull() }
-    if (values.all { it == null }) return null
+    // Saturated fat, sugar and sodium are each nullable, so unlike fibre above
+    // blank really can stay unknown. Negative or non-finite is not a reading.
+    val details = listOf(saturatedFat, sugar, sodium)
+        .map { it.trim().toDoubleOrNull()?.takeIf { v -> v.isFinite() && v >= 0 } }
+    if (values.all { it == null } && details.all { it == null }) return null
+    // Only details typed: the five macros hold placeholder zeros that
+    // `hasMacros` reads as "not entered", so `u` is not sent and the fields
+    // reopen blank. The shape Coach iOS's NutritionFacts has for the same case.
     return RecipeNutrition(
         calories = values[0] ?: 0.0,
         proteinG = values[1] ?: 0.0,
         carbsG = values[2] ?: 0.0,
         fatG = values[3] ?: 0.0,
         fiberG = values[4] ?: 0.0,
-        estimated = existing?.estimated ?: false
+        estimated = existing?.estimated ?: false,
+        saturatedFatG = details[0],
+        sugarG = details[1],
+        sodiumMg = details[2]
     )
 }
+
+/**
+ * The text a macro field opens with: blank when the recipe has no macros at all
+ * -- no nutrition, or nutrition holding only saturated fat, sugar or sodium,
+ * whose five macros are placeholders (see `hasMacros`). Showing those as "0"
+ * would put a zero in front of the coach that the next Save turns into fact.
+ */
+internal fun macroFieldText(nutrition: RecipeNutrition?, pick: (RecipeNutrition) -> Double): String =
+    nutrition?.takeIf { it.hasMacros }?.let { pick(it).trimZeros() } ?: ""
 
 
 private fun roundOne(value: Double): Double = Math.round(value * 10) / 10.0
