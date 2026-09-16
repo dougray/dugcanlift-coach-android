@@ -1,5 +1,10 @@
 package com.dugcanlift.coach.ui
 
+import com.dugcanlift.coach.data.AppAppearance
+import com.dugcanlift.coach.data.AppearanceStore
+import androidx.compose.runtime.collectAsState
+import androidx.compose.material3.FilterChip
+import androidx.compose.foundation.layout.Row
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -67,6 +72,8 @@ private fun preservedLibraryFile(context: Context) = File(context.filesDir, "pre
 fun ConnectScreen(repo: ClientRepository, onBack: () -> Unit) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
+    val appearanceStore = remember { AppearanceStore.get(context) }
+    val appearance by appearanceStore.appearance.collectAsState()
 
     var coachName by remember { mutableStateOf(prefs.getString(PREF_COACH_NAME, "") ?: "") }
     var coachEmail by remember { mutableStateOf(prefs.getString(PREF_COACH_EMAIL, "") ?: "") }
@@ -117,6 +124,25 @@ fun ConnectScreen(repo: ClientRepository, onBack: () -> Unit) {
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
+            Text("Appearance", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+            Row {
+                AppAppearance.entries.forEach { option ->
+                    FilterChip(
+                        selected = appearance == option,
+                        onClick = { appearanceStore.set(option) },
+                        label = { Text(option.label) },
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
+                }
+            }
+            Text(
+                "System follows your phone's light or dark setting.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+
             Text("Your Info", style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(8.dp))
             OutlinedTextField(

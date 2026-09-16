@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.Coach" parent="android:Theme.Material.NoActionBar">
-        <!-- Must equal com.dugcanlift.kit.DclPalette.BG (0xFF1C1B19). XML can't reference the Kotlin
-             constant, so if the palette ever moves, update this literal to match by hand. -->
-        <item name="android:windowBackground">#1C1B19</item>
+    <!-- Light by default, values-night for dark. The window background is drawn
+         before Compose can read the appearance setting, so it follows the phone.
+         Must equal DclPalette.BG_LIGHT / BG; XML can't reference the Kotlin
+         constants, so update these by hand if the palette moves. -->
+    <style name="Theme.Coach" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#F4EFE7</item>
     </style>
 </resources>

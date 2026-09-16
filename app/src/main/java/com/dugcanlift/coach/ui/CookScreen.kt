@@ -1,6 +1,7 @@
 package com.dugcanlift.coach.ui
 
 import androidx.compose.foundation.horizontalScroll
+import com.dugcanlift.coach.ui.theme.dclCardBorder
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -258,7 +259,7 @@ private fun RecipeList(
 
     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         items(recipes, key = { it.id }) { recipe ->
-            Card(Modifier.fillMaxWidth()) {
+            Card(Modifier.fillMaxWidth(), border = dclCardBorder()) {
                 Column(Modifier.padding(12.dp)) {
                     Text(recipe.name.ifBlank { "Untitled" }, style = MaterialTheme.typography.titleMedium)
                     Text(
@@ -333,7 +334,7 @@ private fun PlanList(
 
     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         items(meals, key = { it.id }) { meal ->
-            Card(Modifier.fillMaxWidth()) {
+            Card(Modifier.fillMaxWidth(), border = dclCardBorder()) {
                 Column(Modifier.padding(12.dp)) {
                     Text(
                         meal.recipeName.ifBlank { recipesById[meal.recipeId]?.name ?: "Deleted recipe" },
