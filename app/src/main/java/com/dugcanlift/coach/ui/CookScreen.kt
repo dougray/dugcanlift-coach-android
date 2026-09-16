@@ -2,9 +2,11 @@ package com.dugcanlift.coach.ui
 
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -35,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.dugcanlift.coach.data.Client
 import com.dugcanlift.coach.data.ClientRepository
@@ -46,6 +49,7 @@ import com.dugcanlift.coach.data.Recipe
 import com.dugcanlift.coach.data.forClient
 import com.dugcanlift.kit.CaptionRecipe
 import com.dugcanlift.kit.Split
+import com.dugcanlift.kit.RecipeNutrition
 import com.dugcanlift.kit.trimZeros
 import kotlinx.coroutines.launch
 
@@ -396,6 +400,16 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
     var ingredients by remember(recipe.id) { mutableStateOf(recipe.rawIngredients.joinToString("\n")) }
     var steps by remember(recipe.id) { mutableStateOf(recipe.steps.joinToString("\n")) }
 
+    // Macros. Blank rather than "0" when the recipe carries none, because the
+    // whole point below is that an untouched field must not become a measured
+    // zero on a client's phone.
+    val macros = recipe.nutritionPerServing
+    var calories by remember(recipe.id) { mutableStateOf(macros?.calories?.trimZeros() ?: "") }
+    var protein by remember(recipe.id) { mutableStateOf(macros?.proteinG?.trimZeros() ?: "") }
+    var carbs by remember(recipe.id) { mutableStateOf(macros?.carbsG?.trimZeros() ?: "") }
+    var fat by remember(recipe.id) { mutableStateOf(macros?.fatG?.trimZeros() ?: "") }
+    var fiber by remember(recipe.id) { mutableStateOf(macros?.fiberG?.trimZeros() ?: "") }
+
     // Paste a recipe written out as text -- a video caption, an email, a card
     // off the fridge. Offered only on a new recipe: pasting over one that
     // exists would replace the coach's work rather than start from it.
@@ -408,7 +422,11 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
         onDismissRequest = onCancel,
         title = { Text(if (recipe.name.isBlank()) "New recipe" else "Edit recipe") },
         text = {
-            Column {
+            // Scrolls. It did not, which was harmless with four fields and
+            // unusable with the macro section: on a phone the lower fields sat
+            // below the dialog's edge with no way to reach them. LIFT Android's
+            // recipe dialog scrolls the same way.
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 // `CaptionRecipe` only PROPOSES a split. It fills the fields
                 // below and the coach checks them before saving -- so a wrong
                 // split costs an edit, never a number. The parser still reads
@@ -475,6 +493,26 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(value = steps, onValueChange = { steps = it },
                                   label = { Text("Steps, one per line") })
+
+                // Macros were missing here entirely. `Recipe.nutritionPerServing`
+                // has always existed, the JSON codec round-trips all five values
+                // and `CookPlanEncoder` already sends them as `u` -- so a recipe
+                // that arrived with macros displayed and forwarded them
+                // correctly, and a coach simply had no way to enter or correct
+                // any of it on this device.
+                Spacer(Modifier.height(16.dp))
+                Text("Macros, per serving", style = MaterialTheme.typography.labelLarge)
+                Text(
+                    "Leave blank if you don't know them. Blank stays unknown — it " +
+                        "will not log as zero on your client's phone.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Spacer(Modifier.height(8.dp))
+                MacroField("Calories", "kcal", calories) { calories = it }
+                MacroField("Protein", "g", protein) { protein = it }
+                MacroField("Carbs", "g", carbs) { carbs = it }
+                MacroField("Fat", "g", fat) { fat = it }
+                MacroField("Fibre", "g", fiber) { fiber = it }
             }
         },
         confirmButton = {
@@ -486,12 +524,76 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
                             name = name.trim(),
                             servings = servings.toDoubleOrNull() ?: recipe.servings,
                             rawIngredients = ingredients.lines().map { it.trim() }.filter { it.isNotEmpty() },
-                            steps = steps.lines().map { it.trim() }.filter { it.isNotEmpty() }
+                            steps = steps.lines().map { it.trim() }.filter { it.isNotEmpty() },
+                            nutritionPerServing = enteredMacros(
+                                calories, protein, carbs, fat, fiber, recipe.nutritionPerServing
+                            )
                         )
                     )
                 }
             ) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } }
+    )
+}
+
+
+/** One labelled macro row. The unit is shown because kcal and grams are not
+ *  the same thing and a column of bare numbers does not say which is which. */
+@Composable
+private fun MacroField(
+    label: String,
+    unit: String,
+    value: String,
+    onValueChange: (String) -> Unit
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text("$label ($unit)") },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        modifier = Modifier.fillMaxWidth()
+    )
+    Spacer(Modifier.height(8.dp))
+}
+
+/**
+ * The macro rule, kept out of the composable so it can be tested.
+ *
+ * Null unless something was actually typed: an untouched form must never write
+ * zeros, because a zero here becomes a zero-calorie dinner in a client's day
+ * total. This is the rule `MacroFields.entered` holds on iOS and the web app's
+ * recipe form holds in `app.js`.
+ *
+ * **Fibre cannot say "unknown" here, and that is a model limit rather than a
+ * choice.** [RecipeNutrition]'s fields are non-null `Double`s, so a blank fibre
+ * field with real calories stores 0.0 and ships `u[4] = 0`. iOS can hold
+ * `fiberG` as nil locally; the wire cannot -- PLAN-FORMAT's `u` is five plain
+ * numbers -- so every client already sends 0 for unknown fibre. Widening
+ * [RecipeNutrition] would be a data-shape change reaching both shipped Android
+ * apps and would still not change what travels.
+ *
+ * `estimated` is carried from the existing figure rather than reset: a coach
+ * correcting one number on an imported recipe has not turned it into a
+ * measurement.
+ */
+internal fun enteredMacros(
+    calories: String,
+    protein: String,
+    carbs: String,
+    fat: String,
+    fiber: String,
+    existing: RecipeNutrition?
+): RecipeNutrition? {
+    val values = listOf(calories, protein, carbs, fat, fiber).map { it.trim().toDoubleOrNull() }
+    if (values.all { it == null }) return null
+    return RecipeNutrition(
+        calories = values[0] ?: 0.0,
+        proteinG = values[1] ?: 0.0,
+        carbsG = values[2] ?: 0.0,
+        fatG = values[3] ?: 0.0,
+        fiberG = values[4] ?: 0.0,
+        estimated = existing?.estimated ?: false
     )
 }
