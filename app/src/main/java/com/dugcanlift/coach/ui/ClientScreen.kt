@@ -136,6 +136,14 @@ private fun ClientDetail(client: Client, modifier: Modifier = Modifier) {
     val goalCalories = client.goal?.calories?.toDouble()
     val avgProteinHitRate = remember(weeksChronological) { Stats.avgProteinHitRate(weeksChronological) }
 
+    // Saturated fat, sugar and sodium: the newest day that recorded any, and averages over the
+    // last week and four weeks counting only days that recorded each one. No goal exists for them.
+    val latestNutrientDay = remember(client) {
+        client.days.filter { it.nutrientTotals != null }.maxByOrNull { it.dayKey }
+    }
+    val nutrientWeek = remember(client, today) { Stats.nutrientAverages(client, 7, today) }
+    val nutrientFourWeeks = remember(client, today) { Stats.nutrientAverages(client, 28, today) }
+
     val bodyweightPoints = remember(client, unit) {
         Stats.bodyweightSeries(client).map { (day, lb) -> day to displayWeightValue(lb, unit) }
     }
@@ -184,6 +192,15 @@ private fun ClientDetail(client: Client, modifier: Modifier = Modifier) {
                 color = DclMuted,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
             )
+            latestNutrientDay?.let { day ->
+                NutrientBlock("Latest day recorded, ${day.dayKey}", dayNutrientLines(day.nutrientTotals))
+            }
+            if (nutrientWeek.isNotEmpty()) {
+                NutrientBlock("Last 7 days, average", nutrientWeek.map(::nutrientAverageLine))
+            }
+            if (nutrientFourWeeks.isNotEmpty()) {
+                NutrientBlock("Last 4 weeks, average", nutrientFourWeeks.map(::nutrientAverageLine))
+            }
         }
 
         item {
@@ -242,6 +259,18 @@ private fun ClientDetail(client: Client, modifier: Modifier = Modifier) {
         items(sessionDays, key = { it.dayKey }) { day ->
             DayLogCard(day = day, unit = unit)
             HorizontalDivider()
+        }
+    }
+}
+
+/** A heading and its lines; shown only when a caller has lines to show. */
+@Composable
+private fun NutrientBlock(heading: String, lines: List<String>) {
+    if (lines.isEmpty()) return
+    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+        Text(text = heading, style = MaterialTheme.typography.titleSmall)
+        lines.forEach { line ->
+            Text(text = line, style = MaterialTheme.typography.bodyMedium, color = DclMuted)
         }
     }
 }
@@ -329,6 +358,14 @@ private fun DayLogCard(day: TrainingDay, unit: String, modifier: Modifier = Modi
                 Text(
                     text = "${outdoorTypeLabel(activity.type) ?: "Activity"} · ${activitySummary(activity, distanceUnitFor(unit))}",
                     style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(vertical = 2.dp)
+                )
+            }
+            dayNutrientLines(day.nutrientTotals).forEach { line ->
+                Text(
+                    text = line,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = DclMuted,
                     modifier = Modifier.padding(vertical = 2.dp)
                 )
             }

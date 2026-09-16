@@ -90,14 +90,31 @@ object ShareLinkImporter {
     private fun toDay(d: ShareDay, key: String): TrainingDay {
         val sets = d.exercises.flatMap { ex -> ex.sets.map { s -> ExerciseSet(ex.name, ex.equipment.ifEmpty { null }, s.weightLb.finite(), s.reps, s.rpe.finite(), s.durationSec.finite(), s.distanceMeters.finite(), s.isWarmup) } }
         // Per-serving on the wire; as-eaten in the store. LIFT iOS sends servings=1 (no-op); LIFT Android sends real counts.
+        // `fe` (saturated fat, sugar, sodium) is per serving too and gets the same multiply -- a stored food whose
+        // calories are as eaten and whose sodium is per serving would disagree with itself. Null stays null.
         val food = d.food.orEmpty().mapNotNull { f ->
-            val entry = ClientFoodEntry(f.name, f.servings, f.calories * f.servings, f.proteinG * f.servings, f.fatG * f.servings, f.carbsG * f.servings, f.fiberG * f.servings, f.meal)
+            val x = f.details
+            val entry = ClientFoodEntry(f.name, f.servings, f.calories * f.servings, f.proteinG * f.servings, f.fatG * f.servings, f.carbsG * f.servings, f.fiberG * f.servings, f.meal,
+                saturatedFatG = x?.saturatedFatG.asEaten(f.servings), sugarG = x?.sugarG.asEaten(f.servings), sodiumMg = x?.sodiumMg.asEaten(f.servings))
             entry.takeIf { listOf(it.servings, it.calories, it.proteinG, it.fatG, it.carbsG, it.fiberG).all { v -> v.isFinite() } }
         }
         val ft = d.foodTotals
         val outdoor = d.outdoor.orEmpty().filter { it.type.isOutdoorType() }.map { OutdoorActivity(it.type, it.durationSec, it.distanceMeters, it.climbMeters) }
-        return TrainingDay(requireDayKey(key), d.sessionName, d.focus, d.bodyweightLb.finite(), d.steps, ft?.get(0).finite(), ft?.get(1).finite(), ft?.get(2).finite(), ft?.get(3).finite(), ft?.get(4).finite(), sets, food, outdoor)
+        return TrainingDay(requireDayKey(key), d.sessionName, d.focus, d.bodyweightLb.finite(), d.steps, ft?.get(0).finite(), ft?.get(1).finite(), ft?.get(2).finite(), ft?.get(3).finite(), ft?.get(4).finite(), sets, food, outdoor,
+            nutrientTotals = toNutrientTotals(d.nutrientTotals))
     }
+
+    /**
+     * `fx` exactly as sent: its totals are already as eaten and rounded by the sender, so nothing is
+     * recomputed here -- not even for an itemised day, whose `fx` SHARE-FORMAT says is always sent
+     * "so a decoder never has to add it up". A day without `fx` stores no totals, which is what an
+     * older link and a day with nothing recorded both mean.
+     */
+    private fun toNutrientTotals(t: ShareNutrientTotals?): DayNutrientTotals? =
+        t?.let { DayNutrientTotals(it.saturatedFatG.finite(), it.sugarG.finite(), it.sodiumMg.finite(), it.foods, it.withSaturatedFat, it.withSugar, it.withSodium) }
+            ?.takeIf { !it.isEmpty }
+
+    private fun Double?.asEaten(servings: Double): Double? = this?.let { it * servings }.finite()
 
     /**
      * Coach web's `readBests`, rule for rule: a type this app does not know is skipped rather than

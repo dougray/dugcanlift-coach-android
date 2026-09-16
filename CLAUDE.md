@@ -11,7 +11,8 @@ JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradle
 JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradlew :app:assembleDebug
 ```
 
-The `JAVA_HOME` prefix is required — this machine's default `java` is not the
+Where Android Studio is not installed, `JAVA_HOME=/opt/homebrew/opt/openjdk@17`
+works as well. The `JAVA_HOME` prefix is required — this machine's default `java` is not the
 one Android Studio's Gradle plugin expects, and the build fails with a
 confusing toolchain error without it. `--rerun` on the test task is worth
 using whenever you've touched timing-sensitive code (e.g. `RosterLoader`):
@@ -47,7 +48,10 @@ covered by the kit's own tests.
 - `DclPalette` — the ARGB constants `ui/theme/Color.kt`'s `DclBg`/`DclAccent`/…
   wrap. Theme colors always come from here, never from fresh hex literals.
 - `ShareLinkCodec` / `ShareDay` / `ShareFood` / … — the SHARE-FORMAT link
-  decoder. See "The wire format is a contract" below before touching anything
+  decoder, including `fx`/`fe` (`ShareNutrientTotals`, `NutrientDetails`).
+- `PlanLinkCodec` (decode only — `CookPlanEncoder` is Coach's own encoder),
+  `RecipeNutrition`, `ShareNutrients` (the `fe`/`ux` tuple and its rounding).
+  See "The wire format is a contract" below before touching anything
   that reads a `Share*` type.
 
 The app depends on it as `com.github.dougray:dugcanlift-kit-android`, pinned
@@ -148,8 +152,9 @@ about it are easy to get backwards:
   number still looks like a plausible timestamp — it doesn't crash, it just
   quietly lies. Both directions are pinned by `BackupCodecTest`.
 - **Every top-level key this codec does not model is carried opaquely** —
-  `recipes`, `meals`, `routines`, `sessions`, and anything a newer Coach iOS
-  file adds. Preservation is by *exclusion* (everything but `v` and `clients`),
+  anything outside `v`, `clients`, `recipes`, `meals`, `routines` and
+  `sessions` (`ENVELOPE_KEYS`): the web build's `plans`/`workouts`/`settings`,
+  and anything a newer Coach iOS file adds. Preservation is by *exclusion*,
   not by an enumerated list: a list only protects the keys someone remembered
   to add to it, and a `programs` array from a future iOS build would be read,
   dropped, and then written away permanently by the next Save Backup.
@@ -162,20 +167,63 @@ about it are easy to get backwards:
   but unreadable" have opposite correct responses: the first exports a file
   with no library keys, the second must refuse to export at all. That file
   holds the one thing this app cannot regenerate.
-- **The four library arrays are the concrete case today.**
-  Coach Android has no models for Cook, Train, or session logs yet — this is
-  a coach's iOS-only data. `BackupCodec.restore` preserves whichever
-  unmodelled top-level keys are present as raw, undecoded `JSONObject`/
-  `JSONArray` values (`RestoreResult.preservedLibrary`), and `export` writes
-  them straight back out unchanged. **Never parse them into a model, and
-  never drop them** — a v1 backup file (no library at all) must round-trip
-  to "no library keys," not "library deleted," and a v2 file's library must
-  survive an Android round trip byte-for-byte or a coach's recipes and
-  routines vanish the next time they restore on iOS. Clients themselves
-  restore by full **replace** (`ClientRepository.replaceAll`) — deliberately
-  inconsistent with the library's carry-through, matching iOS's own split
-  between "the roster is replaced" and "the library is never destroyed by an
-  older file."
+- **The library is modelled now, and still lossless.** Coach Android has
+  Cook (`data/Cook.kt`, `CookRepository`) and Train (`data/Train.kt`,
+  `TrainRepository`), so `recipes`, `meals`, `routines` and `sessions` decode
+  into models. Being modelled is not permission to be lossy: `recipeFromJson`
+  and `plannedMealFromJson` keep every key they have no field for
+  (`unknownKeys`, `nutritionUnknownKeys`) and write it back, the same
+  preservation-by-exclusion rule one layer down. A v1 backup file (no library
+  at all) must round-trip to "no library keys," not "library deleted." Clients
+  themselves restore by full **replace** (`ClientRepository.replaceAll`) —
+  deliberately inconsistent with the library, matching iOS's own split between
+  "the roster is replaced" and "the library is never destroyed by an older
+  file."
+
+## Saturated fat, sugar and sodium
+
+Tracked and shown, **never targeted**: no goal, no bar, no colour. Spec:
+SHARE-FORMAT "Saturated fat, sugar and sodium" (`fx`, `fe`), PLAN-FORMAT `ux`,
+BACKUP-FORMAT `nutritionPerServing`. Kit 1.4.0 decodes the wire.
+
+- **Import.** A day's `fx` is stored as `TrainingDay.nutrientTotals`
+  (`DayNutrientTotals`) exactly as sent — never re-added from the foods. `fe`
+  is per serving on the wire and **as eaten in the store**, multiplied by
+  servings like the macros beside it (see "Per-serving on the wire" above).
+  Null stays null: an unrecorded value is never zero, and a totals object with
+  nothing known is stored as no totals. Days are replaced whole, so a resend
+  without `fx` clears the day's totals.
+- **Display** (`ui/NutrientDisplay.kt`, pure and tested). A day's line says its
+  coverage when partial — "Sodium 1,840 mg · from 3 of 5 foods" — because a
+  partial total is a floor, not a day. The 7-day and 4-week averages
+  (`Stats.nutrientAverages`) count only days that recorded each nutrient and
+  always say how many days, and how many of those were partial.
+- **Recipes.** The three are `RecipeNutrition.saturatedFatG` / `sugarG` /
+  `sodiumMg`. Earlier builds kept them in `nutritionUnknownKeys`; they are
+  promoted on read, and a non-numeric value stays in the bag rather than being
+  dropped. A recipe can hold them with **no macros entered** — the five macros
+  are then placeholder zeros, the shape iOS's `NutritionFacts` has, and
+  `RecipeNutrition.hasMacros` is false: the editor reopens them blank and
+  `CookPlanEncoder` omits `u` (never zeros) while still sending `ux`.
+- **`ux`** is built with the kit's `ShareNutrients.itemRow`: per serving,
+  grams to one decimal and sodium whole (half-up), only trailing nulls
+  trimmed, omitted when none is known. Coach web's `encodePlan` does not write
+  `ux` yet; the spec is the authority, not that encoder.
+
+**Backup field names — Coach iOS must match these exactly.** They are the
+client-file names too, since the backup reuses `TrainingDay.toJson`:
+
+```jsonc
+// on a day (clients[].days[]), omitted when nothing was recorded
+"nutrientTotals": { "saturatedFatG": 21.5, "sugarG": null, "sodiumMg": 2310,
+                    "foods": 6, "withSaturatedFat": 4, "withSugar": 0, "withSodium": 6 }
+// on a food (clients[].days[].foodEntries[]), AS EATEN, each key omitted when unknown
+"saturatedFatG": 3.1, "sugarG": 2, "sodiumMg": 540
+```
+
+and on a recipe's `nutritionPerServing` / a meal's `snapshotNutrition`,
+`saturatedFatG`, `sugarG`, `sodiumMg` per serving, omitted when unknown. Older
+files without any of these load with them unknown.
 
 ## Estimated one-rep max has no rep cap
 

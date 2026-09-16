@@ -65,10 +65,12 @@ data class Recipe(
      *  field and spelling as `Recipe.totalWeightGrams` in LiftCore, so it round
      *  trips through iOS and web backups unchanged. */
     val totalWeightGrams: Double? = null,
-    /** Keys inside `nutritionPerServing` that [RecipeNutrition] has no field for
-     *  -- `sodiumMg` is already one of them in Coach iOS's own fixture. Kept
-     *  separately for the same reason [unknownKeys] is: the rule is preservation
-     *  by exclusion, and a nested object is not an exception to it. */
+    /** Keys inside `nutritionPerServing` that [RecipeNutrition] has no field for.
+     *  Kept separately for the same reason [unknownKeys] is: the rule is
+     *  preservation by exclusion, and a nested object is not an exception to it.
+     *  `saturatedFatG`, `sugarG` and `sodiumMg` used to land here; they are real
+     *  fields now, and a file that parked them here is promoted on read -- see
+     *  [nutritionFromJson]. */
     val nutritionUnknownKeys: JSONObject? = null,
     /** Fields this app has no model for, preserved for the round trip. */
     val unknownKeys: JSONObject? = null
@@ -85,6 +87,16 @@ data class Recipe(
      *  on a scale; a count of servings never tells them that. */
     val gramsPerServing: Double? get() = totalWeightGrams?.let { it / safeServings }
 }
+
+/**
+ * Whether any of the five macros was entered. A [RecipeNutrition] can exist
+ * with none of them -- a coach who knows a dish's sodium but not its calories --
+ * and then carries zeros in the five non-null macro fields, the same shape Coach
+ * iOS's `NutritionFacts` holds. Those zeros are "not entered", never a measured
+ * zero-calorie dish: PLAN-FORMAT omits `u` for them, and no screen shows them.
+ */
+val RecipeNutrition.hasMacros: Boolean
+    get() = listOf(calories, proteinG, carbsG, fatG, fiberG).any { it != 0.0 }
 
 /**
  * A recipe placed on a day, for one client. Not something eaten -- the client
@@ -191,6 +203,24 @@ private fun JSONObject.copyInto(target: JSONObject) {
 /** The fields [RecipeNutrition] models. Anything else is preserved, not dropped. */
 private val NUTRITION_KEYS = setOf("calories", "proteinG", "carbsG", "fatG", "fiberG", "estimated")
 
+/**
+ * Saturated fat, sugar and sodium, per serving (BACKUP-FORMAT `nutritionPerServing`).
+ * Modelled only when the value is a finite number: anything else -- `"540 mg"`
+ * from a hand-edited file -- stays in the unknown bag, so it is carried rather
+ * than read as unknown and then written away.
+ */
+private val DETAIL_KEYS = listOf("saturatedFatG", "sugarG", "sodiumMg")
+
+/** Every key [nutritionFromJson] turned into a field, for this object. */
+private fun JSONObject.modelledNutritionKeys(): Set<String> =
+    NUTRITION_KEYS + DETAIL_KEYS.filter { optFiniteOrNull(it) != null }
+
+/**
+ * Promotion rather than a migration step: the stored file is still the source,
+ * and a value an earlier build parked in `nutritionUnknownKeys` was written back
+ * at the same place under the same name. Reading it as a field here is all it
+ * takes, and the next save writes it from the field.
+ */
 private fun nutritionFromJson(o: JSONObject?): RecipeNutrition? {
     if (o == null) return null
     return RecipeNutrition(
@@ -202,7 +232,10 @@ private fun nutritionFromJson(o: JSONObject?): RecipeNutrition? {
         // Whether these macros were an LLM's guess rather than a database
         // lookup. Round-tripped rather than defaulted: dropping it turns an
         // estimate into a stated fact on the next Save Backup.
-        estimated = o.optBoolean("estimated", false)
+        estimated = o.optBoolean("estimated", false),
+        saturatedFatG = o.optFiniteOrNull("saturatedFatG"),
+        sugarG = o.optFiniteOrNull("sugarG"),
+        sodiumMg = o.optFiniteOrNull("sodiumMg")
     )
 }
 
@@ -220,6 +253,11 @@ private fun RecipeNutrition.toJson(extras: JSONObject?): JSONObject {
     // model, but it makes a round trip stop being a no-op and that is worth
     // more than stating a default.
     if (estimated) o.put("estimated", true)
+    // Only when known. Written after the extras, so a field wins over any stale
+    // copy of the same key; absent is null, never zero.
+    saturatedFatG?.let { o.put("saturatedFatG", it) }
+    sugarG?.let { o.put("sugarG", it) }
+    sodiumMg?.let { o.put("sodiumMg", it) }
     return o
 }
 
@@ -257,7 +295,7 @@ fun recipeFromJson(o: JSONObject): Recipe = Recipe(
     // nothing -- a per-serving weight divides by nothing sensible otherwise.
     totalWeightGrams = o.optDouble("totalWeightGrams", Double.NaN)
         .takeIf { it.isFinite() && it > 0 },
-    nutritionUnknownKeys = o.optJSONObject("nutritionPerServing")?.keysOutside(NUTRITION_KEYS),
+    nutritionUnknownKeys = o.optJSONObject("nutritionPerServing")?.let { it.keysOutside(it.modelledNutritionKeys()) },
     unknownKeys = o.keysOutside(RECIPE_KEYS)
 )
 
@@ -291,7 +329,7 @@ fun plannedMealFromJson(o: JSONObject): PlannedMeal = PlannedMeal(
     servings = o.optDouble("servings", 1.0),
     recipeName = o.optStringOrNull("recipeName").orEmpty(),
     snapshotNutrition = nutritionFromJson(o.optJSONObject("snapshotNutrition")),
-    snapshotNutritionUnknownKeys = o.optJSONObject("snapshotNutrition")?.keysOutside(NUTRITION_KEYS),
+    snapshotNutritionUnknownKeys = o.optJSONObject("snapshotNutrition")?.let { it.keysOutside(it.modelledNutritionKeys()) },
     unknownKeys = o.keysOutside(MEAL_KEYS)
 )
 

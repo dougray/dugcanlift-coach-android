@@ -21,6 +21,9 @@ internal fun requireDayKey(key: String): String {
 /** Reads [name] from [this], or null if absent or JSON null. */
 private fun JSONObject.optIntOrNull(name: String): Int? = if (has(name) && !isNull(name)) getInt(name) else null
 private fun JSONObject.optDoubleOrNull(name: String): Double? = if (has(name) && !isNull(name)) getDouble(name) else null
+/** A finite number at [name], or null -- absent, JSON null, a string, NaN. A value nobody can read is unrecorded. */
+internal fun JSONObject.optFiniteOrNull(name: String): Double? =
+    (opt(name) as? Number)?.toDouble()?.takeIf { it.isFinite() }
 // optStringOrNull and optLongOrNull live in JsonExtensions.kt -- shared with BackupCodec.kt.
 
 data class Goal(
@@ -84,6 +87,12 @@ data class ExerciseSet(
     }
 }
 
+/**
+ * One itemised food, **as eaten**: every number here is already multiplied by [servings] -- see
+ * [ShareLinkImporter]. [saturatedFatG], [sugarG] and [sodiumMg] follow the same rule as the macros
+ * (the wire's `fe` is per serving; the store is not) and are null when the food recorded none,
+ * never zero. Absent in any file written before they existed, which reads as null.
+ */
 data class ClientFoodEntry(
     val foodName: String,
     val servings: Double,
@@ -92,7 +101,10 @@ data class ClientFoodEntry(
     val fatG: Double,
     val carbsG: Double,
     val fiberG: Double,
-    val meal: Int
+    val meal: Int,
+    val saturatedFatG: Double? = null,
+    val sugarG: Double? = null,
+    val sodiumMg: Double? = null
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("foodName", foodName)
@@ -103,6 +115,11 @@ data class ClientFoodEntry(
         put("carbsG", carbsG)
         put("fiberG", fiberG)
         put("meal", meal)
+        // Only when known: a key absent is exactly what an older file says, and an explicit null
+        // would add three keys to every food of every backup for nothing.
+        saturatedFatG?.let { put("saturatedFatG", it) }
+        sugarG?.let { put("sugarG", it) }
+        sodiumMg?.let { put("sodiumMg", it) }
     }
 
     companion object {
@@ -114,8 +131,58 @@ data class ClientFoodEntry(
             fatG = json.getDouble("fatG"),
             carbsG = json.getDouble("carbsG"),
             fiberG = json.getDouble("fiberG"),
-            meal = json.getInt("meal")
+            meal = json.getInt("meal"),
+            saturatedFatG = json.optFiniteOrNull("saturatedFatG"),
+            sugarG = json.optFiniteOrNull("sugarG"),
+            sodiumMg = json.optFiniteOrNull("sodiumMg")
         )
+    }
+}
+
+/**
+ * A day's saturated fat, sugar and sodium -- SHARE-FORMAT's `fx`, stored with named fields.
+ *
+ * Each total covers only the foods that recorded it (as eaten, multiplied by servings); [foods] is
+ * every food logged that day and the `with*` counts say how many of them each total covers. A
+ * partial total is a floor, not a day, which is why the counts are kept at all. A total with no
+ * food behind it is null, never zero. Tracked, never targeted: there is no goal for any of them.
+ */
+data class DayNutrientTotals(
+    val saturatedFatG: Double?,
+    val sugarG: Double?,
+    val sodiumMg: Double?,
+    val foods: Int,
+    val withSaturatedFat: Int,
+    val withSugar: Int,
+    val withSodium: Int
+) {
+    /** True when none of the three totals is known -- such a value is stored as no totals at all. */
+    val isEmpty: Boolean get() = saturatedFatG == null && sugarG == null && sodiumMg == null
+
+    fun toJson(): JSONObject = JSONObject().apply {
+        put("saturatedFatG", saturatedFatG ?: JSONObject.NULL)
+        put("sugarG", sugarG ?: JSONObject.NULL)
+        put("sodiumMg", sodiumMg ?: JSONObject.NULL)
+        put("foods", foods)
+        put("withSaturatedFat", withSaturatedFat)
+        put("withSugar", withSugar)
+        put("withSodium", withSodium)
+    }
+
+    companion object {
+        /** Null for an absent, null or all-unknown object: nothing recorded is no totals. */
+        fun fromJson(json: JSONObject?): DayNutrientTotals? {
+            if (json == null) return null
+            return DayNutrientTotals(
+                saturatedFatG = json.optFiniteOrNull("saturatedFatG"),
+                sugarG = json.optFiniteOrNull("sugarG"),
+                sodiumMg = json.optFiniteOrNull("sodiumMg"),
+                foods = json.optInt("foods", 0).coerceAtLeast(0),
+                withSaturatedFat = json.optInt("withSaturatedFat", 0).coerceAtLeast(0),
+                withSugar = json.optInt("withSugar", 0).coerceAtLeast(0),
+                withSodium = json.optInt("withSodium", 0).coerceAtLeast(0)
+            ).takeIf { !it.isEmpty }
+        }
     }
 }
 
@@ -230,7 +297,9 @@ data class TrainingDay(
     val sets: List<ExerciseSet>,
     val foodEntries: List<ClientFoodEntry>,
     /** A day's `o`, in start order. A day holding only this is still a day. */
-    val outdoor: List<OutdoorActivity> = emptyList()
+    val outdoor: List<OutdoorActivity> = emptyList(),
+    /** A day's `fx`: saturated fat, sugar and sodium with their coverage. Null when none was recorded. */
+    val nutrientTotals: DayNutrientTotals? = null
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("dayKey", dayKey)
@@ -246,6 +315,7 @@ data class TrainingDay(
         put("sets", JSONArray(sets.map { it.toJson() }))
         put("foodEntries", JSONArray(foodEntries.map { it.toJson() }))
         put("outdoor", JSONArray(outdoor.map { it.toJson() }))
+        nutrientTotals?.let { put("nutrientTotals", it.toJson()) }
     }
 
     companion object {
@@ -262,7 +332,8 @@ data class TrainingDay(
             foodFiberG = json.optDoubleOrNull("foodFiberG"),
             sets = json.optJSONArray("sets")?.let { arr -> (0 until arr.length()).map { ExerciseSet.fromJson(arr.getJSONObject(it)) } }.orEmpty(),
             foodEntries = json.optJSONArray("foodEntries")?.let { arr -> (0 until arr.length()).map { ClientFoodEntry.fromJson(arr.getJSONObject(it)) } }.orEmpty(),
-            outdoor = json.optObjectList("outdoor", OutdoorActivity::fromJson)
+            outdoor = json.optObjectList("outdoor", OutdoorActivity::fromJson),
+            nutrientTotals = DayNutrientTotals.fromJson(json.optJSONObject("nutrientTotals"))
         )
     }
 }
