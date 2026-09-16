@@ -77,6 +77,35 @@ class CookTest {
         assertEquals(1200, out.getInt("totalWeightGrams"))
     }
 
+    // MARK: - Weight
+
+    @Test fun `a weighed recipe decodes its weight`() {
+        val recipe = recipeFromJson(JSONObject(iosRecipe).put("totalWeightGrams", 1200))
+        assertEquals(1200.0, recipe.totalWeightGrams!!, 1e-9)
+        assertEquals(300.0, recipe.gramsPerServing!!, 1e-9)
+    }
+
+    /** Modelled now, so it must be written once from the field -- not again
+     *  from the unknown bag, which is where it used to survive. */
+    @Test fun `the weight is not also kept in the unknown bag`() {
+        val recipe = recipeFromJson(JSONObject(iosRecipe).put("totalWeightGrams", 1200))
+        assertNull(recipe.unknownKeys?.opt("totalWeightGrams"))
+        assertEquals(1200.0, recipe.toJson().getDouble("totalWeightGrams"), 1e-9)
+    }
+
+    @Test fun `an unweighed recipe writes no weight at all`() {
+        val out = recipeFromJson(JSONObject(iosRecipe)).toJson()
+        assertTrue(!out.has("totalWeightGrams"))
+    }
+
+    /** A zero or negative weight is "not weighed", never a dish that weighs
+     *  nothing -- a per-serving weight would otherwise be zero grams. */
+    @Test fun `a zero or negative weight reads as unweighed`() {
+        for (bad in listOf(0, -5)) {
+            assertNull(recipeFromJson(JSONObject(iosRecipe).put("totalWeightGrams", bad)).totalWeightGrams)
+        }
+    }
+
     @Test fun `a modelled field is not duplicated into the unknown bag`() {
         val recipe = recipeFromJson(JSONObject(iosRecipe))
         assertNull("name is decoded, so it must not also be preserved raw",

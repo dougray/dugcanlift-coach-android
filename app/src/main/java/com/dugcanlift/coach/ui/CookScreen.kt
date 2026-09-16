@@ -49,6 +49,7 @@ import com.dugcanlift.coach.data.Recipe
 import com.dugcanlift.coach.data.forClient
 import com.dugcanlift.kit.CaptionRecipe
 import com.dugcanlift.kit.Split
+import com.dugcanlift.coach.data.RecipeWeightUnit
 import com.dugcanlift.kit.RecipeNutrition
 import com.dugcanlift.kit.trimZeros
 import kotlinx.coroutines.launch
@@ -410,6 +411,15 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
     var fat by remember(recipe.id) { mutableStateOf(macros?.fatG?.trimZeros() ?: "") }
     var fiber by remember(recipe.id) { mutableStateOf(macros?.fiberG?.trimZeros() ?: "") }
 
+    // Weight. The unit is the coach's own display preference, remembered
+    // across recipes; the model is always grams.
+    val context = LocalContext.current
+    val weightPrefs = remember { context.getSharedPreferences("cook", android.content.Context.MODE_PRIVATE) }
+    var weightUnit by remember { mutableStateOf(RecipeWeightUnit.fromKey(weightPrefs.getString("recipeWeightUnit", null))) }
+    var totalWeight by remember(recipe.id) {
+        mutableStateOf(recipe.totalWeightGrams?.let { roundOne(weightUnit.fromGrams(it)).trimZeros() } ?: "")
+    }
+
     // Paste a recipe written out as text -- a video caption, an email, a card
     // off the fridge. Offered only on a new recipe: pasting over one that
     // exists would replace the coach's work rather than start from it.
@@ -487,6 +497,43 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(value = servings, onValueChange = { servings = it },
                                   label = { Text("Serves") }, singleLine = true)
+
+                Spacer(Modifier.height(12.dp))
+                Text("Total weight of the finished dish", style = MaterialTheme.typography.labelLarge)
+                Row {
+                    RecipeWeightUnit.entries.forEach { unit ->
+                        TextButton(
+                            onClick = {
+                                if (unit == weightUnit) return@TextButton
+                                // Convert through grams, never relabel. Switching
+                                // units must keep the mass the coach entered --
+                                // relabelling turned 1200 g into 1200 oz on iOS
+                                // before this rule existed there.
+                                totalWeight = reweigh(totalWeight, weightUnit, unit)
+                                weightUnit = unit
+                                weightPrefs.edit().putString("recipeWeightUnit", unit.name).apply()
+                            }
+                        ) {
+                            Text(if (unit == weightUnit) "\u2713 ${unit.label}" else unit.label)
+                        }
+                    }
+                }
+                OutlinedTextField(
+                    value = totalWeight,
+                    onValueChange = { totalWeight = it },
+                    label = { Text("Total weight (${weightUnit.abbreviation})") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                perServingWeight(totalWeight, servings, weightUnit)?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall)
+                }
+                Text(
+                    "Optional. With it, a serving has a weight a client can put on a scale, " +
+                        "which a count never gives them.",
+                    style = MaterialTheme.typography.bodySmall
+                )
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(value = ingredients, onValueChange = { ingredients = it },
                                   label = { Text("Ingredients, one per line") })
@@ -527,7 +574,8 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
                             steps = steps.lines().map { it.trim() }.filter { it.isNotEmpty() },
                             nutritionPerServing = enteredMacros(
                                 calories, protein, carbs, fat, fiber, recipe.nutritionPerServing
-                            )
+                            ),
+                            totalWeightGrams = enteredWeightGrams(totalWeight, weightUnit)
                         )
                     )
                 }
@@ -596,4 +644,30 @@ internal fun enteredMacros(
         fiberG = values[4] ?: 0.0,
         estimated = existing?.estimated ?: false
     )
+}
+
+
+private fun roundOne(value: Double): Double = Math.round(value * 10) / 10.0
+
+/**
+ * The typed weight in grams, or null when blank or not a positive number. A
+ * recipe without a weight keeps planning by servings, so blank is a real
+ * answer, not a zero.
+ */
+internal fun enteredWeightGrams(text: String, unit: RecipeWeightUnit): Double? =
+    text.trim().toDoubleOrNull()?.takeIf { it.isFinite() && it > 0 }?.let { unit.toGrams(it) }
+
+/** Rewrites a displayed weight from one unit into another, through grams. */
+internal fun reweigh(text: String, from: RecipeWeightUnit, to: RecipeWeightUnit): String {
+    val grams = enteredWeightGrams(text, from) ?: return text
+    return roundOne(to.fromGrams(grams)).trimZeros()
+}
+
+/** "4 servings · 300 g each", when both numbers are known. */
+internal fun perServingWeight(totalText: String, servingsText: String, unit: RecipeWeightUnit): String? {
+    val total = totalText.trim().toDoubleOrNull()?.takeIf { it > 0 } ?: return null
+    val count = servingsText.trim().toDoubleOrNull()?.takeIf { it > 0 } ?: return null
+    val each = roundOne(total / count).trimZeros()
+    val servingsWord = if (count == 1.0) "serving" else "servings"
+    return "${count.trimZeros()} $servingsWord \u00B7 $each ${unit.abbreviation} each"
 }
