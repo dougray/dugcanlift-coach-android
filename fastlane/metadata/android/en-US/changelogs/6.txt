@@ -1,0 +1,3 @@
+A client's runs, walks and hikes now show on their page: recent activities, personal bests, and their last route. The route is drawn on your device, not on map tiles, and it only arrives if the client chose to send it; their app trims the start and end before it leaves their phone.
+
+An older link opened late no longer overwrites a client's newer goal and profile.
