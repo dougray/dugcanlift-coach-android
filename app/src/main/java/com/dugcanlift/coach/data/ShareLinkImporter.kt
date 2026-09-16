@@ -6,8 +6,9 @@ import kotlin.concurrent.withLock
 sealed class ImportResult { data class Imported(val clientId: String, val clientName: String, val daysImported: Int) : ImportResult(); object UnsupportedVersion : ImportResult(); object Malformed : ImportResult() }
 
 /**
- * Coach iOS's ShareLinkImporter, rule for rule: find-or-create by id, goal replaces, each wire day REPLACES the stored day, others untouched.
- * Outdoor bests and the last route, which iOS does not read yet, follow Coach web's `absorb` instead -- see [runImport].
+ * Coach iOS's ShareLinkImporter, rule for rule: find-or-create by id, each wire day REPLACES the stored day, others untouched,
+ * and everything that describes the client rather than a day -- name, unit, platform, goal, outdoor bests, last route --
+ * follows the newest send, as Coach web's `absorb` does. See [runImport].
  */
 object ShareLinkImporter {
 
@@ -51,7 +52,6 @@ object ShareLinkImporter {
         if (p.days.isNotEmpty() && resolved.isEmpty()) return ImportResult.Malformed
 
         val existing = repo.get(p.client.id)
-        val goal = p.goal?.let { Goal(it.calories, it.proteinG, it.fatG, it.carbsG, it.fiberG) } ?: existing?.goal
         val incoming = resolved.associate { (key, d) -> key to toDay(d, key) }
         val kept = existing?.days?.filter { it.dayKey !in incoming } ?: emptyList()
         // Outdoor bests and the last route are all-time, not per day, so they follow the send rather
@@ -62,8 +62,18 @@ object ShareLinkImporter {
         // decides it. A client stored before `z` was kept has nothing to compare, and any send wins.
         val stored = existing?.exportedAtEpochSec
         val newer = stored == null || p.exportedAtEpochSeconds >= stored
+        // The same rule for name, unit, platform and goal: a client who changed their goal last week
+        // must not have it undone by an older link pasted late. Days above land from any link, since a
+        // link is the truth for the days it covers whenever it arrives. An absent goal keeps the stored one.
+        val profile = if (newer || existing == null) p.client else null
+        val goal = (if (newer) p.goal?.let { Goal(it.calories, it.proteinG, it.fatG, it.carbsG, it.fiberG) } else null)
+            ?: existing?.goal
         val client = Client(
-            p.client.id, p.client.name, p.client.unit, p.client.platform ?: existing?.platform, nowEpochMs, goal,
+            p.client.id,
+            profile?.name ?: existing!!.name,
+            profile?.unit ?: existing!!.displayUnit,
+            profile?.platform ?: existing?.platform,
+            nowEpochMs, goal,
             (kept + incoming.values).sortedBy { it.dayKey },
             outdoorBests = if (newer) toBests(p.outdoorBests) else existing?.outdoorBests,
             lastRoute = if (newer) toLastRoute(p.lastRoute) else existing?.lastRoute,
