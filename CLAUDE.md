@@ -112,9 +112,10 @@ everything else in a day. The top-level `ob` (bests) and `lr` (last route) are
 all-time, so they follow SHARE-FORMAT "Outdoor" and Coach web's `absorb` instead:
 a payload whose `z` is at least `Client.exportedAtEpochSec` replaces both, and an
 **absent** one clears it -- a client who turned route sharing off expects the
-route gone. An older link opened late changes neither. Goal and profile still
-follow the iOS rule above (always replace); `exportedAtEpochSec` gates outdoor
-only.
+route gone. An older link opened late changes neither. Name, unit, platform and
+goal follow the same rule (an absent goal keeps the stored one), as they do on
+Coach iOS and Coach web; days do not -- each link is the truth for the days it
+covers, whenever it arrives.
 
 The route is drawn on a `Canvas` (`ui/charts/RouteCanvas.kt`, LIFT Android's
 projection), never on map tiles: a tile server would learn where the client
