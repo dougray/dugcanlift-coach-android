@@ -28,7 +28,7 @@ private const val FOUNDATION_EPOCH_OFFSET_SECONDS = 978_307_200L
  */
 private val ENVELOPE_KEYS = setOf("v", "clients", "recipes", "meals", "routines", "sessions")
 
-// optStringOrNull lives in JsonExtensions.kt -- shared with Models.kt.
+// optStringOrNull and optLongOrNull live in JsonExtensions.kt -- shared with Models.kt.
 
 /**
  * [clients] decoded from the file, in Coach Android's own model. [preservedLibrary] holds every
@@ -183,7 +183,12 @@ object BackupCodec {
             platform = json.optStringOrNull("platform"),
             lastImportedAtEpochMs = lastImportedAtEpochMs,
             goal = if (json.has("goal") && !json.isNull("goal")) Goal.fromJson(json.getJSONObject("goal")) else null,
-            days = json.optJSONArray("days")?.let { arr -> (0 until arr.length()).map { TrainingDay.fromJson(arr.getJSONObject(it)) } }.orEmpty()
+            days = json.optJSONArray("days")?.let { arr -> (0 until arr.length()).map { TrainingDay.fromJson(arr.getJSONObject(it)) } }.orEmpty(),
+            // Absent in every file Coach iOS has written so far, and in every Android file before
+            // outdoor arrived: both read as "nothing sent", which is what they were.
+            outdoorBests = Client.outdoorBestsFromJson(json),
+            lastRoute = Client.lastRouteFromJson(json),
+            exportedAtEpochSec = json.optLongOrNull("exportedAtEpochSec")
         )
     }
 
@@ -195,6 +200,11 @@ object BackupCodec {
         put("lastImportedAt", client.lastImportedAtEpochMs / 1000.0 - FOUNDATION_EPOCH_OFFSET_SECONDS)
         put("goal", client.goal?.toJson() ?: JSONObject.NULL)
         put("days", JSONArray(client.days.map { it.toJson() }))
+        // Unix seconds, spelled so in the key, unlike `lastImportedAt` above: this one is the
+        // wire's own `z`, never a Foundation date.
+        put("outdoorBests", client.outdoorBests?.let { b -> JSONArray(b.map { it.toJson() }) } ?: JSONObject.NULL)
+        put("lastRoute", client.lastRoute?.toJson() ?: JSONObject.NULL)
+        put("exportedAtEpochSec", client.exportedAtEpochSec ?: JSONObject.NULL)
     }
 }
 

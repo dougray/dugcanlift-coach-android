@@ -105,6 +105,22 @@ matched rule for rule; don't "improve" it into a field-level merge without
 checking iOS first, since a coach moving between Connect-synced phone and
 Android backups depends on both sides agreeing on what an import does.
 
+## Outdoor: all-time parts follow the newest send, not the day
+
+A day's `o` (runs, walks, hikes) is part of the day and is replaced with it, like
+everything else in a day. The top-level `ob` (bests) and `lr` (last route) are
+all-time, so they follow SHARE-FORMAT "Outdoor" and Coach web's `absorb` instead:
+a payload whose `z` is at least `Client.exportedAtEpochSec` replaces both, and an
+**absent** one clears it -- a client who turned route sharing off expects the
+route gone. An older link opened late changes neither. Goal and profile still
+follow the iOS rule above (always replace); `exportedAtEpochSec` gates outdoor
+only.
+
+The route is drawn on a `Canvas` (`ui/charts/RouteCanvas.kt`, LIFT Android's
+projection), never on map tiles: a tile server would learn where the client
+runs. `outdoor-share-link.txt` / `outdoor-share-expected.json` were written by
+LIFT web -- never regenerate them from this code or the kit.
+
 ## App Links depend on the site
 
 The `VIEW` intent filter in `AndroidManifest.xml` has `android:autoVerify=
