@@ -19,10 +19,9 @@ internal fun requireDayKey(key: String): String {
 }
 
 /** Reads [name] from [this], or null if absent or JSON null. */
-private fun JSONObject.optLongOrNull(name: String): Long? = if (has(name) && !isNull(name)) getLong(name) else null
 private fun JSONObject.optIntOrNull(name: String): Int? = if (has(name) && !isNull(name)) getInt(name) else null
 private fun JSONObject.optDoubleOrNull(name: String): Double? = if (has(name) && !isNull(name)) getDouble(name) else null
-// optStringOrNull lives in JsonExtensions.kt -- shared with BackupCodec.kt.
+// optStringOrNull and optLongOrNull live in JsonExtensions.kt -- shared with BackupCodec.kt.
 
 data class Goal(
     val calories: Int,
@@ -120,6 +119,103 @@ data class ClientFoodEntry(
     }
 }
 
+/**
+ * One run, walk or hike from a day's `o` (SHARE-FORMAT "Outdoor"). [type] is the wire's: 0 run,
+ * 1 walk, 2 hike -- an unknown type never gets this far, see [ShareLinkImporter]. Distances are
+ * metres, always, whatever the client's display unit; 0 is "nothing measured", as the wire says.
+ */
+data class OutdoorActivity(
+    val type: Int,
+    val durationSec: Long,
+    val distanceMeters: Long,
+    val climbMeters: Long
+) {
+    fun toJson(): JSONObject = JSONObject().apply {
+        put("type", type)
+        put("durationSec", durationSec)
+        put("distanceMeters", distanceMeters)
+        put("climbMeters", climbMeters)
+    }
+
+    companion object {
+        fun fromJson(json: JSONObject): OutdoorActivity = OutdoorActivity(
+            type = json.getInt("type"),
+            durationSec = json.getLong("durationSec"),
+            distanceMeters = json.getLong("distanceMeters"),
+            climbMeters = json.getLong("climbMeters")
+        )
+    }
+}
+
+/**
+ * One type's all-time bests from `ob`. A null best is "nothing to show" -- no distance ever
+ * measured, or nothing long enough to set a pace -- and renders as a dash, never as zero.
+ */
+data class OutdoorBest(
+    val type: Int,
+    val count: Int,
+    val farthestMeters: Long?,
+    val longestSec: Long?,
+    val fastestSecPerKm: Long?
+) {
+    fun toJson(): JSONObject = JSONObject().apply {
+        put("type", type)
+        put("count", count)
+        put("farthestMeters", farthestMeters ?: JSONObject.NULL)
+        put("longestSec", longestSec ?: JSONObject.NULL)
+        put("fastestSecPerKm", fastestSecPerKm ?: JSONObject.NULL)
+    }
+
+    companion object {
+        fun fromJson(json: JSONObject): OutdoorBest = OutdoorBest(
+            type = json.getInt("type"),
+            count = json.getInt("count"),
+            farthestMeters = json.optLongOrNull("farthestMeters"),
+            longestSec = json.optLongOrNull("longestSec"),
+            fastestSecPerKm = json.optLongOrNull("fastestSecPerKm")
+        )
+    }
+}
+
+/**
+ * `lr`: the client's newest route. The four numbers are the whole activity; [polyline] is not --
+ * the client's app has already cut the first and last 200 m off it. Kept as the wire's encoded
+ * string rather than as points: it is what the sender produced, it is a fraction of the size, and
+ * decoding 150 points when the card draws is nothing.
+ */
+data class LastRoute(
+    val type: Int,
+    val startedAtEpochSec: Long,
+    val durationSec: Long,
+    val distanceMeters: Long,
+    val climbMeters: Long,
+    val polyline: String
+) {
+    fun toJson(): JSONObject = JSONObject().apply {
+        put("type", type)
+        put("startedAtEpochSec", startedAtEpochSec)
+        put("durationSec", durationSec)
+        put("distanceMeters", distanceMeters)
+        put("climbMeters", climbMeters)
+        put("polyline", polyline)
+    }
+
+    companion object {
+        fun fromJson(json: JSONObject): LastRoute = LastRoute(
+            type = json.getInt("type"),
+            startedAtEpochSec = json.getLong("startedAtEpochSec"),
+            durationSec = json.getLong("durationSec"),
+            distanceMeters = json.getLong("distanceMeters"),
+            climbMeters = json.getLong("climbMeters"),
+            polyline = json.getString("polyline")
+        )
+    }
+}
+
+/** Decodes every object in an optional array; absent (a file written before the field) is empty. */
+internal fun <T> JSONObject.optObjectList(name: String, decode: (JSONObject) -> T): List<T> =
+    optJSONArray(name)?.let { arr -> (0 until arr.length()).map { decode(arr.getJSONObject(it)) } }.orEmpty()
+
 data class TrainingDay(
     val dayKey: String,
     val sessionName: String?,
@@ -132,7 +228,9 @@ data class TrainingDay(
     val foodCarbsG: Double?,
     val foodFiberG: Double?,
     val sets: List<ExerciseSet>,
-    val foodEntries: List<ClientFoodEntry>
+    val foodEntries: List<ClientFoodEntry>,
+    /** A day's `o`, in start order. A day holding only this is still a day. */
+    val outdoor: List<OutdoorActivity> = emptyList()
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("dayKey", dayKey)
@@ -147,6 +245,7 @@ data class TrainingDay(
         put("foodFiberG", foodFiberG ?: JSONObject.NULL)
         put("sets", JSONArray(sets.map { it.toJson() }))
         put("foodEntries", JSONArray(foodEntries.map { it.toJson() }))
+        put("outdoor", JSONArray(outdoor.map { it.toJson() }))
     }
 
     companion object {
@@ -162,7 +261,8 @@ data class TrainingDay(
             foodCarbsG = json.optDoubleOrNull("foodCarbsG"),
             foodFiberG = json.optDoubleOrNull("foodFiberG"),
             sets = json.optJSONArray("sets")?.let { arr -> (0 until arr.length()).map { ExerciseSet.fromJson(arr.getJSONObject(it)) } }.orEmpty(),
-            foodEntries = json.optJSONArray("foodEntries")?.let { arr -> (0 until arr.length()).map { ClientFoodEntry.fromJson(arr.getJSONObject(it)) } }.orEmpty()
+            foodEntries = json.optJSONArray("foodEntries")?.let { arr -> (0 until arr.length()).map { ClientFoodEntry.fromJson(arr.getJSONObject(it)) } }.orEmpty(),
+            outdoor = json.optObjectList("outdoor", OutdoorActivity::fromJson)
         )
     }
 }
@@ -174,7 +274,17 @@ data class Client(
     val platform: String?,
     val lastImportedAtEpochMs: Long,
     val goal: Goal?,
-    val days: List<TrainingDay>
+    val days: List<TrainingDay>,
+    /** `ob` from the newest send, or null when that send carried none. */
+    val outdoorBests: List<OutdoorBest>? = null,
+    /** `lr` from the newest send, or null when that send carried none -- route sharing is off. */
+    val lastRoute: LastRoute? = null,
+    /**
+     * `z` of the newest send absorbed, Unix seconds. Null for a client stored before this field,
+     * which any send counts as newer than. Decides whether [outdoorBests] and [lastRoute] are
+     * replaced -- see [ShareLinkImporter].
+     */
+    val exportedAtEpochSec: Long? = null
 ) {
     /**
      * Days since the client's most recent stored day. **Any** stored day counts —
@@ -211,6 +321,9 @@ data class Client(
         put("lastImportedAtEpochMs", lastImportedAtEpochMs)
         put("goal", goal?.toJson() ?: JSONObject.NULL)
         put("days", JSONArray(days.map { it.toJson() }))
+        put("outdoorBests", outdoorBests?.let { b -> JSONArray(b.map { it.toJson() }) } ?: JSONObject.NULL)
+        put("lastRoute", lastRoute?.toJson() ?: JSONObject.NULL)
+        put("exportedAtEpochSec", exportedAtEpochSec ?: JSONObject.NULL)
     }
 
     companion object {
@@ -221,7 +334,17 @@ data class Client(
             platform = json.optStringOrNull("platform"),
             lastImportedAtEpochMs = json.getLong("lastImportedAtEpochMs"),
             goal = if (json.has("goal") && !json.isNull("goal")) Goal.fromJson(json.getJSONObject("goal")) else null,
-            days = json.optJSONArray("days")?.let { arr -> (0 until arr.length()).map { TrainingDay.fromJson(arr.getJSONObject(it)) } }.orEmpty()
+            days = json.optJSONArray("days")?.let { arr -> (0 until arr.length()).map { TrainingDay.fromJson(arr.getJSONObject(it)) } }.orEmpty(),
+            outdoorBests = outdoorBestsFromJson(json),
+            lastRoute = lastRouteFromJson(json),
+            exportedAtEpochSec = json.optLongOrNull("exportedAtEpochSec")
         )
+
+        /** Shared with [BackupCodec], which spells the client envelope itself. */
+        internal fun outdoorBestsFromJson(json: JSONObject): List<OutdoorBest>? =
+            if (json.has("outdoorBests") && !json.isNull("outdoorBests")) json.optObjectList("outdoorBests", OutdoorBest::fromJson) else null
+
+        internal fun lastRouteFromJson(json: JSONObject): LastRoute? =
+            if (json.has("lastRoute") && !json.isNull("lastRoute")) LastRoute.fromJson(json.getJSONObject("lastRoute")) else null
     }
 }
