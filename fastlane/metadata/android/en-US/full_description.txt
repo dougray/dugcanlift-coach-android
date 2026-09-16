@@ -1,0 +1,27 @@
+LIFT Coach is for trainers whose clients track their training and eating in LIFT. A client taps Send to Coach in LIFT, you get an email with a link, and opening that link brings their log into Coach, where you can read it as a roster, a weekly table and a set of charts. There is no account for you or your clients, and no server: the log travels inside the link itself and is stored only on this device.
+
+GETTING A CLIENT'S LOG IN
+Tap the link in the client's email and it opens straight into Coach. You can also share the link into Coach from any app, or paste it in. Connect writes the invite text for a new client with your name and email address, ready to send however you usually talk to them.
+
+ROSTER
+Every client, sorted quietest first, with a banner naming anyone who hasn't logged for seven days or more.
+
+CLIENT
+- A weekly summary table: sessions, sets, volume, average calories, average protein, how often protein hit the goal, and average steps
+- Charts for training volume, calories against their goal, bodyweight, and estimated one-rep max for each lift
+- A session log down to the individual set, a day at a time
+- Runs, walks and hikes: recent activities, personal bests, and the last route, if the client chose to send it
+
+COOK
+Write recipes, or paste a recipe's text and edit it into shape. Build a week of meals for a client, read the shopping list that comes out of it, and send the week as a link that opens in their LIFT.
+
+TRAIN
+Write routines, search an exercise library shared with LIFT so a lift you prescribe and a set your client logs are the same lift, and book sessions onto a client's days.
+
+BACKUP
+Save Backup and Restore from Backup write and read a file you keep wherever you choose. It is the same backup file the iPhone build of Coach uses.
+
+PRIVACY
+Coach does not request internet access. Your roster, recipes and routines are stored on this device and are excluded from Android's cloud backup. Client data only arrives in links you open, and only leaves in a backup file you save or a link you send yourself.
+
+Works in light or dark, following your phone's setting or your choice in Connect.
