@@ -21,6 +21,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -49,14 +50,14 @@ private const val PREF_COACH_EMAIL = "coachEmail"
 private const val BACKUP_FILENAME = "coach-backup.json"
 
 /**
- * Coach iOS's own [inviteText] wording, reproduced verbatim (see
- * coach-ios/Sources/App/ConnectView.swift around line 88), fallbacks included: an empty name reads
- * as "your coach", an empty email reads as "[enter your email above]".
+ * Coach iOS's own [inviteText] wording (coach-ios/Sources/App/ConnectView.swift). With no name set
+ * it reads "I'm your coach on LIFT" -- substituting "your coach" as the name produced
+ * "I'm your coach, your coach on LIFT". An empty email reads as "[enter your email above]".
  */
-private fun inviteText(coachName: String, coachEmail: String): String {
-    val name = coachName.ifEmpty { "your coach" }
+internal fun inviteText(coachName: String, coachEmail: String): String {
+    val intro = if (coachName.isBlank()) "I'm your coach on LIFT" else "I'm ${coachName.trim()}, your coach on LIFT"
     val email = coachEmail.ifEmpty { "[enter your email above]" }
-    return "Hi! I'm $name, your coach on LIFT. To share your training and " +
+    return "Hi! $intro. To share your training and " +
         "nutrition log with me, open LIFT, go to Settings, and use " +
         "\"Send to Coach\" with this email address: $email"
 }
@@ -114,7 +115,12 @@ fun ConnectScreen(repo: ClientRepository, onBack: () -> Unit) {
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Connect") })
+            // Back as the other pushed screens (Cook, Train, a client) have it. Without it the
+            // only way off Connect was the system back gesture.
+            TopAppBar(
+                title = { Text("Connect") },
+                navigationIcon = { TextButton(onClick = onBack) { Text("Back") } }
+            )
         }
     ) { padding ->
         Column(
