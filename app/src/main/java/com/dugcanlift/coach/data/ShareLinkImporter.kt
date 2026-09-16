@@ -5,7 +5,10 @@ import kotlin.concurrent.withLock
 
 sealed class ImportResult { data class Imported(val clientId: String, val clientName: String, val daysImported: Int) : ImportResult(); object UnsupportedVersion : ImportResult(); object Malformed : ImportResult() }
 
-/** Coach iOS's ShareLinkImporter, rule for rule: find-or-create by id, goal replaces, each wire day REPLACES the stored day, others untouched. */
+/**
+ * Coach iOS's ShareLinkImporter, rule for rule: find-or-create by id, goal replaces, each wire day REPLACES the stored day, others untouched.
+ * Outdoor bests and the last route, which iOS does not read yet, follow Coach web's `absorb` instead -- see [runImport].
+ */
 object ShareLinkImporter {
 
     /**
@@ -51,7 +54,21 @@ object ShareLinkImporter {
         val goal = p.goal?.let { Goal(it.calories, it.proteinG, it.fatG, it.carbsG, it.fiberG) } ?: existing?.goal
         val incoming = resolved.associate { (key, d) -> key to toDay(d, key) }
         val kept = existing?.days?.filter { it.dayKey !in incoming } ?: emptyList()
-        val client = Client(p.client.id, p.client.name, p.client.unit, p.client.platform ?: existing?.platform, nowEpochMs, goal, (kept + incoming.values).sortedBy { it.dayKey })
+        // Outdoor bests and the last route are all-time, not per day, so they follow the send rather
+        // than the window: a newer payload's replace the stored ones, and an ABSENT one clears them
+        // -- a client who turned route sharing off expects the route gone, not frozen at the last one
+        // they sent (SHARE-FORMAT "Outdoor"). An older link opened late must not undo either, so
+        // "newer" is the payload's own `z` against the newest one absorbed, as Coach web's `absorb`
+        // decides it. A client stored before `z` was kept has nothing to compare, and any send wins.
+        val stored = existing?.exportedAtEpochSec
+        val newer = stored == null || p.exportedAtEpochSeconds >= stored
+        val client = Client(
+            p.client.id, p.client.name, p.client.unit, p.client.platform ?: existing?.platform, nowEpochMs, goal,
+            (kept + incoming.values).sortedBy { it.dayKey },
+            outdoorBests = if (newer) toBests(p.outdoorBests) else existing?.outdoorBests,
+            lastRoute = if (newer) toLastRoute(p.lastRoute) else existing?.lastRoute,
+            exportedAtEpochSec = if (newer) p.exportedAtEpochSeconds else stored
+        )
         repo.save(client)
         return ImportResult.Imported(client.id, client.name, incoming.size)
     }
@@ -68,8 +85,29 @@ object ShareLinkImporter {
             entry.takeIf { listOf(it.servings, it.calories, it.proteinG, it.fatG, it.carbsG, it.fiberG).all { v -> v.isFinite() } }
         }
         val ft = d.foodTotals
-        return TrainingDay(requireDayKey(key), d.sessionName, d.focus, d.bodyweightLb.finite(), d.steps, ft?.get(0).finite(), ft?.get(1).finite(), ft?.get(2).finite(), ft?.get(3).finite(), ft?.get(4).finite(), sets, food)
+        val outdoor = d.outdoor.orEmpty().filter { it.type.isOutdoorType() }.map { OutdoorActivity(it.type, it.durationSec, it.distanceMeters, it.climbMeters) }
+        return TrainingDay(requireDayKey(key), d.sessionName, d.focus, d.bodyweightLb.finite(), d.steps, ft?.get(0).finite(), ft?.get(1).finite(), ft?.get(2).finite(), ft?.get(3).finite(), ft?.get(4).finite(), sets, food, outdoor)
     }
+
+    /**
+     * Coach web's `readBests`, rule for rule: a type this app does not know is skipped rather than
+     * guessed at, and a best that is not positive is no best -- the wire never sends a zero, so one
+     * that arrives is not a measurement. Nothing left is null, the same as nothing sent.
+     */
+    private fun toBests(ob: List<ShareOutdoorBest>?): List<OutdoorBest>? =
+        ob.orEmpty().filter { it.type.isOutdoorType() }
+            .map { OutdoorBest(it.type, it.count, it.farthestMeters.positive(), it.longestSec.positive(), it.fastestSecPerKm.positive()) }
+            .takeIf { it.isNotEmpty() }
+
+    /** `readLastRoute`: a route that does not decode to two points cannot be drawn, and is no route. */
+    private fun toLastRoute(lr: ShareLastRoute?): LastRoute? {
+        if (lr == null || !lr.type.isOutdoorType()) return null
+        if (OutdoorShare.decodePolyline(lr.polyline).size < 2) return null
+        return LastRoute(lr.type, lr.startedAtEpochSec, lr.durationSec, lr.distanceMeters, lr.climbMeters, lr.polyline)
+    }
+
+    private fun Int.isOutdoorType() = this in 0 until OutdoorShare.TYPE_COUNT
+    private fun Long?.positive(): Long? = this?.takeIf { it > 0 }
 
     /**
      * The kit's `ft` reader is `a.optDouble(it)` with no NaN guard (unlike its `optDoubleOrNull`,

@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -34,13 +35,18 @@ import androidx.compose.ui.unit.dp
 import com.dugcanlift.coach.data.Client
 import com.dugcanlift.coach.data.ClientRepository
 import com.dugcanlift.coach.data.ExerciseSet
+import com.dugcanlift.coach.data.LastRoute
+import com.dugcanlift.coach.data.OutdoorBest
 import com.dugcanlift.coach.data.Stats
 import com.dugcanlift.coach.data.TrainingDay
 import com.dugcanlift.coach.data.WeekStats
 import com.dugcanlift.coach.ui.charts.BarChart
 import com.dugcanlift.coach.ui.charts.LineChart
+import com.dugcanlift.coach.ui.charts.RouteCanvas
 import com.dugcanlift.coach.ui.theme.DclAccent
 import com.dugcanlift.coach.ui.theme.DclMuted
+import com.dugcanlift.coach.ui.theme.dclCardBorder
+import com.dugcanlift.kit.OutdoorShare
 import com.dugcanlift.kit.DayKey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -55,7 +61,8 @@ private val CHART_WEEK_SLOT_WIDTH = 28.dp
 
 /**
  * One client's detail: a weekly summary table covering the client's entire history, training
- * volume, fuel-vs-goal, bodyweight and per-lift e1RM charts, and an expandable session log.
+ * volume, fuel-vs-goal, bodyweight and per-lift e1RM charts, outdoor activity, and an expandable
+ * session log.
  * Everything here is read from [Stats] over the client loaded fresh from [repo] -- never
  * recomputed here -- so re-opening this screen after a re-import always shows the latest numbers.
  */
@@ -140,7 +147,9 @@ private fun ClientDetail(client: Client, modifier: Modifier = Modifier) {
             .map { (key, series) -> key to series.map { (day, lb) -> day to displayWeightValue(lb, unit) } }
     }
 
-    val sessionDays = remember(client) { client.days.filter { it.sets.isNotEmpty() }.sortedByDescending { it.dayKey } }
+    // A run is a session too: a day holding only an outdoor activity belongs in the log.
+    val sessionDays = remember(client) { client.days.filter { it.sets.isNotEmpty() || it.outdoor.isNotEmpty() }.sortedByDescending { it.dayKey } }
+    val recentOutdoor = remember(client) { recentOutdoorDays(client.days) }
 
     LazyColumn(modifier = modifier, contentPadding = PaddingValues(bottom = 32.dp)) {
         item {
@@ -208,6 +217,15 @@ private fun ClientDetail(client: Client, modifier: Modifier = Modifier) {
                 lineColor = DclAccent,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
             )
+        }
+
+        // Shown only when there is something: most clients never record a run, and an empty
+        // "Outdoor" heading would read as though they had and it was lost.
+        if (client.lastRoute != null || client.outdoorBests != null || recentOutdoor.isNotEmpty()) {
+            item { SectionTitle("Outdoor") }
+            client.lastRoute?.let { route -> item { LastRouteCard(route, distanceUnitFor(unit)) } }
+            client.outdoorBests?.let { bests -> item { PersonalBestsCard(bests, distanceUnitFor(unit)) } }
+            if (recentOutdoor.isNotEmpty()) item { RecentOutdoorCard(recentOutdoor, distanceUnitFor(unit)) }
         }
 
         item {
@@ -293,7 +311,7 @@ private fun DayLogCard(day: TrainingDay, unit: String, modifier: Modifier = Modi
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Column {
                 Text(text = day.dayKey, style = MaterialTheme.typography.titleMedium)
-                (day.sessionName ?: day.focus)?.let {
+                (day.sessionName ?: day.focus ?: day.outdoor.firstOrNull()?.let { outdoorTypeLabel(it.type) })?.let {
                     Text(text = it, style = MaterialTheme.typography.bodyMedium, color = DclMuted)
                 }
             }
@@ -307,6 +325,13 @@ private fun DayLogCard(day: TrainingDay, unit: String, modifier: Modifier = Modi
         if (expanded) {
             Spacer(modifier = Modifier.height(8.dp))
             day.sets.forEach { set -> SetLine(set = set, unit = unit) }
+            day.outdoor.forEach { activity ->
+                Text(
+                    text = "${outdoorTypeLabel(activity.type) ?: "Activity"} · ${activitySummary(activity, distanceUnitFor(unit))}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(vertical = 2.dp)
+                )
+            }
         }
     }
 }
@@ -319,4 +344,78 @@ private fun SetLine(set: ExerciseSet, unit: String, modifier: Modifier = Modifie
         color = if (set.isWarmup) DclMuted else MaterialTheme.colorScheme.onSurface,
         modifier = modifier.padding(vertical = 2.dp)
     )
+}
+
+@Composable
+private fun OutdoorCard(title: String, content: @Composable () -> Unit) {
+    Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), border = dclCardBorder()) {
+        Column(Modifier.padding(16.dp)) {
+            Text(text = title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(8.dp))
+            content()
+        }
+    }
+}
+
+/** Label over value, evenly across the card -- Distance / Time / Pace, and each type's bests. */
+@Composable
+private fun OutdoorStats(stats: List<Pair<String, String>>) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        stats.forEach { (label, value) ->
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = label, style = MaterialTheme.typography.bodySmall, color = DclMuted)
+                Text(text = value, style = MaterialTheme.typography.titleMedium)
+            }
+        }
+    }
+}
+
+@Composable
+private fun LastRouteCard(route: LastRoute, distanceUnit: String) {
+    val points = remember(route.polyline) { OutdoorShare.decodePolyline(route.polyline) }
+    OutdoorCard("Last route") {
+        RouteCanvas(points = points)
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(text = outdoorTypeLabel(route.type) ?: "Activity", style = MaterialTheme.typography.bodyMedium)
+            Text(text = formatRouteDate(route.startedAtEpochSec), style = MaterialTheme.typography.bodyMedium, color = DclMuted)
+        }
+        OutdoorStats(listOf(
+            "Distance" to formatActivityDistance(route.distanceMeters, distanceUnit),
+            "Time" to formatActivityDuration(route.durationSec),
+            "Pace" to (activityPace(route.distanceMeters, route.durationSec, distanceUnit) ?: "—")
+        ))
+        Text(
+            text = "The first and last 200 m are left off by the client's app.",
+            style = MaterialTheme.typography.bodySmall,
+            color = DclMuted
+        )
+    }
+}
+
+@Composable
+private fun PersonalBestsCard(bests: List<OutdoorBest>, distanceUnit: String) {
+    OutdoorCard("Personal bests") {
+        bests.forEach { best ->
+            Text(text = bestHeading(best), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
+            OutdoorStats(bestStats(best, distanceUnit))
+        }
+    }
+}
+
+@Composable
+private fun RecentOutdoorCard(days: List<TrainingDay>, distanceUnit: String) {
+    OutdoorCard("Recent") {
+        days.forEach { day ->
+            day.outdoor.forEach { activity ->
+                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(
+                        text = "${formatShortDay(day.dayKey)} · ${outdoorTypeLabel(activity.type) ?: "Activity"}",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(text = activitySummary(activity, distanceUnit), style = MaterialTheme.typography.bodyMedium, color = DclMuted)
+                }
+            }
+        }
+    }
 }
