@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -121,8 +122,11 @@ private fun ClientDetail(client: Client, modifier: Modifier = Modifier) {
 
     // A wide history needs a wide canvas -- see CHART_WEEK_SLOT_WIDTH -- rather than squeezing
     // every bucket into the screen's width, which is what turns 104 weekly bars into a smear.
-    val weeklyChartWidth = remember(weeksChronological) {
-        CHART_WEEK_SLOT_WIDTH * weeksChronological.size.coerceAtLeast(1)
+    // ...but never narrower than the screen. At 28 dp a week, five weeks of history drew a 140 dp
+    // chart in the corner with its first and last dates printed on top of each other.
+    val screenWidth = LocalConfiguration.current.screenWidthDp.dp
+    val weeklyChartWidth = remember(weeksChronological, screenWidth) {
+        maxOf(CHART_WEEK_SLOT_WIDTH * weeksChronological.size.coerceAtLeast(1), screenWidth)
     }
 
     val volumeBars = remember(weeksChronological, unit) {
