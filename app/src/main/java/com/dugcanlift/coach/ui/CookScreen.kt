@@ -44,6 +44,8 @@ import com.dugcanlift.coach.data.CookRepository
 import com.dugcanlift.coach.data.PlannedMeal
 import com.dugcanlift.coach.data.Recipe
 import com.dugcanlift.coach.data.forClient
+import com.dugcanlift.kit.CaptionRecipe
+import com.dugcanlift.kit.Split
 import com.dugcanlift.kit.trimZeros
 import kotlinx.coroutines.launch
 
@@ -394,11 +396,74 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
     var ingredients by remember(recipe.id) { mutableStateOf(recipe.rawIngredients.joinToString("\n")) }
     var steps by remember(recipe.id) { mutableStateOf(recipe.steps.joinToString("\n")) }
 
+    // Paste a recipe written out as text -- a video caption, an email, a card
+    // off the fridge. Offered only on a new recipe: pasting over one that
+    // exists would replace the coach's work rather than start from it.
+    val isNew = recipe.name.isBlank()
+    var pasting by remember(recipe.id) { mutableStateOf(false) }
+    var pasteText by remember(recipe.id) { mutableStateOf("") }
+    var splitAdvice by remember(recipe.id) { mutableStateOf<String?>(null) }
+
     AlertDialog(
         onDismissRequest = onCancel,
         title = { Text(if (recipe.name.isBlank()) "New recipe" else "Edit recipe") },
         text = {
             Column {
+                // `CaptionRecipe` only PROPOSES a split. It fills the fields
+                // below and the coach checks them before saving -- so a wrong
+                // split costs an edit, never a number. The parser still reads
+                // the quantities on save and still refuses to weigh a volume.
+                if (isNew) {
+                    if (!pasting) {
+                        TextButton(onClick = { pasting = true }) { Text("Paste a recipe") }
+                    } else {
+                        OutlinedTextField(
+                            value = pasteText,
+                            onValueChange = { pasteText = it },
+                            label = { Text("Paste the recipe's text") }
+                        )
+                        Row {
+                            TextButton(
+                                enabled = pasteText.isNotBlank(),
+                                onClick = {
+                                    val parsed = CaptionRecipe.parse(pasteText)
+                                    if (parsed.isEmpty) {
+                                        splitAdvice = "Nothing in that reads as a recipe. " +
+                                            "Paste the ingredients and steps as text."
+                                    } else {
+                                        name = parsed.name.orEmpty()
+                                        ingredients = parsed.ingredientLines.joinToString("\n")
+                                        steps = parsed.steps.joinToString("\n")
+                                        // Only ever from an explicit "serves 4".
+                                        // A guessed yield silently divides every
+                                        // macro by a number nobody chose.
+                                        parsed.servings?.let { servings = it.trimZeros() }
+                                        splitAdvice = when (parsed.split) {
+                                            Split.LABELLED ->
+                                                "Split on the headings in the text \u2014 check it read them right."
+                                            Split.INFERRED ->
+                                                "The text labelled one section and this worked out the rest, " +
+                                                    "so check the division."
+                                            Split.UNSORTED ->
+                                                "The text had no headings, so everything landed in Ingredients " +
+                                                    "\u2014 cut any steps out and paste them below."
+                                        } + if (parsed.servings == null) {
+                                            " It didn't say how many this serves; set it below."
+                                        } else ""
+                                        pasting = false
+                                        pasteText = ""
+                                    }
+                                }
+                            ) { Text("Read it") }
+                            TextButton(onClick = { pasting = false; pasteText = "" }) { Text("Cancel") }
+                        }
+                    }
+                    splitAdvice?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+
                 OutlinedTextField(value = name, onValueChange = { name = it },
                                   label = { Text("Name") }, singleLine = true)
                 Spacer(Modifier.height(8.dp))
