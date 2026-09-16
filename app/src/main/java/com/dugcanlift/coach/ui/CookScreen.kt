@@ -2,6 +2,7 @@ package com.dugcanlift.coach.ui
 
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -421,7 +422,11 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
         onDismissRequest = onCancel,
         title = { Text(if (recipe.name.isBlank()) "New recipe" else "Edit recipe") },
         text = {
-            Column {
+            // Scrolls. It did not, which was harmless with four fields and
+            // unusable with the macro section: on a phone the lower fields sat
+            // below the dialog's edge with no way to reach them. LIFT Android's
+            // recipe dialog scrolls the same way.
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 // `CaptionRecipe` only PROPOSES a split. It fills the fields
                 // below and the coach checks them before saving -- so a wrong
                 // split costs an edit, never a number. The parser still reads
