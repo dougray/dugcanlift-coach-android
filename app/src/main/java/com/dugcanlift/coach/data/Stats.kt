@@ -13,6 +13,30 @@ data class FoodTotals(
     val fiberG: Double
 )
 
+/** Saturated fat, sugar and sodium -- tracked and shown, never targeted. */
+enum class Nutrient(val label: String, val unit: String) {
+    SATURATED_FAT("Saturated fat", "g"),
+    SUGAR("Sugar", "g"),
+    SODIUM("Sodium", "mg");
+
+    /** This nutrient's total on a day, or null when no food that day recorded it. */
+    fun total(t: DayNutrientTotals): Double? = when (this) {
+        SATURATED_FAT -> t.saturatedFatG
+        SUGAR -> t.sugarG
+        SODIUM -> t.sodiumMg
+    }
+
+    /** How many of the day's [DayNutrientTotals.foods] this nutrient's total covers. */
+    fun covered(t: DayNutrientTotals): Int = when (this) {
+        SATURATED_FAT -> t.withSaturatedFat
+        SUGAR -> t.withSugar
+        SODIUM -> t.withSodium
+    }
+}
+
+/** [perDay] averaged over [days] days that recorded the nutrient, [partialDays] of them from only some foods. */
+data class NutrientAverage(val nutrient: Nutrient, val perDay: Double, val days: Int, val partialDays: Int)
+
 /** One 7-day bucket ending on [endKey] (inclusive), newest bucket last in `weeklyBuckets`'s result. */
 data class WeekStats(
     val endKey: String,
@@ -165,6 +189,34 @@ object Stats {
             }
         }
         return series
+    }
+
+    /**
+     * The mean daily total of each of saturated fat, sugar and sodium over the [windowDays] days
+     * ending on [endKey] (inclusive), counting **only days that recorded that nutrient** -- a day
+     * with no sodium is not a zero-sodium day, and dividing by the window would say it was. A
+     * nutrient no day in the window recorded is left out of the result, not averaged to zero.
+     *
+     * A day whose total covers only some of its foods still counts, as the floor it is;
+     * [NutrientAverage.partialDays] says how many did, so the screen can say so.
+     */
+    fun nutrientAverages(client: Client, windowDays: Int, endKey: String): List<NutrientAverage> {
+        if (windowDays <= 0) return emptyList()
+        val inWindow = client.days.mapNotNull { day ->
+            val totals = day.nutrientTotals ?: return@mapNotNull null
+            val distance = daysBetweenOrNull(day.dayKey, endKey) ?: return@mapNotNull null
+            totals.takeIf { distance in 0 until windowDays }
+        }
+        return Nutrient.entries.mapNotNull { nutrient ->
+            val recorded = inWindow.filter { nutrient.total(it) != null }
+            if (recorded.isEmpty()) return@mapNotNull null
+            NutrientAverage(
+                nutrient = nutrient,
+                perDay = recorded.sumOf { nutrient.total(it)!! } / recorded.size,
+                days = recorded.size,
+                partialDays = recorded.count { nutrient.covered(it) < it.foods }
+            )
+        }
     }
 
     private fun liftKey(name: String, equipment: String?): String = "${name.trim()}|${(equipment ?: "").trim()}"
