@@ -24,10 +24,14 @@ concurrency:
 
 env:
   TAG: ${{ inputs.tag || github.ref_name }}
+  # The APK is what the website links to; keep its name. The bundle is what
+  # Google Play takes (it accepts only .aab) and goes on the same release.
   ASSET: coach-android.apk
+  BUNDLE_ASSET: coach-android.aab
   KEYSTORE_PROPERTIES: /keystores/coach.keystore.properties
   # SHA-256 of the release signing certificate, as apksigner prints it. The
-  # built APK must carry exactly this certificate or nothing is published.
+  # built APK and bundle must both carry exactly this certificate or nothing
+  # is published.
   # Public information: every installed copy of the app carries it too.
   RELEASE_CERT_SHA256: f537ebfbefc38775f70355c266191ca0b455fe90163246e3a95653fab26c23c2
 
@@ -78,8 +82,10 @@ jobs:
       - name: Bring in the signing config
         run: cp "$KEYSTORE_PROPERTIES" keystore.properties
 
-      - name: Build the signed release APK
-        run: ./gradlew :app:assembleRelease
+      # One Gradle run, one signing config: the bundle is signed with the same
+      # key as the APK.
+      - name: Build the signed release APK and App Bundle
+        run: ./gradlew :app:assembleRelease :app:bundleRelease
 
       # Runs even if the build failed: the passwords do not stay in the
       # checkout between jobs.
@@ -87,7 +93,7 @@ jobs:
         if: always()
         run: rm -f keystore.properties
 
-      - name: Verify the signature
+      - name: Verify the APK signature
         run: |
           got=$(apksigner verify --print-certs app/build/outputs/apk/release/app-release.apk | sed -n 's/.*SHA-256 digest: //p' | head -1)
           echo "certificate: $got"
@@ -96,11 +102,38 @@ jobs:
             exit 1
           fi
 
+      # An App Bundle carries a JAR signature, which apksigner does not read.
+      # jarsigner checks every entry against it; keytool prints the signer's
+      # certificate, whose SHA-256 must be the same one the APK carries.
+      # -strict exit status is a bitmask: 4 is "self-signed, no trusted chain",
+      # which every Android signing key is, so only that bit is allowed. 16
+      # (an entry the signature does not cover) and anything else fails.
+      - name: Verify the App Bundle signature
+        run: |
+          bin=""
+          command -v keytool >/dev/null || bin="$JAVA_HOME/bin/"
+          aab=app/build/outputs/bundle/release/app-release.aab
+          rc=0
+          out=$("${bin}jarsigner" -verify -strict "$aab") || rc=$?
+          echo "$out"
+          if [ $((rc & ~4)) -ne 0 ] || ! echo "$out" | grep -q '^jar verified'; then
+            echo "App Bundle signature does not verify (jarsigner exit $rc)" >&2
+            exit 1
+          fi
+          signers=$("${bin}keytool" -printcert -jarfile "$aab" | grep -c '^Signer #')
+          got=$("${bin}keytool" -printcert -jarfile "$aab" | sed -n 's/^[[:space:]]*SHA256: //p' | head -1 | tr -d ':' | tr 'A-F' 'a-f')
+          echo "signers: $signers, certificate: $got"
+          if [ "$signers" != 1 ] || [ "$got" != "$RELEASE_CERT_SHA256" ]; then
+            echo "App Bundle is not signed with the release certificate alone" >&2
+            exit 1
+          fi
+
       - name: Package with checksums
         run: |
           mkdir -p dist
           cp app/build/outputs/apk/release/app-release.apk "dist/$ASSET"
-          (cd dist && sha256sum "$ASSET" > SHA256SUMS && cat SHA256SUMS)
+          cp app/build/outputs/bundle/release/app-release.aab "dist/$BUNDLE_ASSET"
+          (cd dist && sha256sum "$ASSET" "$BUNDLE_ASSET" > SHA256SUMS && cat SHA256SUMS)
 
       # Creates the release, or on a re-run of an existing tag replaces its
       # assets. The job's own token is enough; no PAT anywhere.
@@ -109,9 +142,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "dist/$ASSET" dist/SHA256SUMS --clobber
+            gh release upload "$TAG" "dist/$ASSET" "dist/$BUNDLE_ASSET" dist/SHA256SUMS --clobber
           else
-            gh release create "$TAG" "dist/$ASSET" dist/SHA256SUMS \
+            gh release create "$TAG" "dist/$ASSET" "dist/$BUNDLE_ASSET" dist/SHA256SUMS \
               --verify-tag --title "Coach Android ${TAG#v}" --generate-notes
           fi
 
