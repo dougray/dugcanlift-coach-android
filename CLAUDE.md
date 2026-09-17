@@ -415,3 +415,14 @@ client; the privacy policy promises the client's data leaves the device, which
 is why Android goes further. On a phone the client screen returns to the roster;
 in two panes the selection clears. `ClientRemovalTest` and
 `RemoveClientFlowTest` pin both halves.
+
+**The dialog hands its outcome back on the main thread**, explicitly
+(`withContext(Dispatchers.Main.immediate)`), because `onDone` navigates and
+`NavController` moves each `NavBackStackEntry`'s `Lifecycle`, which throws when it
+is touched off the main thread. Returning from `withContext(Dispatchers.IO)` only
+lands on the main thread when the surrounding scope's dispatcher re-dispatches
+there -- `AndroidUiDispatcher.Main` does, so a device was never at risk, but a
+Compose test's dispatcher sometimes resumes the coroutine on the IO worker
+instead. That is how `RemoveClientFlowTest` came to fail on a CI runner
+("Method setCurrentState must be called on the main thread") while passing here.
+Any callback that can navigate belongs in the same explicit hop.

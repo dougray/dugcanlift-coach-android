@@ -73,6 +73,20 @@ class RemoveClientFlowTest {
         compose.waitForIdle()
     }
 
+    /**
+     * Waits for the nav host to settle on [route], then pins it. The removal's callback reaches the
+     * main thread a beat after the client's file is gone, so the route -- not the repository -- is
+     * the outcome to wait on; asserting it the instant [confirmRemoval] returned raced the pop.
+     */
+    private fun assertRoute(route: String) {
+        // Swallowing the timeout leaves the assertion below to report which route it actually is,
+        // rather than a bare "Condition still not satisfied after 5000ms".
+        runCatching {
+            compose.waitUntil(5_000) { nav.currentBackStackEntry?.destination?.route == route }
+        }
+        compose.runOnIdle { assertEquals(route, nav.currentBackStackEntry?.destination?.route) }
+    }
+
     private fun jordanGone() {
         assertNull(repo.get("client-a"))
         assertEquals(listOf("client-b"), repo.all().map { it.id })
@@ -83,13 +97,13 @@ class RemoveClientFlowTest {
         start(WindowWidth.COMPACT)
         waitForText("Jordan Reyes")
         compose.onNodeWithText("Jordan Reyes").performClick()
-        compose.runOnIdle { assertEquals(Routes.CLIENT, nav.currentBackStackEntry?.destination?.route) }
+        assertRoute(Routes.CLIENT)
 
         compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("Remove this client"))
         compose.onNodeWithText("Remove this client").performClick()
         confirmRemoval()
 
-        compose.runOnIdle { assertEquals(Routes.ROSTER, nav.currentBackStackEntry?.destination?.route) }
+        assertRoute(Routes.ROSTER)
         jordanGone()
         waitForText("Sam Ortiz")
     }
@@ -105,7 +119,7 @@ class RemoveClientFlowTest {
         compose.onNodeWithText("Keep").performClick()
 
         assertEquals("Jordan Reyes", repo.get("client-a")?.name)
-        compose.runOnIdle { assertEquals(Routes.CLIENT, nav.currentBackStackEntry?.destination?.route) }
+        assertRoute(Routes.CLIENT)
     }
 
     @Test fun removingFromTheTwoPaneDetailClearsTheSelection() {
@@ -120,7 +134,7 @@ class RemoveClientFlowTest {
         compose.onNodeWithText("Remove this client").performClick()
         confirmRemoval()
 
-        compose.runOnIdle { assertEquals(Routes.ROSTER, nav.currentBackStackEntry?.destination?.route) }
+        assertRoute(Routes.ROSTER)
         jordanGone()
         waitForText("Pick a client to see their training.")
     }
@@ -133,7 +147,7 @@ class RemoveClientFlowTest {
         compose.onNodeWithText("Remove client").performClick()
         confirmRemoval()
 
-        compose.runOnIdle { assertEquals(Routes.ROSTER, nav.currentBackStackEntry?.destination?.route) }
+        assertRoute(Routes.ROSTER)
         jordanGone()
     }
 }
