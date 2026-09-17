@@ -83,14 +83,13 @@ class RemoveClientFlowTest {
         start(WindowWidth.COMPACT)
         waitForText("Jordan Reyes")
         compose.onNodeWithText("Jordan Reyes").performClick()
-        compose.waitForIdle()
-        assertEquals(Routes.CLIENT, nav.currentBackStackEntry?.destination?.route)
+        compose.runOnIdle { assertEquals(Routes.CLIENT, nav.currentBackStackEntry?.destination?.route) }
 
         compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("Remove this client"))
         compose.onNodeWithText("Remove this client").performClick()
         confirmRemoval()
 
-        assertEquals(Routes.ROSTER, nav.currentBackStackEntry?.destination?.route)
+        compose.runOnIdle { assertEquals(Routes.ROSTER, nav.currentBackStackEntry?.destination?.route) }
         jordanGone()
         waitForText("Sam Ortiz")
     }
@@ -104,10 +103,9 @@ class RemoveClientFlowTest {
         compose.onNodeWithText("Remove this client").performClick()
         waitForText("Remove Jordan Reyes?")
         compose.onNodeWithText("Keep").performClick()
-        compose.waitForIdle()
 
         assertEquals("Jordan Reyes", repo.get("client-a")?.name)
-        assertEquals(Routes.CLIENT, nav.currentBackStackEntry?.destination?.route)
+        compose.runOnIdle { assertEquals(Routes.CLIENT, nav.currentBackStackEntry?.destination?.route) }
     }
 
     @Test fun removingFromTheTwoPaneDetailClearsTheSelection() {
@@ -122,7 +120,7 @@ class RemoveClientFlowTest {
         compose.onNodeWithText("Remove this client").performClick()
         confirmRemoval()
 
-        assertEquals(Routes.ROSTER, nav.currentBackStackEntry?.destination?.route)
+        compose.runOnIdle { assertEquals(Routes.ROSTER, nav.currentBackStackEntry?.destination?.route) }
         jordanGone()
         waitForText("Pick a client to see their training.")
     }
@@ -135,7 +133,7 @@ class RemoveClientFlowTest {
         compose.onNodeWithText("Remove client").performClick()
         confirmRemoval()
 
-        assertEquals(Routes.ROSTER, nav.currentBackStackEntry?.destination?.route)
+        compose.runOnIdle { assertEquals(Routes.ROSTER, nav.currentBackStackEntry?.destination?.route) }
         jordanGone()
     }
 }
