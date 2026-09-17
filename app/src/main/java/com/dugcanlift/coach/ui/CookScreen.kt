@@ -1,6 +1,14 @@
 package com.dugcanlift.coach.ui
 
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.dugcanlift.coach.ui.adaptive.AdaptiveLayout
+import com.dugcanlift.coach.ui.adaptive.GridRow
+import com.dugcanlift.coach.ui.adaptive.columnMajor
+import com.dugcanlift.coach.ui.adaptive.rowMajor
 import com.dugcanlift.coach.ui.theme.dclCardBorder
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -50,6 +58,7 @@ import com.dugcanlift.coach.data.Recipe
 import com.dugcanlift.coach.data.forClient
 import com.dugcanlift.coach.data.hasMacros
 import com.dugcanlift.kit.CaptionRecipe
+import com.dugcanlift.kit.IngredientParser
 import com.dugcanlift.kit.Split
 import com.dugcanlift.coach.data.RecipeWeightUnit
 import com.dugcanlift.kit.RecipeNutrition
@@ -73,7 +82,8 @@ private enum class CookSection(val label: String) {
 fun CookScreen(
     repo: ClientRepository,
     onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showBack: Boolean = true
 ) {
     val context = LocalContext.current
     val cook = remember { CookRepository(context.filesDir) }
@@ -87,15 +97,18 @@ fun CookScreen(
     var revision by remember { mutableStateOf(0) }
     val library = remember(revision) { cook.load() }
 
-    var section by remember { mutableStateOf(CookSection.RECIPES) }
+    var section by rememberSaveable { mutableStateOf(CookSection.RECIPES) }
 
     // Held here rather than inside the Plan section: each section is its own
     // subtree, so state living below would be torn down and rebuilt on every
     // section switch and the picked client would be lost on the way to
     // Shopping -- which reads the same client's week. Coach iOS's CookView
     // owns it at this level for exactly the same reason.
-    var planClientId by remember { mutableStateOf(clients.firstOrNull()?.id) }
-    var editing by remember { mutableStateOf<Recipe?>(null) }
+    var planClientId by rememberSaveable { mutableStateOf(clients.firstOrNull()?.id) }
+    // The recipe open in the editor, saved as its id so an activity recreation (a theme or
+    // density change) reopens it. An id the library does not hold is a new, unsaved recipe.
+    var editingId by rememberSaveable { mutableStateOf<String?>(null) }
+    val editing = editingId?.let { id -> library.recipes.firstOrNull { it.id == id } ?: Recipe(id = id, name = "") }
     var confirmingDelete by remember { mutableStateOf<Recipe?>(null) }
 
     Scaffold(
@@ -104,11 +117,14 @@ fun CookScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Cook") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("Back") } }
+                navigationIcon = { if (showBack) TextButton(onClick = onBack) { Text("Back") } }
             )
         }
     ) { padding ->
-        Column(Modifier.padding(padding).padding(horizontal = 16.dp)) {
+      BoxWithConstraints(Modifier.padding(padding)) {
+        // Below 600 dp every grid here is one column: the phone layout, unchanged.
+        val available = maxWidth.value - 32f
+        Column(Modifier.padding(horizontal = 16.dp)) {
 
             if (library.isUnreadable) {
                 // The same distinction StoredCookLibrary exists to make: this is
@@ -142,8 +158,9 @@ fun CookScreen(
             when (section) {
                 CookSection.RECIPES -> RecipeList(
                     recipes = library.recipes,
-                    onAdd = { editing = Recipe(name = "") },
-                    onEdit = { editing = it },
+                    columns = AdaptiveLayout.cardColumns(available),
+                    onAdd = { editingId = Recipe(name = "").id },
+                    onEdit = { editingId = it.id },
                     onDelete = { confirmingDelete = it }
                 )
 
@@ -155,6 +172,8 @@ fun CookScreen(
                     meals = weekMeals,
                     recipesById = recipesById,
                     canPlan = clientId != null && library.recipes.isNotEmpty(),
+                    dayColumns = AdaptiveLayout.planDayColumns(available),
+                    buttonColumns = AdaptiveLayout.cardColumns(available),
                     onAdd = { recipe ->
                         cook.upsertMeal(
                             PlannedMeal(
@@ -195,19 +214,21 @@ fun CookScreen(
                 )
 
                 CookSection.SHOPPING -> ShoppingList(
-                    lines = CoachShoppingList.build(weekMeals, recipesById)
+                    lines = CoachShoppingList.build(weekMeals, recipesById),
+                    columns = AdaptiveLayout.shoppingColumns(available)
                 )
             }
         }
+      }
     }
 
     editing?.let { recipe ->
         RecipeEditor(
             recipe = recipe,
-            onCancel = { editing = null },
+            onCancel = { editingId = null },
             onSave = {
                 cook.upsertRecipe(it)
-                editing = null
+                editingId = null
                 revision++
                 scope.launch { snackbar.showSnackbar("Saved ${it.name}.") }
             }
@@ -242,11 +263,12 @@ fun CookScreen(
 @Composable
 private fun RecipeList(
     recipes: List<Recipe>,
+    columns: Int,
     onAdd: () -> Unit,
     onEdit: (Recipe) -> Unit,
     onDelete: (Recipe) -> Unit
 ) {
-    Button(onClick = onAdd, modifier = Modifier.fillMaxWidth()) { Text("Write a recipe") }
+    Button(onClick = onAdd, modifier = Modifier.wideButton(columns)) { Text("Write a recipe") }
     Spacer(Modifier.height(12.dp))
 
     if (recipes.isEmpty()) {
@@ -258,27 +280,40 @@ private fun RecipeList(
         return
     }
 
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(recipes, key = { it.id }) { recipe ->
-            Card(Modifier.fillMaxWidth(), border = dclCardBorder()) {
-                Column(Modifier.padding(12.dp)) {
-                    Text(recipe.name.ifBlank { "Untitled" }, style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "Serves ${recipe.servings.trimZeros()} · " +
-                            "${recipe.rawIngredients.size} ingredient(s)" +
-                            (recipe.nutritionPerServing?.takeIf { it.hasMacros }?.let { " · ${it.calories.toInt()} kcal/serving" } ?: ""),
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { onEdit(recipe) }) { Text("Edit") }
-                        TextButton(onClick = { onDelete(recipe) }) { Text("Delete") }
-                    }
+    val card: @Composable (Recipe, Modifier) -> Unit = { recipe, modifier ->
+        Card(modifier.fillMaxWidth(), border = dclCardBorder()) {
+            Column(Modifier.padding(12.dp)) {
+                Text(recipe.name.ifBlank { "Untitled" }, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Serves ${recipe.servings.trimZeros()} · " +
+                        "${recipe.rawIngredients.size} ingredient(s)" +
+                        (recipe.nutritionPerServing?.takeIf { it.hasMacros }?.let { " · ${it.calories.toInt()} kcal/serving" } ?: ""),
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { onEdit(recipe) }) { Text("Edit") }
+                    TextButton(onClick = { onDelete(recipe) }) { Text("Delete") }
                 }
             }
         }
     }
+
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (columns == 1) {
+            items(recipes, key = { it.id }) { recipe -> card(recipe, Modifier) }
+        } else {
+            items(rowMajor(recipes, columns), key = { row -> row.first().id }) { row ->
+                GridRow(row, columns) { recipe -> card(recipe, Modifier.fillMaxHeight()) }
+            }
+        }
+    }
 }
+
+/** Full width on a phone; in a wide layout a primary button stops being a banner. */
+internal fun Modifier.wideButton(columns: Int): Modifier =
+    if (columns == 1) fillMaxWidth()
+    else widthIn(max = AdaptiveLayout.MAX_WIDE_BUTTON_DP.dp).fillMaxWidth()
 
 @Composable
 private fun PlanList(
@@ -290,6 +325,8 @@ private fun PlanList(
     recipesById: Map<String, Recipe>,
     recipes: List<Recipe>,
     canPlan: Boolean,
+    dayColumns: Int,
+    buttonColumns: Int,
     onAdd: (Recipe) -> Unit,
     onRemove: (PlannedMeal) -> Unit,
     onSend: () -> Unit
@@ -327,27 +364,59 @@ private fun PlanList(
     }
 
     if (meals.isNotEmpty()) {
-        Button(onClick = onSend, modifier = Modifier.fillMaxWidth()) {
+        Button(onClick = onSend, modifier = Modifier.wideButton(dayColumns)) {
             Text("Send this week to $clientName")
         }
         Spacer(Modifier.height(12.dp))
     }
 
+    val mealCard: @Composable (PlannedMeal) -> Unit = { meal ->
+        Card(Modifier.fillMaxWidth(), border = dclCardBorder()) {
+            Column(Modifier.padding(12.dp)) {
+                Text(
+                    meal.recipeName.ifBlank { recipesById[meal.recipeId]?.name ?: "Deleted recipe" },
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    "${meal.dayKey} · ${meal.meal} · ${meal.servings.trimZeros()} serving(s)",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                TextButton(onClick = { onRemove(meal) }) { Text("Remove") }
+            }
+        }
+    }
+
+    // The week as days side by side when there is room; a phone keeps its single list.
+    val days = remember(meals) { meals.groupBy { it.dayKey }.toSortedMap().toList() }
+
     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(meals, key = { it.id }) { meal ->
-            Card(Modifier.fillMaxWidth(), border = dclCardBorder()) {
-                Column(Modifier.padding(12.dp)) {
-                    Text(
-                        meal.recipeName.ifBlank { recipesById[meal.recipeId]?.name ?: "Deleted recipe" },
-                        style = MaterialTheme.typography.titleSmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        "${meal.dayKey} · ${meal.meal} · ${meal.servings.trimZeros()} serving(s)",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    TextButton(onClick = { onRemove(meal) }) { Text("Remove") }
+        if (dayColumns == 1) {
+            items(meals, key = { it.id }) { meal -> mealCard(meal) }
+        } else {
+            items(rowMajor(days, dayColumns), key = { row -> "days-${row.first().first}" }) { row ->
+                GridRow(row, dayColumns) { (dayKey, dayMeals) ->
+                    Card(Modifier.fillMaxWidth().fillMaxHeight(), border = dclCardBorder()) {
+                        Column(Modifier.padding(12.dp)) {
+                            Text(formatShortDay(dayKey), style = MaterialTheme.typography.titleSmall)
+                            Text(dayKey, style = MaterialTheme.typography.bodySmall)
+                            dayMeals.forEach { meal ->
+                                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                                Text(
+                                    meal.recipeName.ifBlank { recipesById[meal.recipeId]?.name ?: "Deleted recipe" },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    "${meal.meal} · ${meal.servings.trimZeros()} serving(s)",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                TextButton(onClick = { onRemove(meal) }) { Text("Remove") }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -355,9 +424,19 @@ private fun PlanList(
         if (canPlan) {
             item { HorizontalDivider() }
             item { Text("Add to the week", style = MaterialTheme.typography.titleSmall) }
-            items(recipes, key = { "add-${it.id}" }) { recipe ->
-                OutlinedButton(onClick = { onAdd(recipe) }, modifier = Modifier.fillMaxWidth()) {
-                    Text(recipe.name.ifBlank { "Untitled" })
+            if (buttonColumns == 1) {
+                items(recipes, key = { "add-${it.id}" }) { recipe ->
+                    OutlinedButton(onClick = { onAdd(recipe) }, modifier = Modifier.fillMaxWidth()) {
+                        Text(recipe.name.ifBlank { "Untitled" })
+                    }
+                }
+            } else {
+                items(rowMajor(recipes, buttonColumns), key = { row -> "add-${row.first().id}" }) { row ->
+                    GridRow(row, buttonColumns) { recipe ->
+                        OutlinedButton(onClick = { onAdd(recipe) }, modifier = Modifier.fillMaxWidth()) {
+                            Text(recipe.name.ifBlank { "Untitled" }, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
                 }
             }
         } else if (recipes.isEmpty()) {
@@ -370,52 +449,71 @@ private fun PlanList(
 }
 
 @Composable
-private fun ShoppingList(lines: List<com.dugcanlift.coach.data.ShoppingLine>) {
+private fun ShoppingList(lines: List<com.dugcanlift.coach.data.ShoppingLine>, columns: Int = 1) {
     if (lines.isEmpty()) {
         Text("Nothing planned yet, so there is nothing to buy.",
              style = MaterialTheme.typography.bodyMedium)
         return
     }
+    val line: @Composable (com.dugcanlift.coach.data.ShoppingLine, Modifier) -> Unit = { line, modifier ->
+        Text(shoppingLineText(line), style = MaterialTheme.typography.bodyMedium, modifier = modifier)
+    }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        items(lines, key = { it.name }) { line ->
-            val amounts = line.amounts.entries
-                .joinToString(" + ") { (unit, value) ->
-                    listOf(value.trimZeros(), unit).filter { it.isNotBlank() }.joinToString(" ")
-                }
-            // An unreadable quantity still earns a line. "a pinch of salt" is on
-            // the list; the parser not knowing how much is not a reason to shop
-            // for none of it.
-            val suffix = if (line.unquantified > 0) {
-                if (amounts.isBlank()) "as needed" else "$amounts + as needed"
-            } else amounts
-            Text("${line.name} — $suffix", style = MaterialTheme.typography.bodyMedium)
+        if (columns == 1) {
+            items(lines, key = { it.name }) { line(it, Modifier) }
+        } else {
+            // Read down each column, as a list is, rather than across.
+            items(columnMajor(lines, columns), key = { row -> "shop-${row.first().name}" }) { row ->
+                GridRow(row, columns, gap = 24f) { line(it, Modifier) }
+            }
         }
     }
 }
 
+/**
+ * "lean beef mince — 450 g", "peppers — 3". The count sentinel ([IngredientParser.COUNT_UNIT])
+ * keeps "3 peppers" apart from any real unit when adding up, but it is not a unit and never reaches
+ * the screen. It used to, as an invisible NUL followed by "count" -- which also made
+ * `uiautomator dump` crash on this screen.
+ */
+internal fun shoppingLineText(line: com.dugcanlift.coach.data.ShoppingLine): String {
+    val amounts = line.amounts.entries
+        .joinToString(" + ") { (unit, value) ->
+            val shownUnit = if (unit == IngredientParser.COUNT_UNIT) "" else unit
+            listOf(value.trimZeros(), shownUnit).filter { it.isNotBlank() }.joinToString(" ")
+        }
+    // An unreadable quantity still earns a line. "a pinch of salt" is on
+    // the list; the parser not knowing how much is not a reason to shop
+    // for none of it.
+    val suffix = if (line.unquantified > 0) {
+        if (amounts.isBlank()) "as needed" else "$amounts + as needed"
+    } else amounts
+    return "${line.name} — $suffix"
+}
+
 @Composable
 private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) -> Unit) {
-    var name by remember(recipe.id) { mutableStateOf(recipe.name) }
-    var servings by remember(recipe.id) { mutableStateOf(recipe.servings.trimZeros()) }
+    var name by rememberSaveable(recipe.id) { mutableStateOf(recipe.name) }
+    var servings by rememberSaveable(recipe.id) { mutableStateOf(recipe.servings.trimZeros()) }
     // One line per ingredient, exactly as typed. The parser reads these for the
     // shopping list, but what the coach wrote is what is stored -- a re-save
     // must never launder "a pinch" into nothing.
-    var ingredients by remember(recipe.id) { mutableStateOf(recipe.rawIngredients.joinToString("\n")) }
-    var steps by remember(recipe.id) { mutableStateOf(recipe.steps.joinToString("\n")) }
+    var ingredients by rememberSaveable(recipe.id) { mutableStateOf(recipe.rawIngredients.joinToString("\n")) }
+    var steps by rememberSaveable(recipe.id) { mutableStateOf(recipe.steps.joinToString("\n")) }
 
     // Macros. Blank rather than "0" when the recipe carries none, because the
     // whole point below is that an untouched field must not become a measured
     // zero on a client's phone.
     val macros = recipe.nutritionPerServing
-    var calories by remember(recipe.id) { mutableStateOf(macroFieldText(macros) { it.calories }) }
-    var protein by remember(recipe.id) { mutableStateOf(macroFieldText(macros) { it.proteinG }) }
-    var carbs by remember(recipe.id) { mutableStateOf(macroFieldText(macros) { it.carbsG }) }
-    var fat by remember(recipe.id) { mutableStateOf(macroFieldText(macros) { it.fatG }) }
-    var fiber by remember(recipe.id) { mutableStateOf(macroFieldText(macros) { it.fiberG }) }
+    var calories by rememberSaveable(recipe.id) { mutableStateOf(macroFieldText(macros) { it.calories }) }
+    var protein by rememberSaveable(recipe.id) { mutableStateOf(macroFieldText(macros) { it.proteinG }) }
+    var carbs by rememberSaveable(recipe.id) { mutableStateOf(macroFieldText(macros) { it.carbsG }) }
+    var fat by rememberSaveable(recipe.id) { mutableStateOf(macroFieldText(macros) { it.fatG }) }
+    var fiber by rememberSaveable(recipe.id) { mutableStateOf(macroFieldText(macros) { it.fiberG }) }
     // Saturated fat, sugar, sodium: each optional on its own, blank when unknown.
-    var saturatedFat by remember(recipe.id) { mutableStateOf(macros?.saturatedFatG?.trimZeros() ?: "") }
-    var sugar by remember(recipe.id) { mutableStateOf(macros?.sugarG?.trimZeros() ?: "") }
-    var sodium by remember(recipe.id) { mutableStateOf(macros?.sodiumMg?.trimZeros() ?: "") }
+    var saturatedFat by rememberSaveable(recipe.id) { mutableStateOf(macros?.saturatedFatG?.trimZeros() ?: "") }
+    var sugar by rememberSaveable(recipe.id) { mutableStateOf(macros?.sugarG?.trimZeros() ?: "") }
+    var sodium by rememberSaveable(recipe.id) { mutableStateOf(macros?.sodiumMg?.trimZeros() ?: "") }
 
     // Weight. The unit is the coach's own display preference, remembered
     // across recipes; the model is always grams.
@@ -430,8 +528,8 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
     // off the fridge. Offered only on a new recipe: pasting over one that
     // exists would replace the coach's work rather than start from it.
     val isNew = recipe.name.isBlank()
-    var pasting by remember(recipe.id) { mutableStateOf(false) }
-    var pasteText by remember(recipe.id) { mutableStateOf("") }
+    var pasting by rememberSaveable(recipe.id) { mutableStateOf(false) }
+    var pasteText by rememberSaveable(recipe.id) { mutableStateOf("") }
     var splitAdvice by remember(recipe.id) { mutableStateOf<String?>(null) }
 
     AlertDialog(

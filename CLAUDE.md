@@ -337,3 +337,41 @@ writing. It takes a lock for the whole operation. `Files.move` makes each write
 atomic; it does nothing about a lost update. `RosterLoader` serialises the
 roster *reads*; this serialises the *writes*, which are the ones that lose
 data.
+
+## Large screens
+
+Layout follows the **window's width**, never the device: Material 3's classes,
+compact < 600 dp, medium 600–840, expanded ≥ 840 (`ui/adaptive/WindowLayout.kt`).
+`ProvideWindowLayout` measures the window once at the root and provides
+`LocalWindowWidth`; every decision is a plain function on `AdaptiveLayout`, pinned
+by `WindowLayoutTest`. Put a new width rule there, not in a composable.
+
+- **Compact is the phone app, unchanged**: bottom bar on the roster, Back on every
+  pushed screen, one column everywhere. Every grid returns one column below 600 dp
+  of *available* width and the compact code paths are the old ones, so check a
+  change there against main's screenshots, not just "looks fine".
+- **Medium and expanded**: a `NavigationRail` (Roster/Train/Cook/Connect) replaces
+  the bottom bar, and Train/Cook/Connect lose Back — they are peers, navigated with
+  `popUpTo(ROSTER)`. A rail at expanded too, not a drawer: the drawer's 240 dp
+  would come out of the client pane.
+- **Expanded roster is list + detail.** `selectedClientId` (saveable, in
+  `CoachNavHost`) is "the client open", in either form; `reconcileRoster` moves it
+  between the detail pane and `client/{id}` when the width crosses 840 dp, and
+  clears it when a phone Back returns to the roster.
+- **The client page measures its pane** (`BoxWithConstraints`), never
+  `LocalConfiguration.screenWidthDp`: as a pane, the screen's width is wrong. Charts
+  are at least one column wide, floored to whole dp as `screenWidthDp` was. From a
+  600 dp page it is two columns, capped at `MAX_CONTENT_DP` and centred.
+- **Folds**: `MainActivity` reads a separating *vertical* `FoldingFeature` through
+  `WindowInfoTracker` (`androidx.window`, already transitive via Material 3) and the
+  list/detail split moves onto it when both sides stay usable. Nothing else avoids a
+  hinge: Cook/Train grids and a horizontal (table-top) fold are not handled.
+- Rotation, resizing and folding do not recreate the activity (`configChanges`);
+  a theme or density change still does, so user state is `rememberSaveable` —
+  an open editor is saved by id, its fields as strings.
+- Rail icons are drawn in `AdaptiveComponents.kt`; do not add material-icons for four
+  glyphs.
+
+To check on the one phone AVD: `adb shell wm size 2560x1600 && adb shell wm density
+320` (tablet landscape), `1600x2560` (portrait), `1767x2208` at 420 (foldable
+inner), then **always** `wm size reset` and `wm density reset`.

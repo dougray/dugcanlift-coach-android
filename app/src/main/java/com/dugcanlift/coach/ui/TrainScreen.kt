@@ -1,6 +1,12 @@
 package com.dugcanlift.coach.ui
 
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.dugcanlift.coach.ui.adaptive.AdaptiveLayout
+import com.dugcanlift.coach.ui.adaptive.GridRow
+import com.dugcanlift.coach.ui.adaptive.rowMajor
 import com.dugcanlift.coach.ui.theme.dclCardBorder
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -79,7 +85,8 @@ private enum class TrainSection(val label: String) {
 fun TrainScreen(
     repo: ClientRepository,
     onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showBack: Boolean = true
 ) {
     val context = LocalContext.current
     val train = remember { TrainRepository(context.filesDir) }
@@ -90,10 +97,12 @@ fun TrainScreen(
     val library = remember(revision) { train.load() }
     val clients = remember { repo.all() }
 
-    var section by remember { mutableStateOf(TrainSection.ROUTINES) }
-    var editing by remember { mutableStateOf<Routine?>(null) }
+    var section by rememberSaveable { mutableStateOf(TrainSection.ROUTINES) }
+    // Saved as an id, as Cook does, so a recreated activity reopens the same editor.
+    var editingId by rememberSaveable { mutableStateOf<String?>(null) }
+    val editing = editingId?.let { id -> library.routines.firstOrNull { it.id == id } ?: Routine(id = id, name = "") }
     var confirmingDelete by remember { mutableStateOf<Routine?>(null) }
-    var planClientId by remember { mutableStateOf(clients.firstOrNull()?.id) }
+    var planClientId by rememberSaveable { mutableStateOf(clients.firstOrNull()?.id) }
 
     Scaffold(
         modifier = modifier,
@@ -101,11 +110,14 @@ fun TrainScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Train") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("Back") } }
+                navigationIcon = { if (showBack) TextButton(onClick = onBack) { Text("Back") } }
             )
         }
     ) { padding ->
-        Column(Modifier.padding(padding).padding(horizontal = 16.dp)) {
+      BoxWithConstraints(Modifier.padding(padding)) {
+        // Below 600 dp every grid here is one column: the phone layout, unchanged.
+        val columns = AdaptiveLayout.cardColumns(maxWidth.value - 32f)
+        Column(Modifier.padding(horizontal = 16.dp)) {
 
             if (library.isUnreadable) {
                 Text(
@@ -136,8 +148,9 @@ fun TrainScreen(
             when (section) {
                 TrainSection.ROUTINES -> RoutineList(
                     routines = library.routines,
-                    onAdd = { editing = Routine(name = "") },
-                    onEdit = { editing = it },
+                    columns = columns,
+                    onAdd = { editingId = Routine(name = "").id },
+                    onEdit = { editingId = it.id },
                     onDelete = { confirmingDelete = it }
                 )
 
@@ -159,19 +172,21 @@ fun TrainScreen(
                         )
                         revision++
                     },
-                    onRemove = { train.deleteSession(it.id); revision++ }
+                    onRemove = { train.deleteSession(it.id); revision++ },
+                    columns = columns
                 )
             }
         }
+      }
     }
 
     editing?.let { routine ->
         RoutineEditor(
             routine = routine,
-            onCancel = { editing = null },
+            onCancel = { editingId = null },
             onSave = {
                 train.upsertRoutine(it)
-                editing = null
+                editingId = null
                 revision++
                 scope.launch { snackbar.showSnackbar("Saved ${it.name}.") }
             }
@@ -204,11 +219,12 @@ fun TrainScreen(
 @Composable
 private fun RoutineList(
     routines: List<Routine>,
+    columns: Int,
     onAdd: () -> Unit,
     onEdit: (Routine) -> Unit,
     onDelete: (Routine) -> Unit
 ) {
-    Button(onClick = onAdd, modifier = Modifier.fillMaxWidth()) { Text("Write a routine") }
+    Button(onClick = onAdd, modifier = Modifier.wideButton(columns)) { Text("Write a routine") }
     Spacer(Modifier.height(12.dp))
 
     if (routines.isEmpty()) {
@@ -220,30 +236,38 @@ private fun RoutineList(
         return
     }
 
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(routines, key = { it.id }) { routine ->
-            Card(Modifier.fillMaxWidth(), border = dclCardBorder()) {
-                Column(Modifier.padding(12.dp)) {
-                    Text(routine.name.ifBlank { "Untitled" }, style = MaterialTheme.typography.titleMedium)
+    val card: @Composable (Routine, Modifier) -> Unit = { routine, modifier ->
+        Card(modifier.fillMaxWidth(), border = dclCardBorder()) {
+            Column(Modifier.padding(12.dp)) {
+                Text(routine.name.ifBlank { "Untitled" }, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "${routine.exercises.size} exercise(s) · ${routine.setCount} set(s)",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                if (routine.exercises.isNotEmpty()) {
+                    Spacer(Modifier.height(4.dp))
                     Text(
-                        "${routine.exercises.size} exercise(s) · ${routine.setCount} set(s)",
-                        style = MaterialTheme.typography.bodySmall
+                        routine.exercises.joinToString(", ") { it.displayName },
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
                     )
-                    if (routine.exercises.isNotEmpty()) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            routine.exercises.joinToString(", ") { it.displayName },
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { onEdit(routine) }) { Text("Edit") }
-                        TextButton(onClick = { onDelete(routine) }) { Text("Delete") }
-                    }
                 }
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { onEdit(routine) }) { Text("Edit") }
+                    TextButton(onClick = { onDelete(routine) }) { Text("Delete") }
+                }
+            }
+        }
+    }
+
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (columns == 1) {
+            items(routines, key = { it.id }) { routine -> card(routine, Modifier) }
+        } else {
+            items(rowMajor(routines, columns), key = { row -> row.first().id }) { row ->
+                GridRow(row, columns) { routine -> card(routine, Modifier.fillMaxHeight()) }
             }
         }
     }
@@ -259,7 +283,8 @@ private fun ScheduleList(
     routinesById: Map<String, Routine>,
     routines: List<Routine>,
     onBook: (Routine) -> Unit,
-    onRemove: (ScheduledSession) -> Unit
+    onRemove: (ScheduledSession) -> Unit,
+    columns: Int = 1
 ) {
     if (clients.isEmpty()) {
         Text(
@@ -291,26 +316,41 @@ private fun ScheduleList(
         return
     }
 
+    val sessionCard: @Composable (ScheduledSession, Modifier) -> Unit = { session, modifier ->
+        Card(modifier.fillMaxWidth(), border = dclCardBorder()) {
+            Column(Modifier.padding(12.dp)) {
+                Text(
+                    routinesById[session.routineId]?.name ?: "Deleted routine",
+                    style = MaterialTheme.typography.titleSmall
+                )
+                Text(session.dayKey, style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = { onRemove(session) }) { Text("Remove") }
+            }
+        }
+    }
+    val bookButton: @Composable (Routine) -> Unit = { routine ->
+        OutlinedButton(onClick = { onBook(routine) }, modifier = Modifier.fillMaxWidth()) {
+            Text(routine.name.ifBlank { "Untitled" }, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+
     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(sessions, key = { it.id }) { session ->
-            Card(Modifier.fillMaxWidth(), border = dclCardBorder()) {
-                Column(Modifier.padding(12.dp)) {
-                    Text(
-                        routinesById[session.routineId]?.name ?: "Deleted routine",
-                        style = MaterialTheme.typography.titleSmall
-                    )
-                    Text(session.dayKey, style = MaterialTheme.typography.bodySmall)
-                    TextButton(onClick = { onRemove(session) }) { Text("Remove") }
-                }
+        if (columns == 1) {
+            items(sessions, key = { it.id }) { session -> sessionCard(session, Modifier) }
+        } else {
+            items(rowMajor(sessions, columns), key = { row -> row.first().id }) { row ->
+                GridRow(row, columns) { session -> sessionCard(session, Modifier.fillMaxHeight()) }
             }
         }
 
         if (routines.isNotEmpty()) {
             item { HorizontalDivider() }
             item { Text("Book a session", style = MaterialTheme.typography.titleSmall) }
-            items(routines, key = { "book-${it.id}" }) { routine ->
-                OutlinedButton(onClick = { onBook(routine) }, modifier = Modifier.fillMaxWidth()) {
-                    Text(routine.name.ifBlank { "Untitled" })
+            if (columns == 1) {
+                items(routines, key = { "book-${it.id}" }) { routine -> bookButton(routine) }
+            } else {
+                items(rowMajor(routines, columns), key = { row -> "book-${row.first().id}" }) { row ->
+                    GridRow(row, columns) { routine -> bookButton(routine) }
                 }
             }
         } else {
@@ -329,8 +369,8 @@ private fun ScheduleList(
  */
 @Composable
 private fun RoutineEditor(routine: Routine, onCancel: () -> Unit, onSave: (Routine) -> Unit) {
-    var name by remember(routine.id) { mutableStateOf(routine.name) }
-    var lines by remember(routine.id) {
+    var name by rememberSaveable(routine.id) { mutableStateOf(routine.name) }
+    var lines by rememberSaveable(routine.id) {
         mutableStateOf(routine.exercises.joinToString("\n") { exercise ->
             val first = exercise.sets.firstOrNull()
             val scheme = listOfNotNull(

@@ -14,9 +14,16 @@
         android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
         android:theme="@style/Theme.Coach">
+        <!-- Resizeable and unlocked in orientation: tablets, foldables and split screen get
+             adaptive layouts by window width (ui/adaptive/WindowLayout.kt). Size, orientation
+             and fold changes are handled in place rather than by recreating the activity: the
+             whole UI is Compose and re-lays itself out, and nothing typed into an open dialog is
+             lost when a foldable opens. -->
         <activity
             android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize"
             android:exported="true"
+            android:resizeableActivity="true"
             android:label="@string/app_name"
             android:launchMode="singleTop"
             android:theme="@style/Theme.Coach">

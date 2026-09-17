@@ -34,6 +34,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.dugcanlift.coach.ui.adaptive.AdaptiveLayout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.dugcanlift.coach.data.BackupOutcome
@@ -70,7 +75,7 @@ private fun preservedLibraryFile(context: Context) = File(context.filesDir, "pre
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ConnectScreen(repo: ClientRepository, onBack: () -> Unit) {
+fun ConnectScreen(repo: ClientRepository, onBack: () -> Unit, showBack: Boolean = true) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
     val appearanceStore = remember { AppearanceStore.get(context) }
@@ -78,8 +83,8 @@ fun ConnectScreen(repo: ClientRepository, onBack: () -> Unit) {
 
     var coachName by remember { mutableStateOf(prefs.getString(PREF_COACH_NAME, "") ?: "") }
     var coachEmail by remember { mutableStateOf(prefs.getString(PREF_COACH_EMAIL, "") ?: "") }
-    var statusMessage by remember { mutableStateOf<String?>(null) }
-    var statusIsError by remember { mutableStateOf(false) }
+    var statusMessage by rememberSaveable { mutableStateOf<String?>(null) }
+    var statusIsError by rememberSaveable { mutableStateOf(false) }
 
     fun updateCoachName(value: String) {
         coachName = value
@@ -119,7 +124,7 @@ fun ConnectScreen(repo: ClientRepository, onBack: () -> Unit) {
             // only way off Connect was the system back gesture.
             TopAppBar(
                 title = { Text("Connect") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("Back") } }
+                navigationIcon = { if (showBack) TextButton(onClick = onBack) { Text("Back") } }
             )
         }
     ) { padding ->
@@ -128,6 +133,9 @@ fun ConnectScreen(repo: ClientRepository, onBack: () -> Unit) {
                 .padding(padding)
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
+                // A short form: on a wide window it stays form-width, centred.
+                .wrapContentWidth(Alignment.CenterHorizontally)
+                .widthIn(max = AdaptiveLayout.MAX_FORM_DP.dp)
                 .padding(16.dp)
         ) {
             Text("Appearance", style = MaterialTheme.typography.titleMedium)
