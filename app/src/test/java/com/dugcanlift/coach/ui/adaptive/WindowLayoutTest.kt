@@ -122,6 +122,43 @@ class WindowLayoutTest {
                                            onRosterRoute = true, selectedClientId = null))
     }
 
+    @Test fun `the two-pane-ness remembered for the next check is the current one once the back stack is known`() {
+        assertEquals(false, AdaptiveLayout.rosterTwoPaneToRemember(lastTwoPane = true, twoPane = false, backStackRestored = true))
+        assertEquals(true, AdaptiveLayout.rosterTwoPaneToRemember(lastTwoPane = false, twoPane = true, backStackRestored = true))
+    }
+
+    @Test fun `a check before the back stack is restored keeps the width seen before recreation`() {
+        assertEquals(true, AdaptiveLayout.rosterTwoPaneToRemember(lastTwoPane = true, twoPane = false, backStackRestored = false))
+        assertEquals(false, AdaptiveLayout.rosterTwoPaneToRemember(lastTwoPane = false, twoPane = true, backStackRestored = false))
+    }
+
+    @Test fun `recreated at medium from an expanded roster with a selection opens that client`() {
+        // Expanded, client "a" selected in the detail pane; the activity is recreated at medium.
+        var last = true
+        // First check: the back stack is not restored yet, so no route is current.
+        assertEquals(RosterReconcile.NONE,
+            AdaptiveLayout.reconcileRoster(twoPane = false, widthChanged = last != false, onClientRoute = false,
+                                           onRosterRoute = false, selectedClientId = "a"))
+        last = AdaptiveLayout.rosterTwoPaneToRemember(last, twoPane = false, backStackRestored = false)
+        // Second check: the roster is current again. The width change must still be seen.
+        assertEquals(RosterReconcile.OPEN_CLIENT_SCREEN,
+            AdaptiveLayout.reconcileRoster(twoPane = false, widthChanged = last != false, onClientRoute = false,
+                                           onRosterRoute = true, selectedClientId = "a"))
+        last = AdaptiveLayout.rosterTwoPaneToRemember(last, twoPane = false, backStackRestored = true)
+        assertEquals(false, last)
+    }
+
+    @Test fun `recreated expanded from a medium client screen shows the client in the pane`() {
+        var last = false
+        assertEquals(RosterReconcile.NONE,
+            AdaptiveLayout.reconcileRoster(twoPane = true, widthChanged = last != true, onClientRoute = false,
+                                           onRosterRoute = false, selectedClientId = "a"))
+        last = AdaptiveLayout.rosterTwoPaneToRemember(last, twoPane = true, backStackRestored = false)
+        assertEquals(RosterReconcile.SHOW_IN_DETAIL_PANE,
+            AdaptiveLayout.reconcileRoster(twoPane = true, widthChanged = last != true, onClientRoute = true,
+                                           onRosterRoute = false, selectedClientId = "a"))
+    }
+
     @Test fun `row-major fills across then down`() {
         assertEquals(listOf(listOf(1, 2, 3), listOf(4, 5)), rowMajor(listOf(1, 2, 3, 4, 5), 3))
         assertEquals(listOf(listOf(1), listOf(2)), rowMajor(listOf(1, 2), 1))

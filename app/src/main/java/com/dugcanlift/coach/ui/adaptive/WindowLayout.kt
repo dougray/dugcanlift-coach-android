@@ -152,7 +152,8 @@ object AdaptiveLayout {
     /**
      * @param widthChanged whether two-pane-ness changed since the last check -- the only thing that
      *   tells a narrow roster reached by resizing (reopen the client) from one reached by Back
-     *   (clear the selection).
+     *   (clear the selection). "The last check" includes one made before an activity recreation:
+     *   see [rosterTwoPaneToRemember].
      */
     fun reconcileRoster(twoPane: Boolean, widthChanged: Boolean, onClientRoute: Boolean,
                         onRosterRoute: Boolean, selectedClientId: String?): RosterReconcile = when {
@@ -161,6 +162,22 @@ object AdaptiveLayout {
             if (widthChanged) RosterReconcile.OPEN_CLIENT_SCREEN else RosterReconcile.CLEAR_SELECTION
         else -> RosterReconcile.NONE
     }
+
+    /**
+     * The two-pane-ness the next [reconcileRoster] check compares against, which the navigation host
+     * keeps *saveable*. A density or theme change recreates the activity, and the rebuilt
+     * composition starts at the new width: remembered only in memory, the old two-pane-ness was
+     * lost, so an expanded roster with a client selected, recreated at medium, read as a Back and
+     * cleared the client instead of opening it.
+     *
+     * Saving it is not enough on its own. The first check after a recreation runs before the
+     * navigation back stack is restored -- its entry has no destination route yet, so there is
+     * nothing to do;
+     * recording the new width then would spend the change on a check that could not act on it.
+     * So until the back stack is known, the old value is kept.
+     */
+    fun rosterTwoPaneToRemember(lastTwoPane: Boolean, twoPane: Boolean, backStackRestored: Boolean): Boolean =
+        if (backStackRestored) twoPane else lastTwoPane
 }
 
 /** [items] in rows of [columns], left to right then down -- cards, which read as a set. */
