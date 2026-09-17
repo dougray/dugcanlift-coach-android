@@ -400,3 +400,18 @@ by `WindowLayoutTest`. Put a new width rule there, not in a composable.
 To check on the one phone AVD: `adb shell wm size 2560x1600 && adb shell wm density
 320` (tablet landscape), `1600x2560` (portrait), `1767x2208` at 420 (foldable
 inner), then **always** `wm size reset` and `wm density reset`.
+
+## Removing a client
+
+Remove this client (foot of the client page) and a roster row's long-press menu
+both open `RemoveClientDialog`, which names the client and counts what goes
+before anything does; `data/ClientRemoval.kt` does the work. It deletes the
+client's file under `ShareLinkImporter`'s import lock, then the planned meals and
+booked sessions carrying that client's id -- invisible and unsendable once the
+client is gone, yet still written into every backup. Recipes and routines stay.
+An unreadable cook or train library is left untouched (rewriting it would
+destroy it) and the message says what stayed. Coach web removes only the
+client; the privacy policy promises the client's data leaves the device, which
+is why Android goes further. On a phone the client screen returns to the roster;
+in two panes the selection clears. `ClientRemovalTest` and
+`RemoveClientFlowTest` pin both halves.
