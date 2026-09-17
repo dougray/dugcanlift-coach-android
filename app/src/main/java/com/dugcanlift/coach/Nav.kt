@@ -97,6 +97,8 @@ fun CoachNavHost(
     val showBack = AdaptiveLayout.showsBackOnTopLevelScreens(width)
 
     var selectedClientId by rememberSaveable { mutableStateOf<String?>(null) }
+    // What a removal on the phone's client screen says once the roster is showing again.
+    var rosterNotice by rememberSaveable { mutableStateOf<String?>(null) }
     val backStackEntry by navController.currentBackStackEntryAsState()
     val route = backStackEntry?.destination?.route
 
@@ -191,14 +193,20 @@ fun CoachNavHost(
                     showBottomBar = !useRail,
                     twoPane = twoPane,
                     selectedClientId = selectedClientId,
-                    detail = { clientId, reloadKey ->
+                    notice = rosterNotice,
+                    onNoticeShown = { rosterNotice = null },
+                    onClientRemoved = { removedId ->
+                        if (selectedClientId == removedId) selectedClientId = null
+                    },
+                    detail = { clientId, reloadKey, onRemoved ->
                         ClientScreen(
                             clientId = clientId,
                             repo = repo,
                             onBack = {},
                             onCook = { openTopLevel(TopLevel.COOK) },
                             showBack = false,
-                            reloadKey = reloadKey
+                            reloadKey = reloadKey,
+                            onRemoved = onRemoved
                         )
                     }
                 )
@@ -212,7 +220,12 @@ fun CoachNavHost(
                         selectedClientId = null
                         navController.popBackStack()
                     },
-                    onCook = { navController.navigate(Routes.COOK) }
+                    onCook = { navController.navigate(Routes.COOK) },
+                    onRemoved = { outcome ->
+                        selectedClientId = null
+                        rosterNotice = outcome.message
+                        navController.popBackStack(Routes.ROSTER, inclusive = false)
+                    }
                 )
             }
             composable(Routes.COOK) {
