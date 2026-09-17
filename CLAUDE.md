@@ -357,7 +357,11 @@ by `WindowLayoutTest`. Put a new width rule there, not in a composable.
 - **Expanded roster is list + detail.** `selectedClientId` (saveable, in
   `CoachNavHost`) is "the client open", in either form; `reconcileRoster` moves it
   between the detail pane and `client/{id}` when the width crosses 840 dp, and
-  clears it when a phone Back returns to the roster.
+  clears it when a phone Back returns to the roster. The last two-pane-ness it
+  compares against is saveable too (`rosterTwoPaneToRemember`), and is not
+  overwritten until the restored back stack has a route: otherwise a density
+  change that also crosses 840 dp reads as a Back and loses the open client.
+  `RosterSelectionRecreationTest` (Robolectric) pins both directions.
 - **The client page measures its pane** (`BoxWithConstraints`), never
   `LocalConfiguration.screenWidthDp`: as a pane, the screen's width is wrong. Charts
   are at least one column wide, floored to whole dp as `screenWidthDp` was. From a
