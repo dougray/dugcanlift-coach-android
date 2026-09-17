@@ -35,6 +35,27 @@ logic that would otherwise only be reachable from a `@Composable` gets
 extracted into a plain Kotlin class so it can be unit tested directly — see
 `RosterLoader` below for the pattern.
 
+## Releases
+
+A pushed `v*` tag runs `.github/workflows/release.yml`. Tests and lint run on
+a GitHub-hosted runner; the `sign` job then waits for approval on the `release`
+environment and runs on the self-hosted signer, where the keystore lives. It
+builds `:app:assembleRelease :app:bundleRelease` in one Gradle run with the one
+signing config, and publishes both to the tag's GitHub Release:
+
+- **`coach-android.apk`** — the sideload download the website links to. Keep
+  its name; checked with `apksigner verify --print-certs`.
+- **`coach-android.aab`** — the App Bundle for Google Play, which accepts only
+  `.aab`. An AAB has a JAR signature that `apksigner` does not read, so it is
+  checked with `jarsigner -verify -strict` (only exit bit 4, "self-signed", is
+  allowed) and `keytool -printcert -jarfile` (exactly one signer).
+
+Both must carry `RELEASE_CERT_SHA256` or nothing is published, and
+`SHA256SUMS` lists both files. Locally, with no `keystore.properties`,
+`./gradlew :app:bundleRelease` builds an unsigned bundle; a `keystore.properties`
+whose `storeFile` does not exist on this Mac fails `validateSigningRelease`
+instead, so build from a clean checkout to check the bundle.
+
 ## Shared code lives in dugcanlift-kit-android
 
 The share-link wire codec, local day keys, and the DUGCANLIFT palette live in

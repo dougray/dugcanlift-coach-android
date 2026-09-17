@@ -101,10 +101,10 @@ Everyone / PEGI 3.
 
 ## Still missing before a submission
 
-- [ ] **An Android App Bundle.** `.github/workflows/release.yml` builds
-  `assembleRelease` and publishes `coach-android.apk`; Play requires an AAB
-  (`bundleRelease`). Not changed here — the release workflow and signing are out
-  of scope for this branch.
+- [x] **An Android App Bundle.** `.github/workflows/release.yml` now builds
+  `bundleRelease` alongside `assembleRelease`, verifies both carry the release
+  certificate, and attaches `coach-android.aab` to the GitHub Release next to
+  `coach-android.apk`. That `.aab` is the file to upload to Play.
 - [ ] **Play App Signing decision.** Play re-signs with its own key unless the
   existing release key is uploaded. The site's `.well-known/assetlinks.json`
   names only the current release certificate for `com.dugcanlift.coach`
