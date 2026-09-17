@@ -1,0 +1,5 @@
+Coach now uses the whole screen on tablets, foldables and in split screen: the tabs become a side rail, your roster sits beside the client you have open, and a client's charts, recipes, workouts and the week's plan spread across the space. Phones look the same as before.
+
+You can now remove a client, from the client page or by holding their row in the roster. Coach asks first, and says how many logged days, planned meals and booked sessions go with them.
+
+An open client stays open when the app restarts after a screen or display change.
