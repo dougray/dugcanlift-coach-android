@@ -24,7 +24,8 @@ import kotlinx.coroutines.withContext
  * through [ClientRemoval]. Shared by the client page's Remove this client and the roster row's
  * long-press menu, so both say and do exactly the same thing.
  *
- * @param onDone called once with the outcome after Remove, whether or not it fully succeeded.
+ * @param onDone called once with the outcome after Remove, whether or not it fully succeeded,
+ *   always on the main thread -- it navigates, and navigation moves a Lifecycle.
  */
 @Composable
 fun RemoveClientDialog(
@@ -70,7 +71,18 @@ fun RemoveClientDialog(
                     working = true
                     scope.launch {
                         val outcome = withContext(Dispatchers.IO) { removal.remove(clientId) }
-                        onDone(outcome)
+                        // Explicitly back on the main thread before calling back. [onDone]
+                        // navigates -- the phone's client page pops to the roster -- and
+                        // NavController moves each NavBackStackEntry's Lifecycle, which throws
+                        // when it is touched off the main thread. Returning from withContext(IO)
+                        // lands wherever this scope's dispatcher puts it: on a device that is
+                        // always the main thread, since AndroidUiDispatcher.Main posts every
+                        // resumption through the main Handler, but nothing here said so and under
+                        // a Compose test's dispatcher it is sometimes the IO worker that ran the
+                        // removal -- which is how "Method setCurrentState must be called on the
+                        // main thread" reached a CI runner from code that had passed for weeks.
+                        // Main.immediate, so on a device this stays the inline call it already was.
+                        withContext(Dispatchers.Main.immediate) { onDone(outcome) }
                     }
                 }
             ) { Text("Remove") }
