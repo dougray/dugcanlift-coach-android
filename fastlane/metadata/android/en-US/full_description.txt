@@ -4,7 +4,7 @@ GETTING A CLIENT'S LOG IN
 Tap the link in the client's email and it opens straight into Coach. You can also share the link into Coach from any app, or paste it in. Connect writes the invite text for a new client with your name and email address, ready to send however you usually talk to them.
 
 ROSTER
-Every client, sorted quietest first, with a banner naming anyone who hasn't logged for seven days or more.
+Every client, sorted quietest first, with a banner naming anyone who hasn't logged for seven days or more. Removing a client deletes their log from this device.
 
 CLIENT
 - A weekly summary table: sessions, sets, volume, average calories, average protein, how often protein hit the goal, and average steps
@@ -19,9 +19,11 @@ TRAIN
 Write routines, search an exercise library shared with LIFT so a lift you prescribe and a set your client logs are the same lift, and book sessions onto a client's days.
 
 BACKUP
-Save Backup and Restore from Backup write and read a file you keep wherever you choose. It is the same backup file the iPhone build of Coach uses.
+Save Backup and Restore from Backup write and read a file you keep wherever you choose. It is the same backup file Coach on iPhone uses.
 
 PRIVACY
 Coach does not request internet access. Your roster, recipes and routines are stored on this device and are excluded from Android's cloud backup. Client data only arrives in links you open, and only leaves in a backup file you save or a link you send yourself.
 
 Works in light or dark, following your phone's setting or your choice in Connect.
+
+LIFT Coach is not a medical device and does not diagnose, treat, cure or prevent any medical condition.

@@ -1,7 +1,7 @@
 package com.dugcanlift.coach.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -30,6 +30,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -53,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import com.dugcanlift.coach.data.Client
 import com.dugcanlift.coach.data.ClientRepository
 import com.dugcanlift.coach.data.ImportResult
+import com.dugcanlift.coach.data.RemovalOutcome
 import com.dugcanlift.coach.data.Roster
 import com.dugcanlift.coach.data.RosterLoader
 import com.dugcanlift.coach.data.RosterRow
@@ -97,7 +100,10 @@ fun RosterScreen(
     showBottomBar: Boolean = true,
     twoPane: Boolean = false,
     selectedClientId: String? = null,
-    detail: @Composable (clientId: String, reloadKey: Any) -> Unit = { _, _ -> }
+    notice: String? = null,
+    onNoticeShown: () -> Unit = {},
+    onClientRemoved: (String) -> Unit = {},
+    detail: @Composable (clientId: String, reloadKey: Any, onRemoved: (RemovalOutcome) -> Unit) -> Unit = { _, _, _ -> }
 ) {
     var clients by remember { mutableStateOf<List<Client>>(emptyList()) }
     var showPasteSheet by rememberSaveable { mutableStateOf(false) }
@@ -111,6 +117,9 @@ fun RosterScreen(
     val loader = remember { RosterLoader() }
 
     val viewState = remember(clients) { Roster.buildViewState(clients) }
+    // The client whose row's long-press menu is open, and the one being confirmed for removal.
+    var menuClientId by remember { mutableStateOf<String?>(null) }
+    var removingClientId by rememberSaveable { mutableStateOf<String?>(null) }
 
     // Loads off the main thread; re-fires (fresh disk read) every time this composable is entered
     // fresh -- including on return from ClientScreen, since navigating away disposes this
@@ -135,6 +144,23 @@ fun RosterScreen(
                         "That doesn't look like a valid LIFT log link. Double-check you copied the whole thing."
                     )
             }
+        }
+    }
+
+    /** After a removal from the row menu or the detail pane: reload, clear the selection, say how it went. */
+    fun handleRemoved(clientId: String, outcome: RemovalOutcome) {
+        if (outcome.removed) onClientRemoved(clientId)
+        scope.launch {
+            clients = loader.refresh { withContext(Dispatchers.IO) { repo.all() } }
+            snackbarHostState.showSnackbar(outcome.message)
+        }
+    }
+
+    // A message from a removal made on the phone's client screen, which has returned here to show it.
+    LaunchedEffect(notice) {
+        notice?.let { message ->
+            onNoticeShown()
+            snackbarHostState.showSnackbar(message)
         }
     }
 
@@ -198,7 +224,14 @@ fun RosterScreen(
                             RosterRowItem(
                                 row = row,
                                 selected = twoPane && row.client.id == selectedClientId,
-                                onClick = { onOpen(row.client.id) }
+                                onClick = { onOpen(row.client.id) },
+                                menuOpen = menuClientId == row.client.id,
+                                onLongClick = { menuClientId = row.client.id },
+                                onDismissMenu = { menuClientId = null },
+                                onRemove = {
+                                    menuClientId = null
+                                    removingClientId = row.client.id
+                                }
                             )
                             HorizontalDivider()
                         }
@@ -226,7 +259,7 @@ fun RosterScreen(
                 if (split.gapDp > 0f) Spacer(Modifier.width(split.gapDp.dp)) else VerticalDivider()
                 Box(Modifier.weight(1f).fillMaxHeight()) {
                     if (selectedClientId != null) {
-                        detail(selectedClientId, clients)
+                        detail(selectedClientId, clients) { outcome -> handleRemoved(selectedClientId, outcome) }
                     } else {
                         Text(
                             "Pick a client to see their training.",
@@ -240,6 +273,18 @@ fun RosterScreen(
         }
     } else {
         list()
+    }
+
+    removingClientId?.let { clientId ->
+        RemoveClientDialog(
+            clientId = clientId,
+            repo = repo,
+            onDismiss = { removingClientId = null },
+            onDone = { outcome ->
+                removingClientId = null
+                handleRemoved(clientId, outcome)
+            }
+        )
     }
 
     if (showPasteSheet) {
@@ -264,20 +309,34 @@ private fun SilenceBanner(names: List<String>, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun RosterRowItem(row: RosterRow, onClick: () -> Unit, modifier: Modifier = Modifier, selected: Boolean = false) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .then(if (selected) Modifier.background(MaterialTheme.colorScheme.surface) else Modifier)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp)
-    ) {
-        Text(text = row.client.name, style = MaterialTheme.typography.titleMedium)
-        Text(
-            text = row.label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = if ((row.daysSinceLastLogged ?: Int.MAX_VALUE) >= Roster.SILENCE_THRESHOLD_DAYS) DclAccent else DclMuted
-        )
+private fun RosterRowItem(
+    row: RosterRow,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    selected: Boolean = false,
+    menuOpen: Boolean = false,
+    onLongClick: () -> Unit = {},
+    onDismissMenu: () -> Unit = {},
+    onRemove: () -> Unit = {}
+) {
+    Box(modifier = modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(if (selected) Modifier.background(MaterialTheme.colorScheme.surface) else Modifier)
+                .combinedClickable(onClick = onClick, onLongClick = onLongClick, onLongClickLabel = "Client actions")
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+        ) {
+            Text(text = row.client.name, style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = row.label,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if ((row.daysSinceLastLogged ?: Int.MAX_VALUE) >= Roster.SILENCE_THRESHOLD_DAYS) DclAccent else DclMuted
+            )
+        }
+        DropdownMenu(expanded = menuOpen, onDismissRequest = onDismissMenu) {
+            DropdownMenuItem(text = { Text("Remove client") }, onClick = onRemove)
+        }
     }
 }
 

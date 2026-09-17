@@ -35,6 +35,27 @@ logic that would otherwise only be reachable from a `@Composable` gets
 extracted into a plain Kotlin class so it can be unit tested directly — see
 `RosterLoader` below for the pattern.
 
+## Releases
+
+A pushed `v*` tag runs `.github/workflows/release.yml`. Tests and lint run on
+a GitHub-hosted runner; the `sign` job then waits for approval on the `release`
+environment and runs on the self-hosted signer, where the keystore lives. It
+builds `:app:assembleRelease :app:bundleRelease` in one Gradle run with the one
+signing config, and publishes both to the tag's GitHub Release:
+
+- **`coach-android.apk`** — the sideload download the website links to. Keep
+  its name; checked with `apksigner verify --print-certs`.
+- **`coach-android.aab`** — the App Bundle for Google Play, which accepts only
+  `.aab`. An AAB has a JAR signature that `apksigner` does not read, so it is
+  checked with `jarsigner -verify -strict` (only exit bit 4, "self-signed", is
+  allowed) and `keytool -printcert -jarfile` (exactly one signer).
+
+Both must carry `RELEASE_CERT_SHA256` or nothing is published, and
+`SHA256SUMS` lists both files. Locally, with no `keystore.properties`,
+`./gradlew :app:bundleRelease` builds an unsigned bundle; a `keystore.properties`
+whose `storeFile` does not exist on this Mac fails `validateSigningRelease`
+instead, so build from a clean checkout to check the bundle.
+
 ## Shared code lives in dugcanlift-kit-android
 
 The share-link wire codec, local day keys, and the DUGCANLIFT palette live in
@@ -379,3 +400,18 @@ by `WindowLayoutTest`. Put a new width rule there, not in a composable.
 To check on the one phone AVD: `adb shell wm size 2560x1600 && adb shell wm density
 320` (tablet landscape), `1600x2560` (portrait), `1767x2208` at 420 (foldable
 inner), then **always** `wm size reset` and `wm density reset`.
+
+## Removing a client
+
+Remove this client (foot of the client page) and a roster row's long-press menu
+both open `RemoveClientDialog`, which names the client and counts what goes
+before anything does; `data/ClientRemoval.kt` does the work. It deletes the
+client's file under `ShareLinkImporter`'s import lock, then the planned meals and
+booked sessions carrying that client's id -- invisible and unsendable once the
+client is gone, yet still written into every backup. Recipes and routines stay.
+An unreadable cook or train library is left untouched (rewriting it would
+destroy it) and the message says what stayed. Coach web removes only the
+client; the privacy policy promises the client's data leaves the device, which
+is why Android goes further. On a phone the client screen returns to the roster;
+in two panes the selection clears. `ClientRemovalTest` and
+`RemoveClientFlowTest` pin both halves.
