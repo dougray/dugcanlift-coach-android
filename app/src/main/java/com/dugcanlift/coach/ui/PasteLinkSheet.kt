@@ -14,6 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.ui.Modifier
@@ -29,7 +30,7 @@ import com.dugcanlift.coach.data.fragmentFrom
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PasteLinkSheet(onSubmit: (String) -> Unit, onDismissRequest: () -> Unit = {}) {
-    var text by remember { mutableStateOf("") }
+    var text by rememberSaveable { mutableStateOf("") }
 
     ModalBottomSheet(onDismissRequest = onDismissRequest) {
         Column(modifier = Modifier.padding(24.dp).fillMaxWidth()) {
