@@ -11,7 +11,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -107,7 +106,8 @@ fun CoachNavHost(
         }
     }
 
-    var lastTwoPane by remember { mutableStateOf(twoPane) }
+    // Saveable, so a recreation that crosses 840 dp still reads as a width change, not a Back.
+    var lastTwoPane by rememberSaveable { mutableStateOf(twoPane) }
     LaunchedEffect(twoPane, backStackEntry) {
         val action = AdaptiveLayout.reconcileRoster(
             twoPane = twoPane,
@@ -116,7 +116,12 @@ fun CoachNavHost(
             onRosterRoute = route == Routes.ROSTER,
             selectedClientId = selectedClientId
         )
-        lastTwoPane = twoPane
+        lastTwoPane = AdaptiveLayout.rosterTwoPaneToRemember(
+            lastTwoPane = lastTwoPane,
+            twoPane = twoPane,
+            // The first check after a recreation has an entry but no destination route yet.
+            backStackRestored = route != null
+        )
         when (action) {
             RosterReconcile.SHOW_IN_DETAIL_PANE -> {
                 selectedClientId = Routes.decodeClientId(
