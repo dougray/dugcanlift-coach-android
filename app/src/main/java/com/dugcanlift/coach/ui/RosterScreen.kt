@@ -1,6 +1,24 @@
 package com.dugcanlift.coach.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.VerticalDivider
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalDensity
+import com.dugcanlift.coach.ui.adaptive.AdaptiveLayout
+import com.dugcanlift.coach.ui.adaptive.LocalVerticalHinge
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -75,10 +93,14 @@ fun RosterScreen(
     onCook: () -> Unit = {},
     onTrain: () -> Unit = {},
     pendingImportFragment: String? = null,
-    onImportHandled: () -> Unit = {}
+    onImportHandled: () -> Unit = {},
+    showBottomBar: Boolean = true,
+    twoPane: Boolean = false,
+    selectedClientId: String? = null,
+    detail: @Composable (clientId: String, reloadKey: Any) -> Unit = { _, _ -> }
 ) {
     var clients by remember { mutableStateOf<List<Client>>(emptyList()) }
-    var showPasteSheet by remember { mutableStateOf(false) }
+    var showPasteSheet by rememberSaveable { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     // Serialises this screen's loads of `clients` -- see RosterLoader's doc for why this exists.
@@ -126,57 +148,98 @@ fun RosterScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Roster") },
-                actions = {
-                    TextButton(onClick = { showPasteSheet = true }) { Text("Paste a Link") }
+    val list: @Composable () -> Unit = {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("Roster") },
+                    actions = {
+                        TextButton(onClick = { showPasteSheet = true }) { Text("Paste a Link") }
+                    }
+                )
+            },
+            snackbarHost = {
+                SnackbarHost(snackbarHostState) { data ->
+                    Snackbar(snackbarData = data)
                 }
-            )
-        },
-        snackbarHost = {
-            SnackbarHost(snackbarHostState) { data ->
-                Snackbar(snackbarData = data)
+            },
+            bottomBar = {
+                // From medium width up the navigation rail carries these instead.
+                if (showBottomBar) BottomAppBar {
+                    // Train and Cook sit beside Connect rather than inside a client,
+                    // matching Coach iOS's tab bar. With Train here the two apps
+                    // finally offer the same four destinations. The recipe library belongs to the coach,
+                    // not to any one client, so reaching it through a client made the
+                    // library look like it was theirs -- and made it unreachable at
+                    // all until the coach had imported someone.
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = onTrain) { Text("Train") }
+                        TextButton(onClick = onCook) { Text("Cook") }
+                        TextButton(onClick = onConnect) { Text("Connect") }
+                    }
+                }
             }
-        },
-        bottomBar = {
-            BottomAppBar {
-                // Train and Cook sit beside Connect rather than inside a client,
-                // matching Coach iOS's tab bar. With Train here the two apps
-                // finally offer the same four destinations. The recipe library belongs to the coach,
-                // not to any one client, so reaching it through a client made the
-                // library look like it was theirs -- and made it unreachable at
-                // all until the coach had imported someone.
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    TextButton(onClick = onTrain) { Text("Train") }
-                    TextButton(onClick = onCook) { Text("Cook") }
-                    TextButton(onClick = onConnect) { Text("Connect") }
-                }
-            }
-        }
-    ) { padding ->
-        if (viewState.rows.isEmpty()) {
-            RosterEmptyState(
-                modifier = Modifier.padding(padding).fillMaxSize(),
-                onPasteClick = { showPasteSheet = true }
-            )
-        } else {
-            Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-                if (viewState.silentNames.isNotEmpty()) {
-                    SilenceBanner(names = viewState.silentNames)
-                }
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(viewState.rows, key = { it.client.id }) { row ->
-                        RosterRowItem(row = row, onClick = { onOpen(row.client.id) })
-                        HorizontalDivider()
+        ) { padding ->
+            if (viewState.rows.isEmpty()) {
+                RosterEmptyState(
+                    modifier = Modifier.padding(padding).fillMaxSize(),
+                    onPasteClick = { showPasteSheet = true }
+                )
+            } else {
+                Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+                    if (viewState.silentNames.isNotEmpty()) {
+                        SilenceBanner(names = viewState.silentNames)
+                    }
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        items(viewState.rows, key = { it.client.id }) { row ->
+                            RosterRowItem(
+                                row = row,
+                                selected = twoPane && row.client.id == selectedClientId,
+                                onClick = { onOpen(row.client.id) }
+                            )
+                            HorizontalDivider()
+                        }
                     }
                 }
             }
         }
+    }
+
+    if (twoPane && viewState.rows.isNotEmpty()) {
+        // List + detail. The split normally sits at a fixed list width, but moves onto a
+        // separating vertical fold when there is one, so neither pane is drawn across the hinge.
+        val hinge = LocalVerticalHinge.current
+        val density = LocalDensity.current.density
+        var paneStartDp by remember { mutableFloatStateOf(0f) }
+        BoxWithConstraints(
+            Modifier.fillMaxSize().onGloballyPositioned { paneStartDp = it.positionInWindow().x / density }
+        ) {
+            val split = AdaptiveLayout.listDetailSplit(paneStartDp, maxWidth.value, hinge)
+            Row(Modifier.fillMaxSize()) {
+                Box(
+                    Modifier.width(split.listWidthDp.dp).fillMaxHeight()
+                        .consumeWindowInsets(WindowInsets.safeDrawing.only(WindowInsetsSides.End))
+                ) { list() }
+                if (split.gapDp > 0f) Spacer(Modifier.width(split.gapDp.dp)) else VerticalDivider()
+                Box(Modifier.weight(1f).fillMaxHeight()) {
+                    if (selectedClientId != null) {
+                        detail(selectedClientId, clients)
+                    } else {
+                        Text(
+                            "Pick a client to see their training.",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = DclMuted,
+                            modifier = Modifier.align(Alignment.Center).padding(32.dp)
+                        )
+                    }
+                }
+            }
+        }
+    } else {
+        list()
     }
 
     if (showPasteSheet) {
@@ -201,10 +264,11 @@ private fun SilenceBanner(names: List<String>, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun RosterRowItem(row: RosterRow, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun RosterRowItem(row: RosterRow, onClick: () -> Unit, modifier: Modifier = Modifier, selected: Boolean = false) {
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .then(if (selected) Modifier.background(MaterialTheme.colorScheme.surface) else Modifier)
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
