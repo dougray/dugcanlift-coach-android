@@ -458,7 +458,9 @@ private fun ShoppingList(lines: List<com.dugcanlift.coach.data.ShoppingLine>, co
     val line: @Composable (com.dugcanlift.coach.data.ShoppingLine, Modifier) -> Unit = { line, modifier ->
         Text(shoppingLineText(line), style = MaterialTheme.typography.bodyMedium, modifier = modifier)
     }
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    // Two columns of short lines drift apart across a whole tablet; keep them within reading distance.
+    val listModifier = if (columns == 1) Modifier else Modifier.widthIn(max = AdaptiveLayout.MAX_FORM_DP.dp * 1.25f)
+    LazyColumn(listModifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         if (columns == 1) {
             items(lines, key = { it.name }) { line(it, Modifier) }
         } else {
