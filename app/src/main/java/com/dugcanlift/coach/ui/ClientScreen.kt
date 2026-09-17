@@ -22,10 +22,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -44,6 +46,7 @@ import com.dugcanlift.coach.data.ClientRepository
 import com.dugcanlift.coach.data.ExerciseSet
 import com.dugcanlift.coach.data.LastRoute
 import com.dugcanlift.coach.data.OutdoorBest
+import com.dugcanlift.coach.data.RemovalOutcome
 import com.dugcanlift.coach.data.Stats
 import com.dugcanlift.coach.data.TrainingDay
 import com.dugcanlift.coach.data.WeekStats
@@ -77,9 +80,12 @@ private val CHART_WEEK_SLOT_WIDTH = 28.dp
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ClientScreen(clientId: String, repo: ClientRepository, onBack: () -> Unit,
-                 onCook: () -> Unit = {}, showBack: Boolean = true, reloadKey: Any? = null) {
+                 onCook: () -> Unit = {}, showBack: Boolean = true, reloadKey: Any? = null,
+                 onRemoved: (RemovalOutcome) -> Unit = {}) {
     var client by remember(clientId) { mutableStateOf<Client?>(null) }
     var loaded by remember(clientId) { mutableStateOf(false) }
+    var confirmingRemove by rememberSaveable(clientId) { mutableStateOf(false) }
+    var removalError by remember(clientId) { mutableStateOf<String?>(null) }
 
     // Loads off the main thread; keyed on clientId so navigating between clients (or back to the
     // same one) always re-reads the latest saved data rather than reusing stale state. [reloadKey]
@@ -109,21 +115,47 @@ fun ClientScreen(clientId: String, repo: ClientRepository, onBack: () -> Unit,
             client == null -> Column(modifier = Modifier.padding(padding).fillMaxSize().padding(16.dp)) {
                 Text("This client's data couldn't be loaded.", style = MaterialTheme.typography.bodyLarge)
             }
-            else -> ClientDetail(client = client!!, modifier = Modifier.padding(padding).fillMaxSize())
+            else -> ClientDetail(
+                client = client!!,
+                onRemove = { confirmingRemove = true },
+                modifier = Modifier.padding(padding).fillMaxSize()
+            )
         }
     }
-}
 
-@Composable
-private fun ClientDetail(client: Client, modifier: Modifier = Modifier) {
-    // The page's own width, not the screen's: in the roster's two-pane layout this page is a pane.
-    BoxWithConstraints(modifier) {
-        ClientDetailContent(client = client, paneWidth = maxWidth)
+    if (confirmingRemove) {
+        RemoveClientDialog(
+            clientId = clientId,
+            repo = repo,
+            onDismiss = { confirmingRemove = false },
+            onDone = { outcome ->
+                confirmingRemove = false
+                // A removal that did not happen stays on this page and says so; one that did is the
+                // caller's to leave (back to the roster, or an empty detail pane).
+                if (outcome.removed) onRemoved(outcome) else removalError = outcome.message
+            }
+        )
+    }
+
+    removalError?.let { message ->
+        AlertDialog(
+            onDismissRequest = { removalError = null },
+            text = { Text(message) },
+            confirmButton = { TextButton(onClick = { removalError = null }) { Text("OK") } }
+        )
     }
 }
 
 @Composable
-private fun ClientDetailContent(client: Client, paneWidth: Dp) {
+private fun ClientDetail(client: Client, onRemove: () -> Unit, modifier: Modifier = Modifier) {
+    // The page's own width, not the screen's: in the roster's two-pane layout this page is a pane.
+    BoxWithConstraints(modifier) {
+        ClientDetailContent(client = client, paneWidth = maxWidth, onRemove = onRemove)
+    }
+}
+
+@Composable
+private fun ClientDetailContent(client: Client, paneWidth: Dp, onRemove: () -> Unit) {
     val today = remember { DayKey.today() }
     val unit = client.displayUnit
 
@@ -361,6 +393,17 @@ private fun ClientDetailContent(client: Client, paneWidth: Dp) {
             Column(wide) {
                 DayLogCard(day = day, unit = unit)
                 HorizontalDivider()
+            }
+        }
+
+        // At the foot of the page, as Coach web has it: out of the way of reading a client, and
+        // behind a confirmation that says what goes.
+        item {
+            Column(wide) {
+                OutlinedButton(
+                    onClick = onRemove,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 24.dp)
+                ) { Text("Remove this client") }
             }
         }
     }

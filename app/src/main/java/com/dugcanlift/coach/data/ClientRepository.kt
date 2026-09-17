@@ -63,8 +63,10 @@ open class ClientRepository(root: File) {
         writeTextAtomically(File(dir, fileNameFor(client.id)), client.toJson().toString())
     }
 
-    fun delete(id: String) {
-        File(dir, fileNameFor(id)).delete()
+    /** Removes the client's file. True when it is gone afterwards, including when there was none. */
+    fun delete(id: String): Boolean {
+        val file = File(dir, fileNameFor(id))
+        return file.delete() || !file.exists()
     }
 
     /**

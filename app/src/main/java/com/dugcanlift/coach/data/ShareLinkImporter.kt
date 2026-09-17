@@ -31,6 +31,12 @@ object ShareLinkImporter {
     fun import(fragment: String, repo: ClientRepository, nowEpochMs: Long = System.currentTimeMillis()): ImportResult =
         importLock.withLock { runImport(fragment, repo, nowEpochMs) }
 
+    /**
+     * Runs [block] holding the import lock, for another writer of a whole client file
+     * ([ClientRemoval]) that must not interleave with an import of the same client.
+     */
+    internal fun <T> withImportLock(block: () -> T): T = importLock.withLock(block)
+
     private fun runImport(fragment: String, repo: ClientRepository, nowEpochMs: Long): ImportResult {
         val p = when (val r = ShareLinkCodec.decode(fragment)) {
             is ShareDecodeResult.Success -> r.payload
