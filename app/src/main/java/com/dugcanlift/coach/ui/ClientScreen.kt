@@ -52,8 +52,11 @@ import com.dugcanlift.coach.data.TrainingDay
 import com.dugcanlift.coach.data.WeekStats
 import com.dugcanlift.coach.ui.charts.BarChart
 import com.dugcanlift.coach.ui.charts.LineChart
+import com.dugcanlift.coach.ui.charts.LineSeries
+import com.dugcanlift.coach.ui.charts.MultiLineChart
 import com.dugcanlift.coach.ui.charts.RouteCanvas
 import com.dugcanlift.coach.ui.theme.DclAccent
+import com.dugcanlift.coach.ui.theme.DclAccent2
 import com.dugcanlift.coach.ui.theme.DclMuted
 import com.dugcanlift.coach.ui.theme.dclCardBorder
 import com.dugcanlift.kit.OutdoorShare
@@ -146,6 +149,23 @@ fun ClientScreen(clientId: String, repo: ClientRepository, onBack: () -> Unit,
     }
 }
 
+/**
+ * One lift's charts, ready to draw: [com.dugcanlift.coach.data.LiftProgression] with the weights
+ * already converted into the client's display unit and the imbalance already worded.
+ *
+ * [both] is the unmarked sets -- the whole of a two-sided lift, and on a per-limb lift whatever was
+ * logged before the client turned per-side logging on. [left] and [right] are one point per
+ * session. Only [hasSides] decides which chart is drawn, never the exercise's name.
+ */
+private data class LiftChartData(
+    val key: String,
+    val both: List<Pair<String, Double>>,
+    val left: List<Pair<String, Double>>,
+    val right: List<Pair<String, Double>>,
+    val hasSides: Boolean,
+    val imbalance: String?
+)
+
 @Composable
 private fun ClientDetail(client: Client, onRemove: () -> Unit, modifier: Modifier = Modifier) {
     // The page's own width, not the screen's: in the roster's two-pane layout this page is a pane.
@@ -208,11 +228,23 @@ private fun ClientDetailContent(client: Client, paneWidth: Dp, onRemove: () -> U
         Stats.bodyweightSeries(client).map { (day, lb) -> day to displayWeightValue(lb, unit) }
     }
 
+    // One entry per lift, its sides kept apart underneath (Stats.liftKey). The pounds on the wire
+    // are converted for display here and nowhere else; the imbalance is a ratio and is unit-free.
     val e1rmByLift = remember(client, unit) {
-        Stats.perLiftE1rm(client)
-            .toList()
-            .sortedBy { (key, _) -> liftDisplayName(key) }
-            .map { (key, series) -> key to series.map { (day, lb) -> day to displayWeightValue(lb, unit) } }
+        Stats.perLiftProgressions(client)
+            .filterNot { it.isEmpty }
+            .sortedBy { liftDisplayName(it.key) }
+            .map { progression ->
+                fun convert(points: List<Pair<String, Double>>) = points.map { (day, lb) -> day to displayWeightValue(lb, unit) }
+                LiftChartData(
+                    key = progression.key,
+                    both = convert(progression.both),
+                    left = convert(progression.leftPoints),
+                    right = convert(progression.rightPoints),
+                    hasSides = progression.hasSides,
+                    imbalance = imbalanceLine(progression)
+                )
+            }
     }
 
     // A run is a session too: a day holding only an outdoor activity belongs in the log.
@@ -279,17 +311,38 @@ private fun ClientDetailContent(client: Client, paneWidth: Dp, onRemove: () -> U
         }
     }
 
-    val liftChart: @Composable (String, List<Pair<String, Double>>) -> Unit = { key, points ->
+    val liftChart: @Composable (LiftChartData) -> Unit = { lift ->
         Text(
-            text = liftDisplayName(key),
+            text = liftDisplayName(lift.key),
             style = MaterialTheme.typography.titleSmall,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
         )
-        LineChart(
-            points = points,
-            lineColor = DclAccent,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-        )
+        if (lift.hasSides) {
+            // Two lines, never merged -- averaging them hides the one thing they are here to show.
+            // A lift with unmarked sets as well as sided ones keeps all three: those sets are real.
+            MultiLineChart(
+                series = listOfNotNull(
+                    LineSeries("Left", lift.left, DclAccent).takeIf { lift.left.isNotEmpty() },
+                    LineSeries("Right", lift.right, DclAccent2).takeIf { lift.right.isNotEmpty() },
+                    LineSeries("Both", lift.both, DclMuted).takeIf { lift.both.isNotEmpty() }
+                ),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+            )
+            lift.imbalance?.let { line ->
+                Text(
+                    text = line,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = DclMuted,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
+                )
+            }
+        } else {
+            LineChart(
+                points = lift.both,
+                lineColor = DclAccent,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+            )
+        }
     }
 
     // Every wide row is capped at the content width and centred; on a phone the cap is wider
@@ -313,8 +366,8 @@ private fun ClientDetailContent(client: Client, paneWidth: Dp, onRemove: () -> U
             item { Column(wide) { fuelSection(true) } }
             item { Column(wide) { bodyweightSection() } }
             item { Column(wide) { e1rmHeading() } }
-            items(e1rmByLift, key = { it.first }) { (key, points) ->
-                Column(wide) { liftChart(key, points) }
+            items(e1rmByLift, key = { it.key }) { lift ->
+                Column(wide) { liftChart(lift) }
             }
         } else {
             // Two columns: Training Volume | Fuel, their nutrients side by side, then Bodyweight | lifts.
@@ -340,13 +393,13 @@ private fun ClientDetailContent(client: Client, paneWidth: Dp, onRemove: () -> U
                     Column(Modifier.weight(1f)) { bodyweightSection() }
                     Column(Modifier.weight(1f)) {
                         e1rmHeading()
-                        e1rmByLift.firstOrNull()?.let { (key, points) -> liftChart(key, points) }
+                        e1rmByLift.firstOrNull()?.let { lift -> liftChart(lift) }
                     }
                 }
             }
-            items(rowMajor(e1rmByLift.drop(1), 2), key = { row -> "lifts-${row.first().first}" }) { row ->
+            items(rowMajor(e1rmByLift.drop(1), 2), key = { row -> "lifts-${row.first().key}" }) { row ->
                 Row(wide, verticalAlignment = Alignment.Top) {
-                    row.forEach { (key, points) -> Column(Modifier.weight(1f)) { liftChart(key, points) } }
+                    row.forEach { lift -> Column(Modifier.weight(1f)) { liftChart(lift) } }
                     if (row.size == 1) Spacer(Modifier.weight(1f))
                 }
             }

@@ -1,6 +1,7 @@
 package com.dugcanlift.coach.data
 
 import com.dugcanlift.kit.DayKey
+import com.dugcanlift.kit.ShareSide
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
@@ -52,6 +53,39 @@ data class Goal(
     }
 }
 
+/**
+ * Which limb a set was performed with. **Null is both**, and both is never written down: it is what
+ * every set logged before per-limb tracking means and what every set of a two-sided lift means now,
+ * so absence never has to be guessed at and a side is never inferred from an exercise's name.
+ *
+ * [wire] is BACKUP-FORMAT's named field -- `"left"` / `"right"`, omitted when both -- not
+ * SHARE-FORMAT's flags bits, which are the kit's [com.dugcanlift.kit.ShareSide] and stop at the
+ * importer. A backup is read by humans and by three platforms; a field you can read with your eyes
+ * survives that.
+ */
+enum class SetSide(val wire: String, val short: String, val label: String) {
+    LEFT("left", "L", "Left"),
+    RIGHT("right", "R", "Right");
+
+    companion object {
+        /**
+         * Null for absent, blank, `"both"`, or anything this build does not recognise -- all of
+         * them mean both. BACKUP-FORMAT asks for exactly this leniency: an unrecognised value must
+         * read as both rather than fail an import, because the alternative is losing a whole roster
+         * to one string a newer writer invented.
+         */
+        fun fromWire(value: String?): SetSide? =
+            entries.firstOrNull { it.wire.equals(value?.trim(), ignoreCase = true) }
+
+        /** The side the share link's flags bits carried, mapped onto the stored one. */
+        fun fromShare(side: ShareSide?): SetSide? = when (side) {
+            ShareSide.LEFT -> LEFT
+            ShareSide.RIGHT -> RIGHT
+            null -> null
+        }
+    }
+}
+
 data class ExerciseSet(
     val exerciseName: String,
     val equipment: String?,
@@ -60,7 +94,9 @@ data class ExerciseSet(
     val rpe: Double?,
     val durationSec: Double?,
     val distanceMeters: Double?,
-    val isWarmup: Boolean
+    val isWarmup: Boolean,
+    /** Trailing and defaulted so every call site written before per-limb tracking still compiles, and still means both. */
+    val side: SetSide? = null
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("exerciseName", exerciseName)
@@ -71,6 +107,10 @@ data class ExerciseSet(
         put("durationSec", durationSec ?: JSONObject.NULL)
         put("distanceMeters", distanceMeters ?: JSONObject.NULL)
         put("isWarmup", isWarmup)
+        // Omitted entirely when both -- not "both", not null. BACKUP-FORMAT is explicit that
+        // absence is the encoding of both, so a file this build writes for a roster with no
+        // per-limb sets is byte for byte the file the build before it wrote.
+        side?.let { put("side", it.wire) }
     }
 
     companion object {
@@ -82,7 +122,8 @@ data class ExerciseSet(
             rpe = json.optDoubleOrNull("rpe"),
             durationSec = json.optDoubleOrNull("durationSec"),
             distanceMeters = json.optDoubleOrNull("distanceMeters"),
-            isWarmup = json.getBoolean("isWarmup")
+            isWarmup = json.getBoolean("isWarmup"),
+            side = SetSide.fromWire(json.optStringOrNull("side"))
         )
     }
 }

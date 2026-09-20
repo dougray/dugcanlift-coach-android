@@ -32,9 +32,11 @@ class StatsTest {
         assertEquals(2400, weeks[1].kcalAvg); assertEquals(1.0, weeks[1].proteinHitRate!!, 0.0); assertEquals(0.0, weeks[0].proteinHitRate!!, 0.0)
         assertEquals(1, weeks[1].sessions); assertEquals(1125.0, weeks[1].volume, 0.0)
     }
-    @Test fun `per-lift e1rm series is keyed by name plus equipment in day order`() {
+    // The key gained a third field when per-limb logging arrived; an unmarked set -- which is every
+    // set a two-sided lift has, and every set written before that existed -- carries an empty one.
+    @Test fun `per-lift e1rm series is keyed by name plus equipment plus side in day order`() {
         val c = Client("a", "Doug", "lb", null, 0, null, listOf(day("2026-09-01", listOf(set(200.0, 5))), day("2026-09-08", listOf(set(225.0, 5)))))
-        assertEquals(listOf("2026-09-01", "2026-09-08"), Stats.perLiftE1rm(c).getValue("Back Squat|Barbell").map { it.first })
+        assertEquals(listOf("2026-09-01", "2026-09-08"), Stats.perLiftE1rm(c).getValue("Back Squat|Barbell|").map { it.first })
     }
     // The wire format's exercise dictionary is "name|equipment" precisely because a cable pulldown and
     // a machine pulldown are not the same lift; perLiftE1rm must key the same way or two same-named
@@ -44,9 +46,9 @@ class StatsTest {
         val cableRow = ExerciseSet("Row", "Cable", 100.0, 10, null, null, null, false)
         val c = Client("a", "Doug", "lb", null, 0, null, listOf(day("2026-09-01", listOf(barbellRow, cableRow))))
         val series = Stats.perLiftE1rm(c)
-        assertEquals(setOf("Row|Barbell", "Row|Cable"), series.keys)
-        assertEquals(Stats.e1rm(barbellRow), series.getValue("Row|Barbell").single().second)
-        assertEquals(Stats.e1rm(cableRow), series.getValue("Row|Cable").single().second)
+        assertEquals(setOf("Row|Barbell|", "Row|Cable|"), series.keys)
+        assertEquals(Stats.e1rm(barbellRow), series.getValue("Row|Barbell|").single().second)
+        assertEquals(Stats.e1rm(cableRow), series.getValue("Row|Cable|").single().second)
     }
 
     // --- Edges the brief leaves open, needed by later screens ---

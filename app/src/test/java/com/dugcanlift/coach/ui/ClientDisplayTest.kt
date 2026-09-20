@@ -1,7 +1,12 @@
 package com.dugcanlift.coach.ui
 
 import com.dugcanlift.coach.data.ExerciseSet
+import com.dugcanlift.coach.data.LiftProgression
+import com.dugcanlift.coach.data.SetSide
+import com.dugcanlift.coach.data.SideBalance
+import com.dugcanlift.coach.data.SideSession
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ClientDisplayTest {
@@ -11,8 +16,9 @@ class ClientDisplayTest {
         rpe: Double? = null,
         durationSec: Double? = null,
         distanceMeters: Double? = null,
-        warm: Boolean = false
-    ) = ExerciseSet("Back Squat", "Barbell", weightLb, reps, rpe, durationSec, distanceMeters, warm)
+        warm: Boolean = false,
+        side: SetSide? = null
+    ) = ExerciseSet("Back Squat", "Barbell", weightLb, reps, rpe, durationSec, distanceMeters, warm, side)
 
     // --- formatWeight: the kilogram conversion and the em-dash-for-null rule ---
 
@@ -101,5 +107,58 @@ class ClientDisplayTest {
         assertEquals("—", formatPercentOrDash(null))
         assertEquals("50%", formatPercentOrDash(0.5))
         assertEquals("100%", formatPercentOrDash(1.0))
+    }
+
+    // --- per-limb sets ---
+
+    // "185 x 5 L", trailing, as LIFT for Android writes it. A both-sided set says nothing: saying
+    // "both" on every bench press set would be noise on every screen.
+    @Test fun `a per-side set is marked, and a both-sided one is not`() {
+        assertEquals("185 × 5 L", formatSetLine(set(weightLb = 185.0, reps = 5, side = SetSide.LEFT), "lb"))
+        assertEquals("185 × 5 R", formatSetLine(set(weightLb = 185.0, reps = 5, side = SetSide.RIGHT), "lb"))
+        assertEquals("185 × 5", formatSetLine(set(weightLb = 185.0, reps = 5), "lb"))
+    }
+
+    @Test fun `the side follows everything else the set logged`() {
+        assertEquals("185 × 5 @ RPE 8 L", formatSetLine(set(weightLb = 185.0, reps = 5, rpe = 8.0, side = SetSide.LEFT), "lb"))
+        assertEquals("8 reps R", formatSetLine(set(reps = 8, side = SetSide.RIGHT), "lb"))
+        assertEquals("1:30, 500m L", formatSetLine(set(durationSec = 90.0, distanceMeters = 500.0, side = SetSide.LEFT), "lb"))
+    }
+
+    // One heading with two lines under it, not two headings a coach has to read as a pair.
+    @Test fun `the side is not in the lift's heading`() {
+        assertEquals("Split Squat (Dumbbell)", liftDisplayName("Split Squat|Dumbbell|left"))
+        assertEquals("Split Squat (Dumbbell)", liftDisplayName("Split Squat|Dumbbell|"))
+        assertEquals("Pull-up", liftDisplayName("Pull-up||right"))
+    }
+
+    private fun progression(vararg sessions: SideSession) = LiftProgression(
+        key = "Split Squat|Dumbbell",
+        both = emptyList(),
+        sessions = sessions.toList(),
+        imbalance = SideBalance.imbalance(sessions.toList())
+    )
+
+    @Test fun `a two-sided lift carries no imbalance line at all`() =
+        assertNull(imbalanceLine(LiftProgression("Bench Press|Barbell", listOf("2026-09-01" to 225.0), emptyList(), null)))
+
+    @Test fun `the imbalance line states the gap and its direction and nothing else`() {
+        val line = imbalanceLine(progression(
+            SideSession("2026-09-01", 100.0, 80.0),
+            SideSession("2026-09-04", 100.0, 80.0),
+            SideSession("2026-09-08", 100.0, 95.0),
+            SideSession("2026-09-11", 100.0, 95.0)
+        ))
+        assertEquals("Left 10% stronger · gap closing", line)
+    }
+
+    // Below three sessions a side there is no figure, and saying so beats an empty space a coach
+    // would read as "no imbalance".
+    @Test fun `too few sessions says so, and counts what each side has`() {
+        val line = imbalanceLine(progression(
+            SideSession("2026-09-01", 100.0, 90.0),
+            SideSession("2026-09-08", 100.0, null)
+        ))
+        assertEquals("Left and right tracked · L 2 · R 1 (3 sessions each before a gap is shown)", line)
     }
 }

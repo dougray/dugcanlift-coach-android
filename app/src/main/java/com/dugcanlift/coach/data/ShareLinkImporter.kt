@@ -94,7 +94,9 @@ object ShareLinkImporter {
         runCatching { DayKey.adding(dayOffset, startDay) }.getOrNull()?.takeIf { DayKey.parse(it) != null }
 
     private fun toDay(d: ShareDay, key: String): TrainingDay {
-        val sets = d.exercises.flatMap { ex -> ex.sets.map { s -> ExerciseSet(ex.name, ex.equipment.ifEmpty { null }, s.weightLb.finite(), s.reps, s.rpe.finite(), s.durationSec.finite(), s.distanceMeters.finite(), s.isWarmup) } }
+        // `side` comes off the kit's decode of the set tuple's flags bits 1-2, never off the name:
+        // an unmarked set is an unmarked set, and bits 1-2 holding 3 read as both (SHARE-FORMAT).
+        val sets = d.exercises.flatMap { ex -> ex.sets.map { s -> ExerciseSet(ex.name, ex.equipment.ifEmpty { null }, s.weightLb.finite(), s.reps, s.rpe.finite(), s.durationSec.finite(), s.distanceMeters.finite(), s.isWarmup, SetSide.fromShare(s.side)) } }
         // Per-serving on the wire; as-eaten in the store. LIFT iOS sends servings=1 (no-op); LIFT Android sends real counts.
         // `fe` (saturated fat, sugar, sodium) is per serving too and gets the same multiply -- a stored food whose
         // calories are as eaten and whose sodium is per serving would disagree with itself. Null stays null.
