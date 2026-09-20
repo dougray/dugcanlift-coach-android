@@ -1,6 +1,5 @@
 package com.dugcanlift.coach.data
 
-import kotlin.math.roundToInt
 
 /**
  * One session of one lift, reduced to a best estimated 1RM per side. A null is "that side was not
@@ -14,8 +13,13 @@ data class SideSession(val dayKey: String, val leftE1rm: Double?, val rightE1rm:
  *
  * [UNKNOWN] is LIFT web's `trend: null` -- fewer than [SideBalance.MIN_FOR_TREND] sessions on a
  * side, so there is no earlier figure honest enough to compare against. It is not "steady".
+ *
+ * [wire] is the word Coach web's `imbalanceLines` prints after "gap "; [UNKNOWN] has none, and the
+ * clause is left off entirely rather than guessed at.
  */
-enum class ImbalanceTrend { WIDENING, CLOSING, STEADY, UNKNOWN }
+enum class ImbalanceTrend(val wire: String?) {
+    WIDENING("widening"), CLOSING("closing"), STEADY("steady"), UNKNOWN(null)
+}
 
 /**
  * The imbalance between two sides of one lift: `(strong - weak) / strong` on estimated 1RM, as a
@@ -24,6 +28,10 @@ enum class ImbalanceTrend { WIDENING, CLOSING, STEADY, UNKNOWN }
  * [stronger] is null when the two are exactly equal, which is the only time there is no stronger
  * side to name. [was] is the same figure over each side's *first* three sessions, which is what
  * [trend] compares against; it is null whenever the trend is [ImbalanceTrend.UNKNOWN].
+ *
+ * There is no wording here. What a coach reads is `ClientDisplay.imbalanceLines`, and it is Coach
+ * web's `imbalanceLines` word for word -- three Coach builds printing different sentences from one
+ * log is the same failure as printing different numbers.
  */
 data class SideImbalance(
     val fraction: Double,
@@ -32,33 +40,7 @@ data class SideImbalance(
     val was: Double?,
     val leftSessions: Int,
     val rightSessions: Int
-) {
-    /** Whole percent, the only precision this number deserves. */
-    val percent: Int get() = (fraction * 100).roundToInt()
-
-    /**
-     * The one line the lift's chart shows.
-     *
-     * Tracked and shown, never targeted -- the discipline saturated fat, sugar and sodium follow.
-     * It states the gap and which way it is going and stops there: no threshold, no colour, no
-     * warning, no advice. A 10% difference is ordinary in most people, and what one client's means
-     * is a question for the trainer reading it.
-     */
-    val description: String
-        get() {
-            val head = when {
-                stronger == null || percent == 0 -> "Even"
-                else -> "${stronger.label} $percent% stronger"
-            }
-            val tail = when (trend) {
-                ImbalanceTrend.WIDENING -> "gap widening"
-                ImbalanceTrend.CLOSING -> "gap closing"
-                ImbalanceTrend.STEADY -> "holding steady"
-                ImbalanceTrend.UNKNOWN -> null
-            }
-            return listOfNotNull(head, tail).joinToString(" · ")
-        }
-}
+)
 
 /**
  * The per-side maths behind the estimated-1RM charts, kept pure and free of Compose so it can be

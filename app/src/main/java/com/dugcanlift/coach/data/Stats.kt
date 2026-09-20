@@ -45,9 +45,9 @@ data class NutrientAverage(val nutrient: Nutrient, val perDay: Double, val days:
  * still kept apart by side ([Stats.liftKey]); this type is the grouping for the screen, not for the
  * numbers.
  *
- * [both] is one point per working set, in the order the days appear, which is what this chart has
- * always drawn. [leftPoints] and [rightPoints] are one point per *session* instead -- the same
- * figures [imbalance] averages, so the lines and the number under them cannot disagree.
+ * Every series is one point per day -- the day's best working set -- including [both]. That is the
+ * same figure [imbalance] averages, so the lines and the number under them cannot disagree, and a
+ * two-sided lift does not read on a different scale from a per-limb one.
  */
 data class LiftProgression(
     val key: String,
@@ -201,9 +201,17 @@ object Stats {
         client.days.mapNotNull { day -> day.bodyweightLb?.let { day.dayKey to it } }.sortedBy { it.first }
 
     /**
-     * Estimated one-rep max over time, one series per lift identity, in the order the client's days
-     * appear. Keyed `"name|equipment|side"` -- the kit's share-format construction (trimmed name,
-     * `|`, trimmed equipment) with the side joined on -- because the wire format treats equipment as
+     * Estimated one-rep max over time, one series per lift identity, **one point per day**: the
+     * best working set that lift recorded that day, oldest first.
+     *
+     * Per day rather than per set so that a point on a chart and a "session" in the imbalance rule
+     * are the same thing everywhere -- SHARE-FORMAT's figure is the mean of each side's last three
+     * *sessions*, and a chart that plotted sets would have put three points where that rule counts
+     * one. It applies to two-sided lifts too, which did once plot every set: the same lift must not
+     * change shape depending on whether its client happens to log limbs.
+     *
+     * Keyed `"name|equipment|side"` -- the kit's share-format construction (trimmed name, `|`,
+     * trimmed equipment) with the side joined on -- because the wire format treats equipment as
      * part of a lift's identity, and per-limb logging joins the side to it for exactly the same
      * reason: a barbell row and a cable row are both "Row" but are not the same lift, and a
      * left-arm row and a right-arm row are no more the same lift than those two are. A null
@@ -217,54 +225,44 @@ object Stats {
      * "Tolerating the bits is not enough; Coach must group on side".
      */
     fun perLiftE1rm(client: Client): Map<String, List<Pair<String, Double>>> {
-        val series = LinkedHashMap<String, MutableList<Pair<String, Double>>>()
+        val best = LinkedHashMap<String, MutableMap<String, Double>>()
         for (day in client.days) {
             for (set in day.sets) {
                 val estimate = e1rm(set) ?: continue
-                series.getOrPut(liftKey(set.exerciseName, set.equipment, set.side)) { mutableListOf() }.add(day.dayKey to estimate)
+                val byDay = best.getOrPut(liftKey(set.exerciseName, set.equipment, set.side)) { mutableMapOf() }
+                byDay[day.dayKey] = maxOf(byDay[day.dayKey] ?: estimate, estimate)
             }
         }
-        return series
+        return best.mapValues { (_, byDay) -> byDay.toSortedMap().map { (dayKey, e) -> dayKey to e } }
     }
 
     /**
-     * One [SideSession] per day this client trained [name] on [equipment], oldest first, holding
-     * that day's best estimated 1RM for each side. A side the day did not record is null, not zero:
-     * "that limb has nothing to say about this day".
+     * One [SideSession] per day this client trained [name] on [equipment] with a named limb, oldest
+     * first, holding that day's best estimated 1RM for each side. A side the day did not record is
+     * null, not zero: "that limb has nothing to say about this day".
      *
-     * Per *session*, not per set, because that is the figure SHARE-FORMAT's imbalance rule averages
-     * -- and it is the figure the per-side lines draw, so the number under a chart and the chart
-     * itself tell one story rather than two.
+     * Read straight off [perLiftE1rm], so the figures the imbalance averages are literally the
+     * points the chart draws -- the number under a chart and the chart itself cannot disagree.
      */
     fun sideSessions(client: Client, name: String, equipment: String?): List<SideSession> {
-        val wanted = matchKey(name, equipment)
-        val best = sortedMapOf<String, MutableMap<SetSide, Double>>()
-        for (day in client.days) {
-            for (set in day.sets) {
-                if (matchKey(set.exerciseName, set.equipment) != wanted) continue
-                val side = set.side ?: continue
-                val estimate = e1rm(set) ?: continue
-                val forDay = best.getOrPut(day.dayKey) { mutableMapOf() }
-                forDay[side] = maxOf(forDay[side] ?: estimate, estimate)
-            }
-        }
-        return best.map { (dayKey, sides) -> SideSession(dayKey, sides[SetSide.LEFT], sides[SetSide.RIGHT]) }
+        val series = perLiftE1rm(client)
+        val left = series[liftKey(name, equipment, SetSide.LEFT)].orEmpty().toMap()
+        val right = series[liftKey(name, equipment, SetSide.RIGHT)].orEmpty().toMap()
+        return (left.keys + right.keys).sorted().map { SideSession(it, left[it], right[it]) }
     }
 
     /**
      * Every lift this client has an estimate for, one entry per `"name|equipment"`, each carrying
      * the series to chart and -- when the lift was logged per limb -- the gap between the sides.
      *
-     * Two-sided lifts are entirely unchanged: one series, one point per working set, in the order
-     * the days appear, exactly as before per-limb logging existed. A lift with sides draws its
-     * sides as separate lines and never averages them together. A lift with both (sets logged
-     * before the client turned the toggle on, and sided ones after) keeps all three: those earlier
-     * sets are real and leaving them off the chart would be a quieter lie than showing them.
+     * A lift with sides draws its sides as separate lines and never averages them together. A lift
+     * with both (sets logged before the client turned the toggle on, and sided ones after) keeps
+     * all three: those earlier sets are real and leaving them off the chart would be a quieter lie
+     * than showing them.
      */
     fun perLiftProgressions(client: Client): List<LiftProgression> {
         val series = perLiftE1rm(client)
-        // One entry per lift, in the order its first charted set appears -- the order perLiftE1rm
-        // itself has always produced, so a roster with no per-limb sets renders in the same order.
+        // One entry per lift, in the order its first charted set appears.
         val lifts = LinkedHashMap<String, Pair<String, String?>>()
         for (day in client.days) {
             for (set in day.sets) {
@@ -285,7 +283,6 @@ object Stats {
             )
         }
     }
-
 
     /**
      * The mean daily total of each of saturated fat, sugar and sodium over the [windowDays] days

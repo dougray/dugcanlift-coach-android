@@ -139,26 +139,90 @@ class ClientDisplayTest {
         imbalance = SideBalance.imbalance(sessions.toList())
     )
 
-    @Test fun `a two-sided lift carries no imbalance line at all`() =
-        assertNull(imbalanceLine(LiftProgression("Bench Press|Barbell", listOf("2026-09-01" to 225.0), emptyList(), null)))
+    @Test fun `a two-sided lift carries no imbalance lines at all`() =
+        assertNull(imbalanceLines(LiftProgression("Bench Press|Barbell", listOf("2026-09-01" to 225.0), emptyList(), null)))
 
-    @Test fun `the imbalance line states the gap and its direction and nothing else`() {
-        val line = imbalanceLine(progression(
-            SideSession("2026-09-01", 100.0, 80.0),
-            SideSession("2026-09-04", 100.0, 80.0),
-            SideSession("2026-09-08", 100.0, 95.0),
-            SideSession("2026-09-11", 100.0, 95.0)
-        ))
-        assertEquals("Left 10% stronger · gap closing", line)
+    // Coach web's `coach/sides.js` imbalanceLines, word for word: one decimal, a trailing ".0"
+    // dropped exactly as the browser's own Math.round(percent * 1000) / 10 prints it.
+    @Test fun `the headline names the stronger side and the figure to one decimal`() {
+        val lines = imbalanceLines(progression(
+            SideSession("2026-09-01", 80.0, 100.0),
+            SideSession("2026-09-04", 80.0, 100.0),
+            SideSession("2026-09-08", 95.0, 100.0),
+            SideSession("2026-09-11", 95.0, 100.0)
+        ))!!
+        assertEquals("Right ahead by 10%", lines.headline)
+        assertEquals("Mean estimated 1RM of the last 3 sessions each · gap closing", lines.detail)
     }
 
-    // Below three sessions a side there is no figure, and saying so beats an empty space a coach
-    // would read as "no imbalance".
-    @Test fun `too few sessions says so, and counts what each side has`() {
-        val line = imbalanceLine(progression(
+    @Test fun `a fractional gap keeps its one decimal`() {
+        val lines = imbalanceLines(progression(
+            SideSession("2026-09-01", 95.0, 100.0),
+            SideSession("2026-09-04", 95.0, 100.0),
+            SideSession("2026-09-08", 95.0, 100.0)
+        ))!!
+        // (100 - 95) / 100 == 5%, and a gap of 94.7 against 100 would read 5.3%.
+        assertEquals("Right ahead by 5%", lines.headline)
+        assertEquals("Mean estimated 1RM of the last 3 sessions each", lines.detail)
+        assertEquals("Right ahead by 5.3%", imbalanceLines(progression(
+            SideSession("2026-09-01", 94.7, 100.0),
+            SideSession("2026-09-04", 94.7, 100.0),
+            SideSession("2026-09-08", 94.7, 100.0)
+        ))!!.headline)
+    }
+
+    @Test fun `two sides that match exactly are level, with no side named`() {
+        val lines = imbalanceLines(progression(
+            SideSession("2026-09-01", 100.0, 100.0),
+            SideSession("2026-09-04", 100.0, 100.0),
+            SideSession("2026-09-08", 100.0, 100.0)
+        ))!!
+        assertEquals("Sides level", lines.headline)
+        // Exactly three sessions: no trend to state, so the clause is left off rather than guessed.
+        assertEquals("Mean estimated 1RM of the last 3 sessions each", lines.detail)
+    }
+
+    @Test fun `a widening gap says so`() {
+        val lines = imbalanceLines(progression(
+            SideSession("2026-09-01", 100.0, 95.0),
+            SideSession("2026-09-04", 100.0, 95.0),
+            SideSession("2026-09-08", 120.0, 95.0),
+            SideSession("2026-09-11", 120.0, 95.0)
+        ))!!
+        assertEquals("Mean estimated 1RM of the last 3 sessions each · gap widening", lines.detail)
+    }
+
+    @Test fun `a gap that has not moved says steady`() {
+        val lines = imbalanceLines(progression(
+            SideSession("2026-09-01", 100.0, 90.0),
+            SideSession("2026-09-04", 100.0, 90.0),
+            SideSession("2026-09-08", 100.0, 90.0),
+            SideSession("2026-09-11", 100.0, 91.0)
+        ))!!
+        assertEquals("Mean estimated 1RM of the last 3 sessions each · gap steady", lines.detail)
+    }
+
+    // Below three sessions a side there is no figure, and saying what is missing beats an empty
+    // space a coach would read as "no imbalance".
+    @Test fun `too few sessions is an em dash and a count of what each side has`() {
+        val lines = imbalanceLines(progression(
             SideSession("2026-09-01", 100.0, 90.0),
             SideSession("2026-09-08", 100.0, null)
-        ))
-        assertEquals("Left and right tracked · L 2 · R 1 (3 sessions each before a gap is shown)", line)
+        ))!!
+        assertEquals("—", lines.headline)
+        assertEquals("Needs 3 sessions a side · 2 left, 1 right so far", lines.detail)
+    }
+
+    // Tracked and shown, never targeted: nothing in this card suggests a threshold, a colour, or
+    // anything to do about it. Coach web's own test asserts exactly this list.
+    @Test fun `no line here tells a coach what to do about a gap`() {
+        val lines = listOfNotNull(
+            imbalanceLines(progression(SideSession("a", 100.0, 90.0), SideSession("b", 100.0, 90.0), SideSession("c", 100.0, 90.0))),
+            imbalanceLines(progression(SideSession("a", 100.0, 90.0)))
+        )
+        val text = lines.joinToString(" ") { "${it.headline} ${it.detail}" }.lowercase()
+        listOf("should", "fix", "warning", "target", "too ", "concern").forEach {
+            assertEquals("\"$it\" has no business in this card", false, text.contains(it))
+        }
     }
 }

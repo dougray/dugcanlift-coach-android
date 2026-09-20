@@ -70,22 +70,47 @@ fun liftDisplayName(key: String): String {
 }
 
 /**
- * The one line a per-limb lift's chart carries under it.
+ * The two lines a per-limb lift's chart carries under it: a short [headline] for the figure and a
+ * quieter [detail] saying what it was measured over.
  *
- * With three sessions a side it is SHARE-FORMAT's imbalance figure and its trend -- "Left 10%
- * stronger · gap closing". Below that there is no figure, and saying so is the honest answer: the
- * line counts what each side has instead, so a coach can see how far off a figure is rather than
- * wondering why there isn't one.
- *
- * **Tracked and shown, never targeted.** No threshold, no colour, no advice, here or at the call
- * site -- the same discipline saturated fat, sugar and sodium are held to.
+ * Two pieces rather than one sentence so the headline stays short enough not to widen a phone, and
+ * so "not enough yet" says what is missing instead of nothing.
  */
-fun imbalanceLine(progression: LiftProgression): String? {
+data class ImbalanceLines(val headline: String, val detail: String)
+
+/**
+ * What a per-limb lift's chart says, or null for a two-sided lift, which has no sides and no gap.
+ *
+ * **This is Coach web's `coach/sides.js` `imbalanceLines`, word for word**, and a port rather than
+ * a second opinion for the reason [SideBalance] itself is one: three Coach builds printing
+ * different sentences from one log is the same failure as printing different numbers. The
+ * percentage carries one decimal and drops a trailing `.0`, which is what the browser's own
+ * `Math.round(percent * 1000) / 10` prints.
+ *
+ * Below three sessions a side there is no figure and the headline is an em dash, with the detail
+ * counting what each side has -- saying what is missing beats an empty space a coach would read as
+ * "no imbalance".
+ *
+ * **Tracked and shown, never targeted.** It states the gap and what it was measured over and stops:
+ * no threshold, no colour, no advice, here or at the call site -- the same discipline saturated
+ * fat, sugar and sodium are held to.
+ */
+fun imbalanceLines(progression: LiftProgression): ImbalanceLines? {
     if (!progression.hasSides) return null
-    progression.imbalance?.let { return it.description }
-    val (left, right) = SideBalance.sessionCounts(progression.sessions)
-    return "Left and right tracked · L $left · R $right " +
-        "(${SideBalance.MIN_SESSIONS} sessions each before a gap is shown)"
+    val imbalance = progression.imbalance ?: run {
+        val (left, right) = SideBalance.sessionCounts(progression.sessions)
+        return ImbalanceLines(
+            headline = "—",
+            detail = "Needs ${SideBalance.MIN_SESSIONS} sessions a side · $left left, $right right so far"
+        )
+    }
+    val trend = imbalance.trend.wire?.let { " · gap $it" }.orEmpty()
+    return ImbalanceLines(
+        headline = imbalance.stronger
+            ?.let { "${it.label} ahead by ${trimmedNumber(imbalance.fraction * 100)}%" }
+            ?: "Sides level",
+        detail = "Mean estimated 1RM of the last ${SideBalance.MIN_SESSIONS} sessions each$trend"
+    )
 }
 
 /** mm:ss once a minute or more has passed, else "Ns" -- e.g. 45.0 -> "45s", 90.0 -> "1:30". */
