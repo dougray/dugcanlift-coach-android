@@ -1,6 +1,8 @@
 package com.dugcanlift.coach.ui
 
 import com.dugcanlift.coach.data.ExerciseSet
+import com.dugcanlift.coach.data.LiftProgression
+import com.dugcanlift.coach.data.SideBalance
 import java.util.Locale
 import kotlin.math.round
 import kotlin.math.roundToInt
@@ -49,17 +51,41 @@ private fun trimmedNumber(value: Double): String {
 }
 
 /**
- * Splits a [com.dugcanlift.coach.data.Stats.perLiftE1rm] key ("name|equipment") into a display
- * label -- "Back Squat (Barbell)" -- or the bare name when equipment is blank, matching an
- * equipment-less exercise's empty-string equipment on the wire. Lets two same-named lifts on
- * different equipment (a barbell row and a cable row) read as the distinct lifts they are.
+ * Splits a [com.dugcanlift.coach.data.Stats.liftKey] ("name|equipment", optionally with a third
+ * "|side" field) into a display label -- "Back Squat (Barbell)" -- or the bare name when equipment
+ * is blank, matching an equipment-less exercise's empty-string equipment on the wire. Lets two
+ * same-named lifts on different equipment (a barbell row and a cable row) read as the distinct
+ * lifts they are.
+ *
+ * The side is deliberately *not* in the label: a per-limb lift is one heading with two lines under
+ * it, not two headings a coach has to read as a pair.
  */
 fun liftDisplayName(key: String): String {
     val separator = key.indexOf('|')
     if (separator < 0) return key
     val name = key.substring(0, separator)
-    val equipment = key.substring(separator + 1)
+    val rest = key.substring(separator + 1)
+    val equipment = rest.substringBefore('|')
     return if (equipment.isBlank()) name else "$name ($equipment)"
+}
+
+/**
+ * The one line a per-limb lift's chart carries under it.
+ *
+ * With three sessions a side it is SHARE-FORMAT's imbalance figure and its trend -- "Left 10%
+ * stronger · gap closing". Below that there is no figure, and saying so is the honest answer: the
+ * line counts what each side has instead, so a coach can see how far off a figure is rather than
+ * wondering why there isn't one.
+ *
+ * **Tracked and shown, never targeted.** No threshold, no colour, no advice, here or at the call
+ * site -- the same discipline saturated fat, sugar and sodium are held to.
+ */
+fun imbalanceLine(progression: LiftProgression): String? {
+    if (!progression.hasSides) return null
+    progression.imbalance?.let { return it.description }
+    val (left, right) = SideBalance.sessionCounts(progression.sessions)
+    return "Left and right tracked · L $left · R $right " +
+        "(${SideBalance.MIN_SESSIONS} sessions each before a gap is shown)"
 }
 
 /** mm:ss once a minute or more has passed, else "Ns" -- e.g. 45.0 -> "45s", 90.0 -> "1:30". */
@@ -106,5 +132,9 @@ fun formatSetLine(set: ExerciseSet, unit: String): String {
         distance != null -> formatDistance(distance)
         else -> "—"
     }
-    return set.rpe?.let { "$descriptor @ RPE ${trimmedNumber(it)}" } ?: descriptor
+    val withRpe = set.rpe?.let { "$descriptor @ RPE ${trimmedNumber(it)}" } ?: descriptor
+    // "185 x 5 L", trailing, as LIFT for Android writes it. A both-sided set says nothing: printing
+    // "both" on every bench press set would be noise on every screen, and absent already means both
+    // everywhere else this value travels.
+    return set.side?.let { "$withRpe ${it.short}" } ?: withRpe
 }
