@@ -274,9 +274,17 @@ from an exercise's name. Spec: SHARE-FORMAT "flags" and "The imbalance figure", 
   Mean of each side's last three sessions, three a side for a figure, four for a trend, half a
   percentage point of movement before the gap has done anything. If the rule changes it changes in
   `sides.js` first and is ported again. `SideBalanceTest` carries LIFT Android's cases.
-- **A session is a day's best per side** (`Stats.sideSessions`), not a set, and the per-side lines
-  draw those same figures -- so the number under a chart and the chart itself cannot disagree. The
-  two-sided path still charts one point per working set, exactly as before.
+- **The wording is Coach web's `imbalanceLines`, word for word** -- `Right ahead by 5.3%` over
+  `Mean estimated 1RM of the last 3 sessions each · gap closing`, `Sides level` when they match,
+  and `—` over `Needs 3 sessions a side · 2 left, 2 right so far` below the threshold. It lives in
+  `ClientDisplay.imbalanceLines`, not on `SideImbalance`: three Coach builds printing different
+  *sentences* from one log is the same failure as printing different numbers. One decimal, trailing
+  `.0` dropped, which is what the browser's `Math.round(percent * 1000) / 10` prints.
+- **Every e1RM series is one point per day**, the day's best working set (`Stats.perLiftE1rm`) --
+  including a two-sided lift's, which did once plot every set. A point on a chart and a "session"
+  in the imbalance rule have to be the same thing, and the same lift must not change shape
+  depending on whether its client happens to log limbs. `Stats.sideSessions` reads straight off
+  that series, so the number under a chart and the chart itself cannot disagree.
 - **Tracked and shown, never targeted**, the discipline saturated fat, sugar and sodium are held
   to: no threshold, no colour, no advice. The line states the gap and its direction and stops.
 - **Volume, set counts and the weekly summary count both sides**, unchanged -- they only ever

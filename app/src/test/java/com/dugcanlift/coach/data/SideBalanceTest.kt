@@ -71,13 +71,11 @@ class SideBalanceTest {
         )
         val imbalance = SideBalance.imbalance(sessions)!!
         assertEquals(0.0, imbalance.fraction, 1e-9)
-        assertEquals(0, imbalance.percent)
         assertNull(imbalance.stronger)
         // Exactly three sessions: the first three and the last three are the same sessions, so there
         // is no trend to state and the line says so by saying nothing.
         assertEquals(ImbalanceTrend.UNKNOWN, imbalance.trend)
         assertNull(imbalance.was)
-        assertEquals("Even", imbalance.description)
     }
 
     @Test fun `a trend needs a fourth session on each side`() {
@@ -91,6 +89,8 @@ class SideBalanceTest {
         assertEquals(ImbalanceTrend.STEADY, SideBalance.trend(four))
         assertEquals(4, SideBalance.MIN_FOR_TREND)
         assertEquals(3, SideBalance.MIN_SESSIONS)
+        // The words Coach web's imbalanceLines prints after "gap "; UNKNOWN has none.
+        assertEquals(listOf("widening", "closing", "steady", null), ImbalanceTrend.entries.map { it.wire })
     }
 
     /* ---------- a real gap ---------- */
@@ -103,7 +103,6 @@ class SideBalanceTest {
         )
         val imbalance = SideBalance.imbalance(sessions)!!
         assertEquals(0.10, imbalance.fraction, 1e-9)
-        assertEquals(10, imbalance.percent)
         assertEquals(SetSide.LEFT, imbalance.stronger)
         assertEquals(3, imbalance.leftSessions)
         assertEquals(3, imbalance.rightSessions)
@@ -130,7 +129,6 @@ class SideBalanceTest {
         )
         val imbalance = SideBalance.imbalance(sessions)!!
         assertEquals(0.2833, imbalance.fraction, 1e-4)
-        assertEquals(28, imbalance.percent)
         assertEquals(SetSide.LEFT, imbalance.stronger)
         assertEquals(ImbalanceTrend.WIDENING, imbalance.trend)
     }
@@ -159,7 +157,6 @@ class SideBalanceTest {
         // Last three on the right: 80, 95, 95 -> mean 90 against the left's 100. The first three,
         // 80, 80, 95, were 15% behind.
         assertEquals(0.15, imbalance.was!!, 1e-9)
-        assertEquals("Left 10% stronger · gap closing", imbalance.description)
     }
 
     @Test fun `half a percentage point of movement is not a direction`() {
@@ -172,7 +169,6 @@ class SideBalanceTest {
         val imbalance = SideBalance.imbalance(sessions)!!
         assertEquals(ImbalanceTrend.STEADY, imbalance.trend)
         assertTrue("the gap did move, just not enough to name", imbalance.fraction < imbalance.was!!)
-        assertEquals("Left 10% stronger · holding steady", imbalance.description)
     }
 
     @Test fun `a strong side pulling away reads as widening`() {
@@ -200,7 +196,6 @@ class SideBalanceTest {
         val imbalance = SideBalance.imbalance(sessions)!!
         assertEquals(5, imbalance.leftSessions)
         assertEquals(3, imbalance.rightSessions)
-        assertEquals("Left 10% stronger", imbalance.description)
     }
 
     // The gap's *size*, not which side is ahead: a client whose weaker side overtakes has closed one

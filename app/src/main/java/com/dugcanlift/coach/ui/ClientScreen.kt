@@ -163,7 +163,7 @@ private data class LiftChartData(
     val left: List<Pair<String, Double>>,
     val right: List<Pair<String, Double>>,
     val hasSides: Boolean,
-    val imbalance: String?
+    val imbalance: ImbalanceLines?
 )
 
 @Composable
@@ -242,7 +242,7 @@ private fun ClientDetailContent(client: Client, paneWidth: Dp, onRemove: () -> U
                     left = convert(progression.leftPoints),
                     right = convert(progression.rightPoints),
                     hasSides = progression.hasSides,
-                    imbalance = imbalanceLine(progression)
+                    imbalance = imbalanceLines(progression)
                 )
             }
     }
@@ -328,12 +328,17 @@ private fun ClientDetailContent(client: Client, paneWidth: Dp, onRemove: () -> U
                 ),
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
             )
-            lift.imbalance?.let { line ->
+            lift.imbalance?.let { lines ->
                 Text(
-                    text = line,
+                    text = lines.headline,
                     style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(horizontal = 16.dp).padding(top = 2.dp)
+                )
+                Text(
+                    text = lines.detail,
+                    style = MaterialTheme.typography.bodySmall,
                     color = DclMuted,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
+                    modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 4.dp)
                 )
             }
         } else {

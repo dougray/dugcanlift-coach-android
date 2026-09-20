@@ -136,12 +136,13 @@ class PerLimbSetsTest {
         val c = client(day("2026-09-01",
             set("Split Squat", "Dumbbell", 60.0, 8, SetSide.LEFT),
             set("Split Squat", "Dumbbell", 55.0, 8, SetSide.RIGHT),
-            set("Split Squat", "Dumbbell", 60.0, 8, SetSide.LEFT)
+            set("Split Squat", "Dumbbell", 65.0, 8, SetSide.LEFT)
         ))
         val series = Stats.perLiftE1rm(c)
         assertEquals(setOf("Split Squat|Dumbbell|left", "Split Squat|Dumbbell|right"), series.keys)
-        assertEquals(2, series.getValue("Split Squat|Dumbbell|left").size)
-        assertEquals(1, series.getValue("Split Squat|Dumbbell|right").size)
+        // One point per day per side, the day's best: the left's two sets are one session.
+        assertEquals(65.0 * (1 + 8 / 30.0), series.getValue("Split Squat|Dumbbell|left").single().second, 1e-9)
+        assertEquals(55.0 * (1 + 8 / 30.0), series.getValue("Split Squat|Dumbbell|right").single().second, 1e-9)
     }
 
     @Test fun `a two-sided lift is one series and is unchanged`() {
@@ -153,7 +154,9 @@ class PerLimbSetsTest {
         val progression = Stats.perLiftProgressions(c).single()
         assertEquals("Bench Press|Barbell", progression.key)
         assertFalse(progression.hasSides)
-        assertEquals(2, progression.both.size)
+        // One point per day here too: a two-sided lift must not read on a different scale from a
+        // per-limb one, and "session" has to mean the same thing on every series.
+        assertEquals(1, progression.both.size)
         assertNull(progression.imbalance)
     }
 
