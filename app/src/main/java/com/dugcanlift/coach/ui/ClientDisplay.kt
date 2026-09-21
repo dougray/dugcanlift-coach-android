@@ -1,6 +1,9 @@
 package com.dugcanlift.coach.ui
 
 import com.dugcanlift.coach.data.ExerciseSet
+import com.dugcanlift.coach.data.LiftProgression
+import com.dugcanlift.coach.data.SetSide
+import com.dugcanlift.coach.data.SideBalance
 import java.util.Locale
 import kotlin.math.round
 import kotlin.math.roundToInt
@@ -49,17 +52,75 @@ private fun trimmedNumber(value: Double): String {
 }
 
 /**
- * Splits a [com.dugcanlift.coach.data.Stats.perLiftE1rm] key ("name|equipment") into a display
- * label -- "Back Squat (Barbell)" -- or the bare name when equipment is blank, matching an
- * equipment-less exercise's empty-string equipment on the wire. Lets two same-named lifts on
- * different equipment (a barbell row and a cable row) read as the distinct lifts they are.
+ * Splits a [com.dugcanlift.coach.data.Stats.liftKey] ("name|equipment", optionally with a third
+ * "|side" field) into a display label -- "Back Squat (Barbell)" -- or the bare name when equipment
+ * is blank, matching an equipment-less exercise's empty-string equipment on the wire. Lets two
+ * same-named lifts on different equipment (a barbell row and a cable row) read as the distinct
+ * lifts they are.
+ *
+ * The side is deliberately *not* in the label: a per-limb lift is one heading with two lines under
+ * it, not two headings a coach has to read as a pair.
  */
 fun liftDisplayName(key: String): String {
     val separator = key.indexOf('|')
     if (separator < 0) return key
     val name = key.substring(0, separator)
-    val equipment = key.substring(separator + 1)
+    val rest = key.substring(separator + 1)
+    val equipment = rest.substringBefore('|')
     return if (equipment.isBlank()) name else "$name ($equipment)"
+}
+
+/**
+ * A chart line's name: Coach web's `longLabel` -- "Left", "Right", and **"Both"** for the unmarked
+ * sets, which is what an unmarked set has always meant. Only ever shown on a lift that has a limb
+ * to distinguish; a two-sided lift's single line needs no name at all.
+ */
+fun sideSeriesLabel(side: SetSide?): String = side?.label ?: "Both"
+
+/**
+ * The two lines a per-limb lift's chart carries under it: a short [headline] for the figure and a
+ * quieter [detail] saying what it was measured over.
+ *
+ * Two pieces rather than one sentence so the headline stays short enough not to widen a phone, and
+ * so "not enough yet" says what is missing instead of nothing.
+ */
+data class ImbalanceLines(val headline: String, val detail: String)
+
+/**
+ * What a per-limb lift's chart says, or null unless **both limbs exist** -- Coach web's
+ * `if (left && right)` gate on the whole block. A two-sided lift has no sides and no gap, and a
+ * client who has only ever logged one limb gets no standing reminder of the one they have not.
+ *
+ * **This is Coach web's `coach/sides.js` `imbalanceLines`, word for word**, and a port rather than
+ * a second opinion for the reason [SideBalance] itself is one: three Coach builds printing
+ * different sentences from one log is the same failure as printing different numbers. The
+ * percentage carries one decimal and drops a trailing `.0`, which is what the browser's own
+ * `Math.round(percent * 1000) / 10` prints.
+ *
+ * Below three sessions a side there is no figure and the headline is an em dash, with the detail
+ * counting what each side has -- saying what is missing beats an empty space a coach would read as
+ * "no imbalance".
+ *
+ * **Tracked and shown, never targeted.** It states the gap and what it was measured over and stops:
+ * no threshold, no colour, no advice, here or at the call site -- the same discipline saturated
+ * fat, sugar and sodium are held to.
+ */
+fun imbalanceLines(progression: LiftProgression): ImbalanceLines? {
+    if (!progression.hasBothLimbs) return null
+    val imbalance = progression.imbalance ?: run {
+        val (left, right) = SideBalance.sessionCounts(progression.sessions)
+        return ImbalanceLines(
+            headline = "—",
+            detail = "Needs ${SideBalance.MIN_SESSIONS} sessions a side · $left left, $right right so far"
+        )
+    }
+    val trend = imbalance.trend.wire?.let { " · gap $it" }.orEmpty()
+    return ImbalanceLines(
+        headline = imbalance.stronger
+            ?.let { "${it.label} ahead by ${trimmedNumber(imbalance.fraction * 100)}%" }
+            ?: "Sides level",
+        detail = "Mean estimated 1RM of the last ${SideBalance.MIN_SESSIONS} sessions each$trend"
+    )
 }
 
 /** mm:ss once a minute or more has passed, else "Ns" -- e.g. 45.0 -> "45s", 90.0 -> "1:30". */
@@ -106,5 +167,9 @@ fun formatSetLine(set: ExerciseSet, unit: String): String {
         distance != null -> formatDistance(distance)
         else -> "—"
     }
-    return set.rpe?.let { "$descriptor @ RPE ${trimmedNumber(it)}" } ?: descriptor
+    val withRpe = set.rpe?.let { "$descriptor @ RPE ${trimmedNumber(it)}" } ?: descriptor
+    // "185 x 5 L", trailing, as LIFT for Android writes it. A both-sided set says nothing: printing
+    // "both" on every bench press set would be noise on every screen, and absent already means both
+    // everywhere else this value travels.
+    return set.side?.let { "$withRpe ${it.short}" } ?: withRpe
 }

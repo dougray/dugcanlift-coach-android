@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -156,6 +157,110 @@ fun LineChart(
             )
             Text(
                 text = points.last().first,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+/**
+ * One named line of a [MultiLineChart]: `label to value` pairs, whose labels are the x-axis's own
+ * (here, day keys), not positions. A series need not cover every label -- a lift trained on the
+ * left alone one day simply has no right-hand point for it.
+ */
+data class LineSeries(val label: String, val points: List<Pair<String, Double>>, val color: Color)
+
+/**
+ * Several lines on one set of axes, sharing a y-scale and a **label-keyed** x-axis, so a point from
+ * one series sits directly above the same day's point from another.
+ *
+ * That is the difference from [LineChart], which spaces its points evenly by position and is left
+ * exactly as it was: a single series has nothing to line up against. Here two sides logged on
+ * different days would otherwise be drawn as though they had been logged on the same ones.
+ *
+ * A series is joined through its own points in order, the way [LineChart] joins a single one: a day
+ * a limb was not trained is a day that limb has nothing to say about, not a hole in its line. Its
+ * *position* still comes from the shared axis, so the gap is visible as a wider step.
+ *
+ * A series with fewer than two points is not drawn and gets no legend entry -- one point is not a
+ * trend. [legend] is off for a lift with nothing to distinguish, where the single line needs no
+ * name; both rules are Coach web's.
+ */
+@Composable
+fun MultiLineChart(
+    series: List<LineSeries>,
+    modifier: Modifier = Modifier,
+    legend: Boolean = true,
+    height: Dp = 160.dp
+) {
+    val gridColor = MaterialTheme.colorScheme.outline
+    // Coach web's own filter: a series with a single point is not a trend, and a legend entry for
+    // a line nobody can see is noise. It is a *drawing* rule only -- the session counts under the
+    // chart still count that one session, because the client did train it.
+    val drawn = series.filter { it.points.size >= 2 }
+    val labels = drawn.flatMap { s -> s.points.map { it.first } }.distinct().sorted()
+    val values = drawn.flatMap { s -> s.points.map { it.second } }
+    val bounds = if (values.size > 1) yAxisBounds(values) else 0.0..(values.maxOrNull() ?: 0.0)
+    val bottom = bounds.start
+    val top = bounds.endInclusive
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        if (drawn.isEmpty() || top <= 0.0) {
+            Text(
+                text = "Not enough logged yet to chart.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            return@Column
+        }
+
+        if (legend) Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
+            drawn.forEach { s ->
+                Text(
+                    text = "— ${s.label}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = s.color,
+                    modifier = Modifier.padding(end = 12.dp)
+                )
+            }
+        }
+
+        Canvas(modifier = Modifier.fillMaxWidth().height(height)) {
+            val w = size.width
+            val h = size.height
+            val span = top - bottom
+
+            listOf(0f, 0.5f, 1f).forEach { fraction ->
+                val y = h - (h * fraction)
+                drawLine(color = gridColor, start = Offset(0f, y), end = Offset(w, y), strokeWidth = 1f)
+            }
+
+            // A single shared label would put every point at x = 0; centre it instead, as the
+            // single-point case of [LineChart] does.
+            val stepX = if (labels.size > 1) w / (labels.size - 1) else 0f
+            drawn.forEach { s ->
+                var previous: Offset? = null
+                s.points.sortedBy { it.first }.forEach { (label, value) ->
+                    val x = if (labels.size > 1) stepX * labels.indexOf(label) else w / 2f
+                    val point = Offset(x, h - ((value - bottom) / span * h).toFloat())
+                    previous?.let { drawLine(color = s.color, start = it, end = point, strokeWidth = 4f, cap = StrokeCap.Round) }
+                    drawCircle(color = s.color, radius = 5f, center = point)
+                    previous = point
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(
+                text = labels.first(),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = labels.last(),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
