@@ -2,6 +2,7 @@ package com.dugcanlift.coach.ui
 
 import com.dugcanlift.coach.data.ExerciseSet
 import com.dugcanlift.coach.data.LiftProgression
+import com.dugcanlift.coach.data.SetSide
 import com.dugcanlift.coach.data.SideBalance
 import java.util.Locale
 import kotlin.math.round
@@ -70,6 +71,13 @@ fun liftDisplayName(key: String): String {
 }
 
 /**
+ * A chart line's name: Coach web's `longLabel` -- "Left", "Right", and **"Both"** for the unmarked
+ * sets, which is what an unmarked set has always meant. Only ever shown on a lift that has a limb
+ * to distinguish; a two-sided lift's single line needs no name at all.
+ */
+fun sideSeriesLabel(side: SetSide?): String = side?.label ?: "Both"
+
+/**
  * The two lines a per-limb lift's chart carries under it: a short [headline] for the figure and a
  * quieter [detail] saying what it was measured over.
  *
@@ -79,7 +87,9 @@ fun liftDisplayName(key: String): String {
 data class ImbalanceLines(val headline: String, val detail: String)
 
 /**
- * What a per-limb lift's chart says, or null for a two-sided lift, which has no sides and no gap.
+ * What a per-limb lift's chart says, or null unless **both limbs exist** -- Coach web's
+ * `if (left && right)` gate on the whole block. A two-sided lift has no sides and no gap, and a
+ * client who has only ever logged one limb gets no standing reminder of the one they have not.
  *
  * **This is Coach web's `coach/sides.js` `imbalanceLines`, word for word**, and a port rather than
  * a second opinion for the reason [SideBalance] itself is one: three Coach builds printing
@@ -96,7 +106,7 @@ data class ImbalanceLines(val headline: String, val detail: String)
  * fat, sugar and sodium are held to.
  */
 fun imbalanceLines(progression: LiftProgression): ImbalanceLines? {
-    if (!progression.hasSides) return null
+    if (!progression.hasBothLimbs) return null
     val imbalance = progression.imbalance ?: run {
         val (left, right) = SideBalance.sessionCounts(progression.sessions)
         return ImbalanceLines(

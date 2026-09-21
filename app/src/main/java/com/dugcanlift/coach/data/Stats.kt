@@ -37,32 +37,47 @@ enum class Nutrient(val label: String, val unit: String) {
 /** [perDay] averaged over [days] days that recorded the nutrient, [partialDays] of them from only some foods. */
 data class NutrientAverage(val nutrient: Nutrient, val perDay: Double, val days: Int, val partialDays: Int)
 
+/** One line of a lift's chart: a side (null is the unmarked sets) and its points, oldest first. */
+data class LiftSeries(val side: SetSide?, val points: List<Pair<String, Double>>)
+
 /**
  * One lift's estimated-1RM progression: the series to chart, and the gap between its sides when it
  * was logged per limb.
  *
  * [key] is `"name|equipment"` -- the lift a coach reads as one heading. The *series* underneath are
- * still kept apart by side ([Stats.liftKey]); this type is the grouping for the screen, not for the
+ * kept apart by side ([Stats.liftKey]); this type is the grouping for the screen, not for the
  * numbers.
  *
- * Every series is one point per day -- the day's best working set -- including [both]. That is the
- * same figure [imbalance] averages, so the lines and the number under them cannot disagree, and a
- * two-sided lift does not read on a different scale from a per-limb one.
+ * [series] is Coach web's `splitSessions` order -- **left, right, then unmarked** -- with empty
+ * ones left out. A lift logged two-sided for a year and per-side since has all three, and the old
+ * sets are real. Every series is one point per day, the day's best working set, which is the same
+ * figure [imbalance] averages: the lines and the number under them cannot disagree.
  */
 data class LiftProgression(
     val key: String,
-    val both: List<Pair<String, Double>>,
+    val series: List<LiftSeries>,
     val sessions: List<SideSession>,
     val imbalance: SideImbalance?
 ) {
-    val leftPoints: List<Pair<String, Double>> get() = sessions.mapNotNull { s -> s.leftE1rm?.let { s.dayKey to it } }
-    val rightPoints: List<Pair<String, Double>> get() = sessions.mapNotNull { s -> s.rightE1rm?.let { s.dayKey to it } }
+    /**
+     * Coach web's `sided`: more than one series, or a single series that names a limb. It decides
+     * whether the lines are labelled Left/Right/Both at all -- a lift with only unmarked sets is
+     * the one line it has always been, with no legend and no talk of sides.
+     */
+    val sided: Boolean get() = series.size > 1 || series.firstOrNull()?.side != null
 
-    /** True once any set of this lift named a limb, which is what turns the per-side parts on. */
-    val hasSides: Boolean get() = leftPoints.isNotEmpty() || rightPoints.isNotEmpty()
+    /**
+     * Coach web's `if (left && right)` gate on the whole imbalance block. A client who has only
+     * ever logged one limb gets no standing reminder of the one they have not -- "needs 3 sessions
+     * a side" is for a client who trains both and is short on one.
+     */
+    val hasBothLimbs: Boolean get() =
+        series.any { it.side == SetSide.LEFT } && series.any { it.side == SetSide.RIGHT }
 
-    /** Nothing to draw at all -- neither side, nor an unmarked set. */
-    val isEmpty: Boolean get() = both.isEmpty() && !hasSides
+    fun pointsFor(side: SetSide?): List<Pair<String, Double>> =
+        series.firstOrNull { it.side == side }?.points.orEmpty()
+
+    val isEmpty: Boolean get() = series.isEmpty()
 }
 
 /** One 7-day bucket ending on [endKey] (inclusive), newest bucket last in `weeklyBuckets`'s result. */
@@ -272,17 +287,18 @@ object Stats {
         }
         return lifts.map { (key, named) ->
             val (name, equipment) = named
-            val sided = series.containsKey(liftKey(name, equipment, SetSide.LEFT)) ||
-                series.containsKey(liftKey(name, equipment, SetSide.RIGHT))
-            val sessions = if (sided) sideSessions(client, name, equipment) else emptyList()
-            LiftProgression(
-                key = key,
-                both = series[liftKey(name, equipment, null)].orEmpty(),
-                sessions = sessions,
-                imbalance = SideBalance.imbalance(sessions)
-            )
+            // Coach web's SERIES_ORDER, exactly: left, right, then the unmarked sets last.
+            val lines = SERIES_ORDER.mapNotNull { side ->
+                series[liftKey(name, equipment, side)]?.takeIf { it.isNotEmpty() }?.let { LiftSeries(side, it) }
+            }
+            val bothLimbs = lines.any { it.side == SetSide.LEFT } && lines.any { it.side == SetSide.RIGHT }
+            val sessions = if (bothLimbs) sideSessions(client, name, equipment) else emptyList()
+            LiftProgression(key, lines, sessions, SideBalance.imbalance(sessions))
         }
     }
+
+    /** Coach web's `SERIES_ORDER`: left and right first, the unmarked sets last. */
+    private val SERIES_ORDER = listOf(SetSide.LEFT, SetSide.RIGHT, null)
 
     /**
      * The mean daily total of each of saturated fat, sugar and sodium over the [windowDays] days

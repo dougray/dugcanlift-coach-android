@@ -182,15 +182,23 @@ data class LineSeries(val label: String, val points: List<Pair<String, Double>>,
  * A series is joined through its own points in order, the way [LineChart] joins a single one: a day
  * a limb was not trained is a day that limb has nothing to say about, not a hole in its line. Its
  * *position* still comes from the shared axis, so the gap is visible as a wider step.
+ *
+ * A series with fewer than two points is not drawn and gets no legend entry -- one point is not a
+ * trend. [legend] is off for a lift with nothing to distinguish, where the single line needs no
+ * name; both rules are Coach web's.
  */
 @Composable
 fun MultiLineChart(
     series: List<LineSeries>,
     modifier: Modifier = Modifier,
+    legend: Boolean = true,
     height: Dp = 160.dp
 ) {
     val gridColor = MaterialTheme.colorScheme.outline
-    val drawn = series.filter { it.points.isNotEmpty() }
+    // Coach web's own filter: a series with a single point is not a trend, and a legend entry for
+    // a line nobody can see is noise. It is a *drawing* rule only -- the session counts under the
+    // chart still count that one session, because the client did train it.
+    val drawn = series.filter { it.points.size >= 2 }
     val labels = drawn.flatMap { s -> s.points.map { it.first } }.distinct().sorted()
     val values = drawn.flatMap { s -> s.points.map { it.second } }
     val bounds = if (values.size > 1) yAxisBounds(values) else 0.0..(values.maxOrNull() ?: 0.0)
@@ -207,7 +215,7 @@ fun MultiLineChart(
             return@Column
         }
 
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
+        if (legend) Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
             drawn.forEach { s ->
                 Text(
                     text = "— ${s.label}",

@@ -279,7 +279,17 @@ from an exercise's name. Spec: SHARE-FORMAT "flags" and "The imbalance figure", 
   and `—` over `Needs 3 sessions a side · 2 left, 2 right so far` below the threshold. It lives in
   `ClientDisplay.imbalanceLines`, not on `SideImbalance`: three Coach builds printing different
   *sentences* from one log is the same failure as printing different numbers. One decimal, trailing
-  `.0` dropped, which is what the browser's `Math.round(percent * 1000) / 10` prints.
+  `.0` dropped -- `5%`, never `5.0%` -- which is what the browser's
+  `Math.round(percent * 1000) / 10` prints.
+- **The figure appears only when both limbs exist** (`LiftProgression.hasBothLimbs`, web's
+  `if (left && right)`). A client who has only ever logged one limb gets a named series and no
+  figure -- no standing reminder of a limb they never said they were training. "Needs 3 sessions a
+  side" is for a client who trains both and is short on one.
+- **The series are web's `splitSessions`: left, right, then the unmarked sets**, and the unmarked
+  ones are *drawn*, not dropped -- muted beside a limb, the ordinary accent when they are the only
+  line (`seriesColour`). `LiftProgression.sided` decides whether the lines are named at all. A
+  series with fewer than two points is left off the chart and the legend, because one point is not
+  a trend -- but it still counts in the session counts, because the client did train it.
 - **Every e1RM series is one point per day**, the day's best working set (`Stats.perLiftE1rm`) --
   including a two-sided lift's, which did once plot every set. A point on a chart and a "session"
   in the imbalance rule have to be the same thing, and the same lift must not change shape

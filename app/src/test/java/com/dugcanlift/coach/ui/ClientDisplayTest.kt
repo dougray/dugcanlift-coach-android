@@ -2,6 +2,7 @@ package com.dugcanlift.coach.ui
 
 import com.dugcanlift.coach.data.ExerciseSet
 import com.dugcanlift.coach.data.LiftProgression
+import com.dugcanlift.coach.data.LiftSeries
 import com.dugcanlift.coach.data.SetSide
 import com.dugcanlift.coach.data.SideBalance
 import com.dugcanlift.coach.data.SideSession
@@ -132,26 +133,40 @@ class ClientDisplayTest {
         assertEquals("Pull-up", liftDisplayName("Pull-up||right"))
     }
 
+    /** A lift logged on both limbs, which is the only shape that carries an imbalance at all. */
     private fun progression(vararg sessions: SideSession) = LiftProgression(
         key = "Split Squat|Dumbbell",
-        both = emptyList(),
+        series = listOf(
+            LiftSeries(SetSide.LEFT, sessions.mapNotNull { s -> s.leftE1rm?.let { s.dayKey to it } }),
+            LiftSeries(SetSide.RIGHT, sessions.mapNotNull { s -> s.rightE1rm?.let { s.dayKey to it } })
+        ),
         sessions = sessions.toList(),
         imbalance = SideBalance.imbalance(sessions.toList())
     )
 
     @Test fun `a two-sided lift carries no imbalance lines at all`() =
-        assertNull(imbalanceLines(LiftProgression("Bench Press|Barbell", listOf("2026-09-01" to 225.0), emptyList(), null)))
+        assertNull(imbalanceLines(LiftProgression("Bench Press|Barbell",
+            listOf(LiftSeries(null, listOf("2026-09-01" to 225.0))), emptyList(), null)))
+
+    // Coach web's `if (left && right)` gate. A client who has only ever logged one limb gets no
+    // standing reminder of the one they have not -- "needs 3 sessions a side" is for someone who
+    // trains both and is short on one, not for someone who trains one on purpose.
+    @Test fun `one limb alone carries no imbalance lines either`() =
+        assertNull(imbalanceLines(LiftProgression("Split Squat|Dumbbell",
+            listOf(LiftSeries(SetSide.LEFT, listOf("2026-09-01" to 80.0, "2026-09-04" to 80.0))),
+            emptyList(), null)))
 
     // Coach web's `coach/sides.js` imbalanceLines, word for word: one decimal, a trailing ".0"
     // dropped exactly as the browser's own Math.round(percent * 1000) / 10 prints it.
-    @Test fun `the headline names the stronger side and the figure to one decimal`() {
+    // Coach web's own test input, figure for figure: left [80,80,80,95,95,95] against a flat 100.
+    // The last three left average 95 against 100 -- 5%, and JavaScript's
+    // Math.round(percent * 1000) / 10 prints "5", not "5.0".
+    @Test fun `the headline names the stronger side and prints the web's own figure`() {
+        val left = listOf(80.0, 80.0, 80.0, 95.0, 95.0, 95.0)
         val lines = imbalanceLines(progression(
-            SideSession("2026-09-01", 80.0, 100.0),
-            SideSession("2026-09-04", 80.0, 100.0),
-            SideSession("2026-09-08", 95.0, 100.0),
-            SideSession("2026-09-11", 95.0, 100.0)
+            *left.mapIndexed { i, l -> SideSession("2026-09-0$i", l, 100.0) }.toTypedArray()
         ))!!
-        assertEquals("Right ahead by 10%", lines.headline)
+        assertEquals("Right ahead by 5%", lines.headline)
         assertEquals("Mean estimated 1RM of the last 3 sessions each · gap closing", lines.detail)
     }
 
