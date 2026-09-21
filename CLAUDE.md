@@ -56,6 +56,44 @@ Both must carry `RELEASE_CERT_SHA256` or nothing is published, and
 whose `storeFile` does not exist on this Mac fails `validateSigningRelease`
 instead, so build from a clean checkout to check the bundle.
 
+## Uploading to Google Play
+
+```bash
+gh release download v1.6 -p coach-android.aab
+fastlane android upload aab:coach-android.aab            # internal testing, as a draft
+fastlane android upload aab:coach-android.aab track:alpha # closed testing
+```
+
+`fastlane/Fastfile`'s one lane runs `supply` with the signed bundle from the
+tag's GitHub Release (it never builds or signs) and everything under
+`fastlane/metadata/android`: title, descriptions, graphics, screenshots, and
+`changelogs/<versionCode>.txt`, which it refuses to go without. Options:
+`track:internal|alpha|beta` (alpha is closed testing), `status:draft|completed`,
+`validate:true` to have Play check the upload without committing it.
+**Production is refused**; promote a tested release in Play Console. A release
+arrives as a draft and is rolled out by hand there.
+
+- **The key is never in this repo.** `fastlane/Appfile` reads the service
+  account's JSON key from `PLAY_JSON_KEY_PATH`, falling back to
+  `~/keystores/play-publisher.json`; `*.json` under `fastlane/` is gitignored.
+  The service account needs release permission for this app under Play Console's
+  Users and permissions.
+- **The very first upload of a brand-new app goes through the browser.** The
+  Publishing API refuses an app that has never had a release, so the first AAB is
+  uploaded by hand in Play Console. Then `fastlane android upload listing_only:true`
+  sends the text and graphics without a bundle (that versionCode is already
+  taken), and every later version goes up with its `aab:`. Until the first
+  release is published, Play also accepts only `status:draft`, which is why
+  draft is the default.
+- **Store screenshots**: phone shots are 1080×1920, no alpha, captioned and
+  framed like the rest of the set, at most eight, numbered in carousel order with
+  no gaps; renumber the set when inserting. Tablet shots are raw captures, 7-inch
+  at `wm size 1080x1920` / `wm density 216` and 10-inch at `2560x1440` / `320`.
+- **Tap-to-import depends on the signing key.** The listing says a client's link
+  opens *in* Coach, which holds either way, but it opens *straight* into Coach
+  only while `assetlinks.json` names the certificate Play signs with. Upload the
+  existing key to Play App Signing, or add Play's certificate to the site file.
+
 ## Shared code lives in dugcanlift-kit-android
 
 The share-link wire codec, local day keys, and the DUGCANLIFT palette live in
