@@ -40,3 +40,11 @@ captures/
 
 # Claude Code worktrees
 .claude/worktrees/
+
+# fastlane: run output, and never a Play service-account key
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/README.md
+fastlane/test_output/
+play-publisher.json
+fastlane/*.json
