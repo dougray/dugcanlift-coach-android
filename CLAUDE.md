@@ -246,6 +246,63 @@ and on a recipe's `nutritionPerServing` / a meal's `snapshotNutrition`,
 `saturatedFatG`, `sugarG`, `sodiumMg` per serving, omitted when unknown. Older
 files without any of these load with them unknown.
 
+## Per-limb sets: left, right, and both
+
+A set may name a limb. **Null is both**, which is what every set written before this means and what
+every set of a two-sided lift means now, so absence is never guessed at and a side is never inferred
+from an exercise's name. Spec: SHARE-FORMAT "flags" and "The imbalance figure", BACKUP-FORMAT
+`side`, and LIFT web's `lift/sides.js`, which is the canonical rule all four apps port.
+
+- **The wire is the kit's, not this app's.** Kit 1.5.0 reads the set tuple's flags bits 1-2 into
+  `ShareSet.side`; Coach maps it to its own `SetSide` in `ShareLinkImporter` and never touches a
+  bit. If that ever changes, **mask, never compare**: `flags == 1` was a correct warmup test while
+  warmup was the only bit and calls a left-side warmup (`3`) a working set today. Bits 1-2 holding
+  `3` reads as both, not as a side a decoder invented, and `0`..`5` are all legal from some encoder
+  (LIFT Android has no warmup flag and writes only `0`, `2`, `4`). `PerLimbSetsTest` pins every
+  value against hand-built raw payloads rather than this app's own encoder.
+- **The backup is a named field**, `"side": "left" | "right"`, **omitted when both** -- not
+  `"both"`, not null. A roster with no per-limb sets therefore writes the file it always wrote, and
+  an unrecognised string restores as both rather than failing the import, the leniency
+  BACKUP-FORMAT asks for everywhere. Coach iOS must match this spelling exactly.
+- **Side is in the grouping key.** `Stats.liftKey` is `"name|equipment|side"` (empty for both), for
+  the same reason equipment joined it: reading the bits and then charting as before gives a *worse*
+  chart than ignoring them, because the two limbs are now genuinely interleaved and the line
+  zig-zags set for set. `Stats.matchKey` is the first two thirds -- one lift, whichever limbs.
+- **`SideBalance` is a port of `sides.js`, function for function** (by way of LIFT Android's own
+  `SideBalance.kt`), and a port rather than a second opinion on purpose: four apps printing
+  different percentages from one log is worse than any of them printing a slightly better number.
+  Mean of each side's last three sessions, three a side for a figure, four for a trend, half a
+  percentage point of movement before the gap has done anything. If the rule changes it changes in
+  `sides.js` first and is ported again. `SideBalanceTest` carries LIFT Android's cases.
+- **The wording is Coach web's `imbalanceLines`, word for word** -- `Right ahead by 5.3%` over
+  `Mean estimated 1RM of the last 3 sessions each · gap closing`, `Sides level` when they match,
+  and `—` over `Needs 3 sessions a side · 2 left, 2 right so far` below the threshold. It lives in
+  `ClientDisplay.imbalanceLines`, not on `SideImbalance`: three Coach builds printing different
+  *sentences* from one log is the same failure as printing different numbers. One decimal, trailing
+  `.0` dropped -- `5%`, never `5.0%` -- which is what the browser's
+  `Math.round(percent * 1000) / 10` prints.
+- **The figure appears only when both limbs exist** (`LiftProgression.hasBothLimbs`, web's
+  `if (left && right)`). A client who has only ever logged one limb gets a named series and no
+  figure -- no standing reminder of a limb they never said they were training. "Needs 3 sessions a
+  side" is for a client who trains both and is short on one.
+- **The series are web's `splitSessions`: left, right, then the unmarked sets**, and the unmarked
+  ones are *drawn*, not dropped -- muted beside a limb, the ordinary accent when they are the only
+  line (`seriesColour`). `LiftProgression.sided` decides whether the lines are named at all. A
+  series with fewer than two points is left off the chart and the legend, because one point is not
+  a trend -- but it still counts in the session counts, because the client did train it.
+- **Every e1RM series is one point per day**, the day's best working set (`Stats.perLiftE1rm`) --
+  including a two-sided lift's, which did once plot every set. A point on a chart and a "session"
+  in the imbalance rule have to be the same thing, and the same lift must not change shape
+  depending on whether its client happens to log limbs. `Stats.sideSessions` reads straight off
+  that series, so the number under a chart and the chart itself cannot disagree.
+- **Tracked and shown, never targeted**, the discipline saturated fat, sugar and sodium are held
+  to: no threshold, no colour, no advice. The line states the gap and its direction and stops.
+- **Volume, set counts and the weekly summary count both sides**, unchanged -- they only ever
+  needed weight and reps, which is why a Coach build predating the bits decodes them correctly and
+  only the chart was wrong.
+- **PLAN-FORMAT is unchanged in v1**: a coach prescribes as before and the lifter chooses sides
+  when logging, so `CookPlanEncoder` writes no side.
+
 ## Estimated one-rep max has no rep cap
 
 `Stats.e1rm` is Epley (`weightLb * (1 + reps / 30.0)`) with **no ceiling on

@@ -44,6 +44,8 @@ import androidx.compose.ui.unit.dp
 import com.dugcanlift.coach.data.Client
 import com.dugcanlift.coach.data.ClientRepository
 import com.dugcanlift.coach.data.ExerciseSet
+import com.dugcanlift.coach.data.LiftSeries
+import com.dugcanlift.coach.data.SetSide
 import com.dugcanlift.coach.data.LastRoute
 import com.dugcanlift.coach.data.OutdoorBest
 import com.dugcanlift.coach.data.RemovalOutcome
@@ -52,8 +54,11 @@ import com.dugcanlift.coach.data.TrainingDay
 import com.dugcanlift.coach.data.WeekStats
 import com.dugcanlift.coach.ui.charts.BarChart
 import com.dugcanlift.coach.ui.charts.LineChart
+import com.dugcanlift.coach.ui.charts.LineSeries
+import com.dugcanlift.coach.ui.charts.MultiLineChart
 import com.dugcanlift.coach.ui.charts.RouteCanvas
 import com.dugcanlift.coach.ui.theme.DclAccent
+import com.dugcanlift.coach.ui.theme.DclAccent2
 import com.dugcanlift.coach.ui.theme.DclMuted
 import com.dugcanlift.coach.ui.theme.dclCardBorder
 import com.dugcanlift.kit.OutdoorShare
@@ -146,6 +151,21 @@ fun ClientScreen(clientId: String, repo: ClientRepository, onBack: () -> Unit,
     }
 }
 
+/**
+ * One lift's chart, ready to draw: [com.dugcanlift.coach.data.LiftProgression] with the weights
+ * already converted into the client's display unit and the imbalance already worded.
+ *
+ * [series] is web's order -- left, right, then the unmarked sets. [sided] is what turns the labels
+ * and the legend on; [imbalance] is null unless both limbs exist. Neither is ever decided from the
+ * exercise's name.
+ */
+private data class LiftChartData(
+    val key: String,
+    val series: List<LiftSeries>,
+    val sided: Boolean,
+    val imbalance: ImbalanceLines?
+)
+
 @Composable
 private fun ClientDetail(client: Client, onRemove: () -> Unit, modifier: Modifier = Modifier) {
     // The page's own width, not the screen's: in the roster's two-pane layout this page is a pane.
@@ -208,11 +228,24 @@ private fun ClientDetailContent(client: Client, paneWidth: Dp, onRemove: () -> U
         Stats.bodyweightSeries(client).map { (day, lb) -> day to displayWeightValue(lb, unit) }
     }
 
+    // One entry per lift, its sides kept apart underneath (Stats.liftKey). The pounds on the wire
+    // are converted for display here and nowhere else; the imbalance is a ratio and is unit-free.
+    // One entry per lift, its sides kept apart underneath (Stats.liftKey). The pounds on the wire
+    // are converted for display here and nowhere else; the imbalance is a ratio and is unit-free.
     val e1rmByLift = remember(client, unit) {
-        Stats.perLiftE1rm(client)
-            .toList()
-            .sortedBy { (key, _) -> liftDisplayName(key) }
-            .map { (key, series) -> key to series.map { (day, lb) -> day to displayWeightValue(lb, unit) } }
+        Stats.perLiftProgressions(client)
+            .filterNot { it.isEmpty }
+            .sortedBy { liftDisplayName(it.key) }
+            .map { progression ->
+                LiftChartData(
+                    key = progression.key,
+                    series = progression.series.map { line ->
+                        line.copy(points = line.points.map { (day, lb) -> day to displayWeightValue(lb, unit) })
+                    },
+                    sided = progression.sided,
+                    imbalance = imbalanceLines(progression)
+                )
+            }
     }
 
     // A run is a session too: a day holding only an outdoor activity belongs in the log.
@@ -279,17 +312,43 @@ private fun ClientDetailContent(client: Client, paneWidth: Dp, onRemove: () -> U
         }
     }
 
-    val liftChart: @Composable (String, List<Pair<String, Double>>) -> Unit = { key, points ->
+    val liftChart: @Composable (LiftChartData) -> Unit = { lift ->
         Text(
-            text = liftDisplayName(key),
+            text = liftDisplayName(lift.key),
             style = MaterialTheme.typography.titleSmall,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
         )
-        LineChart(
-            points = points,
-            lineColor = DclAccent,
+        // Left, right and the unmarked sets as separate lines, never merged -- averaging them hides
+        // the one thing they are here to show. Coach web's seriesColour: the unmarked line is muted
+        // when it sits beside a limb and the ordinary accent when it is the only line there is.
+        MultiLineChart(
+            series = lift.series.map { line ->
+                LineSeries(
+                    label = if (lift.sided) sideSeriesLabel(line.side) else "e1RM",
+                    points = line.points,
+                    color = when (line.side) {
+                        SetSide.LEFT -> DclAccent
+                        SetSide.RIGHT -> DclAccent2
+                        null -> if (lift.sided) DclMuted else DclAccent
+                    }
+                )
+            },
+            legend = lift.sided,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
         )
+        lift.imbalance?.let { lines ->
+            Text(
+                text = lines.headline,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(horizontal = 16.dp).padding(top = 2.dp)
+            )
+            Text(
+                text = lines.detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = DclMuted,
+                modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 4.dp)
+            )
+        }
     }
 
     // Every wide row is capped at the content width and centred; on a phone the cap is wider
@@ -313,8 +372,8 @@ private fun ClientDetailContent(client: Client, paneWidth: Dp, onRemove: () -> U
             item { Column(wide) { fuelSection(true) } }
             item { Column(wide) { bodyweightSection() } }
             item { Column(wide) { e1rmHeading() } }
-            items(e1rmByLift, key = { it.first }) { (key, points) ->
-                Column(wide) { liftChart(key, points) }
+            items(e1rmByLift, key = { it.key }) { lift ->
+                Column(wide) { liftChart(lift) }
             }
         } else {
             // Two columns: Training Volume | Fuel, their nutrients side by side, then Bodyweight | lifts.
@@ -340,13 +399,13 @@ private fun ClientDetailContent(client: Client, paneWidth: Dp, onRemove: () -> U
                     Column(Modifier.weight(1f)) { bodyweightSection() }
                     Column(Modifier.weight(1f)) {
                         e1rmHeading()
-                        e1rmByLift.firstOrNull()?.let { (key, points) -> liftChart(key, points) }
+                        e1rmByLift.firstOrNull()?.let { lift -> liftChart(lift) }
                     }
                 }
             }
-            items(rowMajor(e1rmByLift.drop(1), 2), key = { row -> "lifts-${row.first().first}" }) { row ->
+            items(rowMajor(e1rmByLift.drop(1), 2), key = { row -> "lifts-${row.first().key}" }) { row ->
                 Row(wide, verticalAlignment = Alignment.Top) {
-                    row.forEach { (key, points) -> Column(Modifier.weight(1f)) { liftChart(key, points) } }
+                    row.forEach { lift -> Column(Modifier.weight(1f)) { liftChart(lift) } }
                     if (row.size == 1) Spacer(Modifier.weight(1f))
                 }
             }

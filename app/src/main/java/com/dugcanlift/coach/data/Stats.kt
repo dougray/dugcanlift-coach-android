@@ -37,6 +37,49 @@ enum class Nutrient(val label: String, val unit: String) {
 /** [perDay] averaged over [days] days that recorded the nutrient, [partialDays] of them from only some foods. */
 data class NutrientAverage(val nutrient: Nutrient, val perDay: Double, val days: Int, val partialDays: Int)
 
+/** One line of a lift's chart: a side (null is the unmarked sets) and its points, oldest first. */
+data class LiftSeries(val side: SetSide?, val points: List<Pair<String, Double>>)
+
+/**
+ * One lift's estimated-1RM progression: the series to chart, and the gap between its sides when it
+ * was logged per limb.
+ *
+ * [key] is `"name|equipment"` -- the lift a coach reads as one heading. The *series* underneath are
+ * kept apart by side ([Stats.liftKey]); this type is the grouping for the screen, not for the
+ * numbers.
+ *
+ * [series] is Coach web's `splitSessions` order -- **left, right, then unmarked** -- with empty
+ * ones left out. A lift logged two-sided for a year and per-side since has all three, and the old
+ * sets are real. Every series is one point per day, the day's best working set, which is the same
+ * figure [imbalance] averages: the lines and the number under them cannot disagree.
+ */
+data class LiftProgression(
+    val key: String,
+    val series: List<LiftSeries>,
+    val sessions: List<SideSession>,
+    val imbalance: SideImbalance?
+) {
+    /**
+     * Coach web's `sided`: more than one series, or a single series that names a limb. It decides
+     * whether the lines are labelled Left/Right/Both at all -- a lift with only unmarked sets is
+     * the one line it has always been, with no legend and no talk of sides.
+     */
+    val sided: Boolean get() = series.size > 1 || series.firstOrNull()?.side != null
+
+    /**
+     * Coach web's `if (left && right)` gate on the whole imbalance block. A client who has only
+     * ever logged one limb gets no standing reminder of the one they have not -- "needs 3 sessions
+     * a side" is for a client who trains both and is short on one.
+     */
+    val hasBothLimbs: Boolean get() =
+        series.any { it.side == SetSide.LEFT } && series.any { it.side == SetSide.RIGHT }
+
+    fun pointsFor(side: SetSide?): List<Pair<String, Double>> =
+        series.firstOrNull { it.side == side }?.points.orEmpty()
+
+    val isEmpty: Boolean get() = series.isEmpty()
+}
+
 /** One 7-day bucket ending on [endKey] (inclusive), newest bucket last in `weeklyBuckets`'s result. */
 data class WeekStats(
     val endKey: String,
@@ -173,23 +216,89 @@ object Stats {
         client.days.mapNotNull { day -> day.bodyweightLb?.let { day.dayKey to it } }.sortedBy { it.first }
 
     /**
-     * Estimated one-rep max over time, one series per lift identity, in the order the client's days
-     * appear. Keyed `"name|equipment"` -- the exact construction the kit's share format uses (trimmed
-     * name, `|`, trimmed equipment) -- because the wire format treats equipment as part of a lift's
-     * identity: a barbell row and a cable row are both "Row" but are not the same lift. A null
-     * equipment (an equipment-less exercise) is treated as an empty string, matching what the wire's
-     * own `ex.equipment.trim()` produces for one.
+     * Estimated one-rep max over time, one series per lift identity, **one point per day**: the
+     * best working set that lift recorded that day, oldest first.
+     *
+     * Per day rather than per set so that a point on a chart and a "session" in the imbalance rule
+     * are the same thing everywhere -- SHARE-FORMAT's figure is the mean of each side's last three
+     * *sessions*, and a chart that plotted sets would have put three points where that rule counts
+     * one. It applies to two-sided lifts too, which did once plot every set: the same lift must not
+     * change shape depending on whether its client happens to log limbs.
+     *
+     * Keyed `"name|equipment|side"` -- the kit's share-format construction (trimmed name, `|`,
+     * trimmed equipment) with the side joined on -- because the wire format treats equipment as
+     * part of a lift's identity, and per-limb logging joins the side to it for exactly the same
+     * reason: a barbell row and a cable row are both "Row" but are not the same lift, and a
+     * left-arm row and a right-arm row are no more the same lift than those two are. A null
+     * equipment (an equipment-less exercise) is treated as an empty string, matching what the
+     * wire's own `ex.equipment.trim()` produces for one; a null side (both, the only thing a set
+     * written before per-limb logging can be) is likewise an empty string.
+     *
+     * Merging the sides here is not a lesser chart, it is a *wrong* one: the two limbs interleave
+     * set for set and the line zig-zags between them, which is precisely the bug `"name|equipment"`
+     * was introduced to fix for a cable pulldown against a machine one. See SHARE-FORMAT,
+     * "Tolerating the bits is not enough; Coach must group on side".
      */
     fun perLiftE1rm(client: Client): Map<String, List<Pair<String, Double>>> {
-        val series = LinkedHashMap<String, MutableList<Pair<String, Double>>>()
+        val best = LinkedHashMap<String, MutableMap<String, Double>>()
         for (day in client.days) {
             for (set in day.sets) {
                 val estimate = e1rm(set) ?: continue
-                series.getOrPut(liftKey(set.exerciseName, set.equipment)) { mutableListOf() }.add(day.dayKey to estimate)
+                val byDay = best.getOrPut(liftKey(set.exerciseName, set.equipment, set.side)) { mutableMapOf() }
+                byDay[day.dayKey] = maxOf(byDay[day.dayKey] ?: estimate, estimate)
             }
         }
-        return series
+        return best.mapValues { (_, byDay) -> byDay.toSortedMap().map { (dayKey, e) -> dayKey to e } }
     }
+
+    /**
+     * One [SideSession] per day this client trained [name] on [equipment] with a named limb, oldest
+     * first, holding that day's best estimated 1RM for each side. A side the day did not record is
+     * null, not zero: "that limb has nothing to say about this day".
+     *
+     * Read straight off [perLiftE1rm], so the figures the imbalance averages are literally the
+     * points the chart draws -- the number under a chart and the chart itself cannot disagree.
+     */
+    fun sideSessions(client: Client, name: String, equipment: String?): List<SideSession> {
+        val series = perLiftE1rm(client)
+        val left = series[liftKey(name, equipment, SetSide.LEFT)].orEmpty().toMap()
+        val right = series[liftKey(name, equipment, SetSide.RIGHT)].orEmpty().toMap()
+        return (left.keys + right.keys).sorted().map { SideSession(it, left[it], right[it]) }
+    }
+
+    /**
+     * Every lift this client has an estimate for, one entry per `"name|equipment"`, each carrying
+     * the series to chart and -- when the lift was logged per limb -- the gap between the sides.
+     *
+     * A lift with sides draws its sides as separate lines and never averages them together. A lift
+     * with both (sets logged before the client turned the toggle on, and sided ones after) keeps
+     * all three: those earlier sets are real and leaving them off the chart would be a quieter lie
+     * than showing them.
+     */
+    fun perLiftProgressions(client: Client): List<LiftProgression> {
+        val series = perLiftE1rm(client)
+        // One entry per lift, in the order its first charted set appears.
+        val lifts = LinkedHashMap<String, Pair<String, String?>>()
+        for (day in client.days) {
+            for (set in day.sets) {
+                if (e1rm(set) == null) continue
+                lifts.getOrPut(matchKey(set.exerciseName, set.equipment)) { set.exerciseName to set.equipment }
+            }
+        }
+        return lifts.map { (key, named) ->
+            val (name, equipment) = named
+            // Coach web's SERIES_ORDER, exactly: left, right, then the unmarked sets last.
+            val lines = SERIES_ORDER.mapNotNull { side ->
+                series[liftKey(name, equipment, side)]?.takeIf { it.isNotEmpty() }?.let { LiftSeries(side, it) }
+            }
+            val bothLimbs = lines.any { it.side == SetSide.LEFT } && lines.any { it.side == SetSide.RIGHT }
+            val sessions = if (bothLimbs) sideSessions(client, name, equipment) else emptyList()
+            LiftProgression(key, lines, sessions, SideBalance.imbalance(sessions))
+        }
+    }
+
+    /** Coach web's `SERIES_ORDER`: left and right first, the unmarked sets last. */
+    private val SERIES_ORDER = listOf(SetSide.LEFT, SetSide.RIGHT, null)
 
     /**
      * The mean daily total of each of saturated fat, sugar and sodium over the [windowDays] days
@@ -219,7 +328,12 @@ object Stats {
         }
     }
 
-    private fun liftKey(name: String, equipment: String?): String = "${name.trim()}|${(equipment ?: "").trim()}"
+    /** `"name|equipment|side"`; the side is an empty string for both, which is what an unmarked set is. */
+    fun liftKey(name: String, equipment: String?, side: SetSide?): String =
+        "${matchKey(name, equipment)}|${side?.wire ?: ""}"
+
+    /** The first two thirds of a [liftKey]: one lift, whichever limbs it was logged with. */
+    fun matchKey(name: String, equipment: String?): String = "${name.trim()}|${(equipment ?: "").trim()}"
 
     /**
      * [DayKey.daysBetween] throws on a key `ISO_LOCAL_DATE` rejects, and [weeklyBuckets] calls it
