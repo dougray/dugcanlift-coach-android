@@ -1,0 +1,3 @@
+A client who logs single-arm or single-leg work now shows each side on its own line in their lift progression, with how far apart the sides are and whether the gap is closing. Session rows say which limb a set was.
+
+Nothing is targeted: there is no goal for an imbalance and no warning about one. A lift logged two-sided reads exactly as before, and volume still counts both sides.
