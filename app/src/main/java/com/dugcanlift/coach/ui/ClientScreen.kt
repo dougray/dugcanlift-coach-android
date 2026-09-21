@@ -44,6 +44,8 @@ import androidx.compose.ui.unit.dp
 import com.dugcanlift.coach.data.Client
 import com.dugcanlift.coach.data.ClientRepository
 import com.dugcanlift.coach.data.ExerciseSet
+import com.dugcanlift.coach.data.LiftSeries
+import com.dugcanlift.coach.data.SetSide
 import com.dugcanlift.coach.data.LastRoute
 import com.dugcanlift.coach.data.OutdoorBest
 import com.dugcanlift.coach.data.RemovalOutcome
@@ -150,19 +152,17 @@ fun ClientScreen(clientId: String, repo: ClientRepository, onBack: () -> Unit,
 }
 
 /**
- * One lift's charts, ready to draw: [com.dugcanlift.coach.data.LiftProgression] with the weights
+ * One lift's chart, ready to draw: [com.dugcanlift.coach.data.LiftProgression] with the weights
  * already converted into the client's display unit and the imbalance already worded.
  *
- * [both] is the unmarked sets -- the whole of a two-sided lift, and on a per-limb lift whatever was
- * logged before the client turned per-side logging on. [left] and [right] are one point per
- * session. Only [hasSides] decides which chart is drawn, never the exercise's name.
+ * [series] is web's order -- left, right, then the unmarked sets. [sided] is what turns the labels
+ * and the legend on; [imbalance] is null unless both limbs exist. Neither is ever decided from the
+ * exercise's name.
  */
 private data class LiftChartData(
     val key: String,
-    val both: List<Pair<String, Double>>,
-    val left: List<Pair<String, Double>>,
-    val right: List<Pair<String, Double>>,
-    val hasSides: Boolean,
+    val series: List<LiftSeries>,
+    val sided: Boolean,
     val imbalance: ImbalanceLines?
 )
 
@@ -230,18 +230,19 @@ private fun ClientDetailContent(client: Client, paneWidth: Dp, onRemove: () -> U
 
     // One entry per lift, its sides kept apart underneath (Stats.liftKey). The pounds on the wire
     // are converted for display here and nowhere else; the imbalance is a ratio and is unit-free.
+    // One entry per lift, its sides kept apart underneath (Stats.liftKey). The pounds on the wire
+    // are converted for display here and nowhere else; the imbalance is a ratio and is unit-free.
     val e1rmByLift = remember(client, unit) {
         Stats.perLiftProgressions(client)
             .filterNot { it.isEmpty }
             .sortedBy { liftDisplayName(it.key) }
             .map { progression ->
-                fun convert(points: List<Pair<String, Double>>) = points.map { (day, lb) -> day to displayWeightValue(lb, unit) }
                 LiftChartData(
                     key = progression.key,
-                    both = convert(progression.both),
-                    left = convert(progression.leftPoints),
-                    right = convert(progression.rightPoints),
-                    hasSides = progression.hasSides,
+                    series = progression.series.map { line ->
+                        line.copy(points = line.points.map { (day, lb) -> day to displayWeightValue(lb, unit) })
+                    },
+                    sided = progression.sided,
                     imbalance = imbalanceLines(progression)
                 )
             }
@@ -317,35 +318,35 @@ private fun ClientDetailContent(client: Client, paneWidth: Dp, onRemove: () -> U
             style = MaterialTheme.typography.titleSmall,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
         )
-        if (lift.hasSides) {
-            // Two lines, never merged -- averaging them hides the one thing they are here to show.
-            // A lift with unmarked sets as well as sided ones keeps all three: those sets are real.
-            MultiLineChart(
-                series = listOfNotNull(
-                    LineSeries("Left", lift.left, DclAccent).takeIf { lift.left.isNotEmpty() },
-                    LineSeries("Right", lift.right, DclAccent2).takeIf { lift.right.isNotEmpty() },
-                    LineSeries("Both", lift.both, DclMuted).takeIf { lift.both.isNotEmpty() }
-                ),
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+        // Left, right and the unmarked sets as separate lines, never merged -- averaging them hides
+        // the one thing they are here to show. Coach web's seriesColour: the unmarked line is muted
+        // when it sits beside a limb and the ordinary accent when it is the only line there is.
+        MultiLineChart(
+            series = lift.series.map { line ->
+                LineSeries(
+                    label = if (lift.sided) sideSeriesLabel(line.side) else "e1RM",
+                    points = line.points,
+                    color = when (line.side) {
+                        SetSide.LEFT -> DclAccent
+                        SetSide.RIGHT -> DclAccent2
+                        null -> if (lift.sided) DclMuted else DclAccent
+                    }
+                )
+            },
+            legend = lift.sided,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+        )
+        lift.imbalance?.let { lines ->
+            Text(
+                text = lines.headline,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(horizontal = 16.dp).padding(top = 2.dp)
             )
-            lift.imbalance?.let { lines ->
-                Text(
-                    text = lines.headline,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(horizontal = 16.dp).padding(top = 2.dp)
-                )
-                Text(
-                    text = lines.detail,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = DclMuted,
-                    modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 4.dp)
-                )
-            }
-        } else {
-            LineChart(
-                points = lift.both,
-                lineColor = DclAccent,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+            Text(
+                text = lines.detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = DclMuted,
+                modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 4.dp)
             )
         }
     }

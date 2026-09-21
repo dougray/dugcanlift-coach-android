@@ -153,10 +153,13 @@ class PerLimbSetsTest {
         assertEquals(setOf("Bench Press|Barbell|"), Stats.perLiftE1rm(c).keys)
         val progression = Stats.perLiftProgressions(c).single()
         assertEquals("Bench Press|Barbell", progression.key)
-        assertFalse(progression.hasSides)
+        // One unmarked series, no sides to speak of, so no legend and no figure.
+        assertEquals(listOf<SetSide?>(null), progression.series.map { it.side })
+        assertFalse(progression.sided)
+        assertFalse(progression.hasBothLimbs)
         // One point per day here too: a two-sided lift must not read on a different scale from a
         // per-limb one, and "session" has to mean the same thing on every series.
-        assertEquals(1, progression.both.size)
+        assertEquals(1, progression.pointsFor(null).size)
         assertNull(progression.imbalance)
     }
 
@@ -209,7 +212,8 @@ class PerLimbSetsTest {
         assertEquals(920.0, week.volume, 0.0)
     }
 
-    // A lift logged unmarked and then per side keeps all three series: those earlier sets are real.
+    // A lift logged unmarked and then per side keeps all three series: those earlier sets are real,
+    // and Coach web's order is left, right, then unmarked.
     @Test fun `sets logged before the toggle went on are still charted`() {
         val c = client(
             day("2026-09-01", set("Split Squat", "Dumbbell", 50.0, 8, null)),
@@ -219,10 +223,46 @@ class PerLimbSetsTest {
             )
         )
         val progression = Stats.perLiftProgressions(c).single()
-        assertTrue(progression.hasSides)
-        assertEquals(1, progression.both.size)
-        assertEquals(1, progression.leftPoints.size)
-        assertEquals(1, progression.rightPoints.size)
+        assertEquals(listOf(SetSide.LEFT, SetSide.RIGHT, null), progression.series.map { it.side })
+        assertTrue(progression.sided)
+        assertTrue(progression.hasBothLimbs)
+        assertEquals(1, progression.pointsFor(null).size)
+        assertEquals(1, progression.pointsFor(SetSide.LEFT).size)
+        assertEquals(1, progression.pointsFor(SetSide.RIGHT).size)
+    }
+
+    // Coach web's `if (left && right)`: one limb on its own is a series to chart and nothing to
+    // compare it against, so there are no sessions and no figure -- not a "needs 3 a side" prompt
+    // for a limb the client never said they were training.
+    @Test fun `a lift logged on one limb alone has a series but no gap to report`() {
+        val c = client(
+            day("2026-09-01", set("Single-Arm Row", "Dumbbell", 60.0, 8, SetSide.LEFT)),
+            day("2026-09-08", set("Single-Arm Row", "Dumbbell", 65.0, 8, SetSide.LEFT)),
+            day("2026-09-15", set("Single-Arm Row", "Dumbbell", 70.0, 8, SetSide.LEFT))
+        )
+        val progression = Stats.perLiftProgressions(c).single()
+        assertEquals(listOf(SetSide.LEFT), progression.series.map { it.side })
+        // A single series, but a sided one, so its line is still named Left rather than left bare.
+        assertTrue(progression.sided)
+        assertFalse(progression.hasBothLimbs)
+        assertTrue(progression.sessions.isEmpty())
+        assertNull(progression.imbalance)
+    }
+
+    // A one-session side still counts in "1 left, 3 right so far" -- the chart may not draw a line
+    // through a single point, but the client did train it, and the count is what says how far off
+    // a figure is.
+    @Test fun `a side with one session counts toward the session counts`() {
+        val c = client(
+            day("2026-09-01",
+                set("Split Squat", "Dumbbell", 60.0, 8, SetSide.LEFT),
+                set("Split Squat", "Dumbbell", 55.0, 8, SetSide.RIGHT)),
+            day("2026-09-08", set("Split Squat", "Dumbbell", 65.0, 8, SetSide.LEFT)),
+            day("2026-09-15", set("Split Squat", "Dumbbell", 70.0, 8, SetSide.LEFT))
+        )
+        val progression = Stats.perLiftProgressions(c).single()
+        assertEquals(3 to 1, SideBalance.sessionCounts(progression.sessions))
+        assertNull(progression.imbalance)
     }
 
     /* ---------- backup ---------- */
