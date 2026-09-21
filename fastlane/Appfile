@@ -1,0 +1,7 @@
+# Google Play: which app, and the service-account key that can publish it.
+#
+# The key is a credential and never lives in this repository. It is read from
+# PLAY_JSON_KEY_PATH, falling back to ~/keystores/play-publisher.json, the path
+# it has on the maintainer's Mac. *.json keys are also gitignored.
+package_name("com.dugcanlift.coach")
+json_key_file(ENV.fetch("PLAY_JSON_KEY_PATH", File.expand_path("~/keystores/play-publisher.json")))

@@ -1,0 +1,59 @@
+# Uploads to Google Play with `supply`. See "Uploading to Google Play" in CLAUDE.md.
+#
+#   fastlane android upload aab:coach-android.aab
+#
+# The bundle is the signed coach-android.aab from the tag's GitHub Release; this
+# lane never builds or signs anything. It uploads the bundle plus everything in
+# fastlane/metadata/android (text, graphics, screenshots, and the release notes
+# for the bundle's versionCode) to a *testing* track, as a draft that is rolled
+# out by hand in Play Console. Production is refused on purpose.
+
+default_platform(:android)
+
+TESTING_TRACKS = %w[internal alpha beta].freeze
+
+platform :android do
+  desc "Upload a signed AAB and the store listing to a Play testing track, as a draft"
+  desc "Options: aab:<path> (required unless listing_only), track:internal|alpha|beta (default internal; alpha is closed testing),"
+  desc "status:draft|completed (default draft), validate:true (ask Play to check without committing),"
+  desc "listing_only:true (text and graphics only, no aab: for after the first release was uploaded by hand)"
+  lane :upload do |options|
+    listing_only = options[:listing_only].to_s == "true"
+    aab = options[:aab].to_s
+    unless listing_only
+      UI.user_error!("Pass aab:<path to the signed .aab from the GitHub Release>, or listing_only:true") if aab.empty?
+      aab = File.expand_path(aab, Dir.pwd.sub(%r{/fastlane\z}, ""))
+      UI.user_error!("No bundle at #{aab}") unless File.file?(aab)
+    end
+
+    track = (options[:track] || "internal").to_s
+    unless TESTING_TRACKS.include?(track)
+      UI.user_error!("track:#{track} refused. This lane uploads to #{TESTING_TRACKS.join(', ')} only; " \
+                     "promote to production in Play Console.")
+    end
+
+    key = CredentialsManager::AppfileConfig.try_fetch_value(:json_key_file)
+    UI.user_error!("No Play service-account key at #{key}. Set PLAY_JSON_KEY_PATH.") unless key && File.file?(key)
+
+    # Release notes are changelogs/<versionCode>.txt; refuse a bundle whose notes are missing
+    # rather than publish a release with none.
+    gradle = File.read(File.expand_path("../app/build.gradle.kts", __dir__))
+    version_code = gradle[/versionCode\s*=\s*(\d+)/, 1]
+    notes = File.expand_path("metadata/android/en-US/changelogs/#{version_code}.txt", __dir__)
+    UI.user_error!("No release notes at #{notes}") unless version_code && File.file?(notes)
+    UI.message("versionCode #{version_code} from app/build.gradle.kts; the bundle must match it")
+
+    supply(
+      aab: listing_only ? nil : aab,
+      skip_upload_aab: listing_only,
+      skip_upload_apk: true,
+      skip_upload_changelogs: listing_only, # release notes belong to a release
+      track: track,
+      # A brand-new app refuses any status but draft until its first release is published.
+      release_status: (options[:status] || "draft").to_s,
+      metadata_path: File.expand_path("metadata/android", __dir__),
+      sync_image_upload: true, # only send screenshots whose bytes changed
+      validate_only: options[:validate].to_s == "true"
+    )
+  end
+end
