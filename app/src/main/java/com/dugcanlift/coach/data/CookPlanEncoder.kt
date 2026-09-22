@@ -1,6 +1,5 @@
 package com.dugcanlift.coach.data
 
-import com.dugcanlift.kit.CompactEncoding
 import com.dugcanlift.kit.RecipeNutrition
 import com.dugcanlift.kit.ShareNutrients
 import org.json.JSONArray
@@ -21,8 +20,6 @@ import org.json.JSONObject
  * an email body. `PLAN-FORMAT.md` in coach-ios is the written contract.
  */
 object CookPlanEncoder {
-
-    private const val VERSION = 1
 
     /** Meal slot indices, matching `PlanMeal.mealSlot`'s default of 2 (dinner). */
     private val SLOTS = listOf("breakfast", "lunch", "dinner", "snack")
@@ -96,23 +93,12 @@ object CookPlanEncoder {
             )
         }
 
-        val payload = JSONObject()
-            .put("v", VERSION)
-            .put("t", "plan")
-            .put("l", lifterId)
-            .put("n", coachName)
+        val payload = PlanEnvelope.payload(lifterId, coachName)
         // Empty means absent, not `[]` -- PLAN-FORMAT: "a coach who plans only
         // training sends a payload with no `r` or `m` at all."
         if (r.length() > 0) payload.put("r", r)
         if (m.length() > 0) payload.put("m", m)
 
-        val json = payload.toString().toByteArray(Charsets.UTF_8)
-        return try {
-            "1z" + CompactEncoding.base64Url(CompactEncoding.deflateRaw(json))
-        } catch (e: Exception) {
-            // Uncompressed is a valid encoding, not a failure: the decoder reads
-            // `1u` too. A longer link beats no link.
-            "1u" + CompactEncoding.base64Url(json)
-        }
+        return PlanEnvelope.fragment(payload)
     }
 }
