@@ -497,29 +497,53 @@ private fun ExerciseSidesEditor(
             }
         }
         if (shown) {
-            exercise.sets.forEachIndexed { i, set ->
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        "${i + 1}.  ${PrescriptionSides.setText(set)}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.weight(1f)
-                    )
-                    SingleChoiceSegmentedButtonRow {
-                        val choices = listOf<Pair<SetSide?, String>>(null to "Both", SetSide.LEFT to "L", SetSide.RIGHT to "R")
-                        choices.forEachIndexed { c, (side, label) ->
-                            SegmentedButton(
-                                selected = set.side == side,
-                                onClick = { onSide(i, side) },
-                                shape = SegmentedButtonDefaults.itemShape(index = c, count = choices.size),
-                                icon = {},
-                                modifier = Modifier.semantics {
-                                    contentDescription = "Set ${i + 1}, " + (side?.label ?: "both sides")
-                                }
-                            ) { Text(label) }
+            // Beside the set where there is room; on a line of its own under it
+            // at phone width, where a column beside it squeezed "14 × 8" onto
+            // three lines -- Coach web's rule for the same control.
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val beside = maxWidth >= 380.dp
+                Column {
+                    exercise.sets.forEachIndexed { i, set ->
+                        val label: @Composable (Modifier) -> Unit = { modifier ->
+                            Text(
+                                "${i + 1}.  ${PrescriptionSides.setText(set)}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = modifier
+                            )
+                        }
+                        val control: @Composable () -> Unit = { SideControl(i, set.side) { onSide(i, it) } }
+                        if (beside) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                label(Modifier.weight(1f))
+                                control()
+                            }
+                        } else {
+                            Spacer(Modifier.height(4.dp))
+                            label(Modifier)
+                            control()
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+/** Both / L / R for one set, the chosen segment filled. */
+@Composable
+private fun SideControl(setIndex: Int, current: SetSide?, onChoose: (SetSide?) -> Unit) {
+    SingleChoiceSegmentedButtonRow {
+        val choices = listOf<Pair<SetSide?, String>>(null to "Both", SetSide.LEFT to "L", SetSide.RIGHT to "R")
+        choices.forEachIndexed { c, (side, label) ->
+            SegmentedButton(
+                selected = current == side,
+                onClick = { onChoose(side) },
+                shape = SegmentedButtonDefaults.itemShape(index = c, count = choices.size),
+                icon = {},
+                modifier = Modifier.semantics {
+                    contentDescription = "Set ${setIndex + 1}, " + (side?.label ?: "both sides")
+                }
+            ) { Text(label, maxLines = 1) }
         }
     }
 }
