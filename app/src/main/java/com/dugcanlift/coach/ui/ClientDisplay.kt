@@ -5,6 +5,7 @@ import com.dugcanlift.coach.data.LiftProgression
 import com.dugcanlift.coach.data.SetSide
 import com.dugcanlift.coach.data.SideBalance
 import java.util.Locale
+import kotlin.math.floor
 import kotlin.math.round
 import kotlin.math.roundToInt
 
@@ -105,6 +106,18 @@ data class ImbalanceLines(val headline: String, val detail: String)
  * no threshold, no colour, no advice, here or at the call site -- the same discipline saturated
  * fat, sugar and sodium are held to.
  */
+/**
+ * The imbalance percentage exactly as Coach web's `Math.round(percent * 1000) / 10` prints it.
+ * JavaScript's `Math.round` takes an exact half up (`floor(x + 0.5)`); Kotlin's [round] takes it
+ * to even, so a gap of exactly 6.25% read "6.2%" here and "6.3%" in the browser and on LIFT.
+ * Kept apart from [trimmedNumber], which also formats weights, distances and RPE.
+ */
+internal fun imbalancePercentText(fraction: Double): String {
+    val tenths = floor(fraction * 1000 + 0.5) / 10
+    val asLong = tenths.toLong()
+    return if (tenths == asLong.toDouble()) asLong.toString() else String.format(Locale.US, "%.1f", tenths)
+}
+
 fun imbalanceLines(progression: LiftProgression): ImbalanceLines? {
     if (!progression.hasBothLimbs) return null
     val imbalance = progression.imbalance ?: run {
@@ -117,7 +130,7 @@ fun imbalanceLines(progression: LiftProgression): ImbalanceLines? {
     val trend = imbalance.trend.wire?.let { " · gap $it" }.orEmpty()
     return ImbalanceLines(
         headline = imbalance.stronger
-            ?.let { "${it.label} ahead by ${trimmedNumber(imbalance.fraction * 100)}%" }
+            ?.let { "${it.label} ahead by ${imbalancePercentText(imbalance.fraction)}%" }
             ?: "Sides level",
         detail = "Mean estimated 1RM of the last ${SideBalance.MIN_SESSIONS} sessions each$trend"
     )
