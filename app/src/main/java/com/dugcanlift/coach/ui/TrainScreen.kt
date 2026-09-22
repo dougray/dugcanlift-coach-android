@@ -59,12 +59,12 @@ import com.dugcanlift.coach.data.titleCaseAscii
 import com.dugcanlift.coach.data.ClientRepository
 import com.dugcanlift.coach.data.PrescribedSet
 import com.dugcanlift.coach.data.Routine
+import com.dugcanlift.coach.data.RoutineEditing
 import com.dugcanlift.coach.data.RoutineExercise
 import com.dugcanlift.coach.data.ScheduledSession
 import com.dugcanlift.coach.data.TrainRepository
 import com.dugcanlift.coach.data.forClient
 import com.dugcanlift.kit.DayKey
-import com.dugcanlift.kit.trimZeros
 import kotlinx.coroutines.launch
 
 /**
@@ -371,16 +371,7 @@ private fun ScheduleList(
 private fun RoutineEditor(routine: Routine, onCancel: () -> Unit, onSave: (Routine) -> Unit) {
     var name by rememberSaveable(routine.id) { mutableStateOf(routine.name) }
     var lines by rememberSaveable(routine.id) {
-        mutableStateOf(routine.exercises.joinToString("\n") { exercise ->
-            val first = exercise.sets.firstOrNull()
-            val scheme = listOfNotNull(
-                exercise.sets.size.takeIf { it > 0 }?.toString(),
-                first?.targetReps?.toString()
-            ).joinToString(" x ")
-            val load = first?.targetWeightKg?.trimZeros()?.let { " @ $it" }.orEmpty()
-            listOf(exercise.name, exercise.equipment).filter { it.isNotBlank() }
-                .joinToString(" | ") + (if (scheme.isNotBlank()) " | $scheme$load" else "")
-        })
+        mutableStateOf(routine.exercises.joinToString("\n", transform = RoutineEditing::renderLine))
     }
 
     AlertDialog(
@@ -415,7 +406,12 @@ private fun RoutineEditor(routine: Routine, onCancel: () -> Unit, onSave: (Routi
         confirmButton = {
             TextButton(
                 enabled = name.isNotBlank(),
-                onClick = { onSave(routine.copy(name = name.trim(), exercises = parseExercises(lines))) }
+                onClick = {
+                    // Through RoutineEditing, not straight from the box: an
+                    // unchanged line keeps its ramp and its note.
+                    onSave(routine.copy(name = name.trim(),
+                        exercises = RoutineEditing.apply(parseExercises(lines), routine)))
+                }
             ) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } }
