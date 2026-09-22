@@ -24,7 +24,8 @@ class RoutineEditingTest {
     ))
 
     private fun saveUnchanged(r: Routine) =
-        RoutineEditing.apply(parseExercises(r.exercises.joinToString("\n", transform = RoutineEditing::renderLine)), r)
+        RoutineEditing.apply(parseExercises(r.exercises.joinToString("\n", transform = RoutineEditing::renderLine)), r,
+            RoutineEditing.initial(r)) { null }
 
     @Test fun `an untouched routine saves as it was`() {
         val saved = saveUnchanged(routine)
@@ -37,19 +38,19 @@ class RoutineEditingTest {
 
     @Test fun `reordered lines still find their exercise`() {
         val lines = routine.exercises.reversed().joinToString("\n", transform = RoutineEditing::renderLine)
-        val saved = RoutineEditing.apply(parseExercises(lines), routine)
+        val saved = RoutineEditing.apply(parseExercises(lines), routine, RoutineEditing.initial(routine)) { null }
         assertEquals(listOf("Walking Lunge", "Back Squat"), saved.map { it.name })
         assertEquals(listOf(60.0, 60.0, 70.0), saved[1].sets.map { it.targetWeightKg })
     }
 
     @Test fun `a changed line takes what it now says, and keeps its note`() {
-        val saved = RoutineEditing.apply(parseExercises("Back Squat | Barbell | 4 x 5 @ 65"), routine)
+        val saved = RoutineEditing.apply(parseExercises("Back Squat | Barbell | 4 x 5 @ 65"), routine, RoutineEditing.initial(routine)) { null }
         assertEquals(List(4) { 65.0 }, saved.single().sets.map { it.targetWeightKg })
         assertEquals("Belt on the last set.", saved.single().note)
     }
 
     @Test fun `a new line is only what it says`() {
-        val saved = RoutineEditing.apply(parseExercises("Bench Press | Barbell | 3 x 8 @ 60"), routine)
+        val saved = RoutineEditing.apply(parseExercises("Bench Press | Barbell | 3 x 8 @ 60"), routine, RoutineEditing.initial(routine)) { null }
         assertEquals(null, saved.single().note)
         assertEquals(3, saved.single().sets.size)
     }

@@ -338,8 +338,37 @@ from an exercise's name. Spec: SHARE-FORMAT "flags" and "The imbalance figure", 
 - **Volume, set counts and the weekly summary count both sides**, unchanged -- they only ever
   needed weight and reps, which is why a Coach build predating the bits decodes them correctly and
   only the chart was wrong.
-- **PLAN-FORMAT is unchanged in v1**: a coach prescribes as before and the lifter chooses sides
-  when logging, so `CookPlanEncoder` writes no side.
+- **A coach's prescription can carry sides too** -- see "Per-side prescriptions" below.
+
+## Per-side prescriptions
+
+A routine's exercise can be **each side** (`RoutineExercise.eachSide`: every set done on both
+sides, so "3 x 8 each side" stays three sets) and a set can name **one side**
+(`PrescribedSet.side`, done on that side once -- an extra set on the left, rehab side only).
+PLAN-FORMAT "Sides"; spec `dugcanlift-wip-backups/coach-per-side-prescriptions-spec.md`. The rules
+are `PrescriptionSides`, a port of Coach web's `coach/prescriptions.js` -- change them there first.
+
+- **The editor** (`RoutineEditor`): under the text box, each exercise shows what it asks for
+  (`3 × 30 × 8 each side + 1 L`), an "Each side" toggle, and -- once each side, once a set names a
+  side, or after "Set a side" -- a row per set reading `30 × 8 L` with Both / L / R. A bench press
+  looks as it always did. The box cannot hold sides, so `RoutineEditing` keeps them beside it,
+  keyed `name|equipment#occurrence`, and puts them back on save.
+- **"Each side" starts ticked by LIFT's unilateral-name guess** (the same term list as LIFT
+  Android's `PerSideLogging` and both `sides.js`), and the coach's own answer is remembered per lift
+  (`coach_settings`, `each_side|name|equipment`) and wins from then on. A saved exercise keeps what
+  it stored; no guess touches it. A named set on a two-sided lift is allowed: it means a single-arm
+  variation of that set.
+- **The backup is Coach web's and Coach iOS's spelling**: `eachSide: true` on an exercise, omitted
+  when false; `side: "left" | "right"` on a set, omitted when both. A routine without sides writes
+  the object it always did; an unknown side string reads as both and is not written back.
+- **The wire is `TrainPlanEncoder`**: `b: 1` (never `0`) and a sixth tuple position with the flags
+  bits (`2` left, `4` right); a both-sides set writes no sixth position, and only trailing nulls are
+  trimmed. **Train has no Send on Android yet**, so nothing on screen calls it: it holds the rules
+  beside the editor and is checked against `fixtures/web-plan-per-side.txt` and
+  `fixtures/web-plan-link.txt` (both written by Coach web's own encoder -- never regenerate them)
+  and read back through the kit's `PlanLinkCodec`, the decoder LIFT Android ships. Pounds on the
+  wire, rounded to six places only to drop kilogram round-trip noise.
+- Tracked and prescribed, never judged: nothing comments on an extra left set.
 
 ## Estimated one-rep max has no rep cap
 

@@ -25,6 +25,13 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -59,7 +66,9 @@ import com.dugcanlift.coach.data.titleCaseAscii
 import com.dugcanlift.coach.data.ClientRepository
 import com.dugcanlift.coach.data.PrescribedSet
 import com.dugcanlift.coach.data.Routine
+import com.dugcanlift.coach.data.PrescriptionSides
 import com.dugcanlift.coach.data.RoutineEditing
+import com.dugcanlift.coach.data.SetSide
 import com.dugcanlift.coach.data.RoutineExercise
 import com.dugcanlift.coach.data.ScheduledSession
 import com.dugcanlift.coach.data.TrainRepository
@@ -366,12 +375,34 @@ private fun ScheduleList(
  * One exercise per line, `name | equipment | sets x reps @ kg`, which is the
  * shortest thing that still round-trips through [Routine] without inventing a
  * multi-screen editor. Weights are kilograms, as stored -- see `Train.kt`.
+ *
+ * Under the box, each exercise it names gets its sides (PLAN-FORMAT "Sides"):
+ * an "Each side" toggle, and a Both / L / R control per set that stays out of
+ * sight until the exercise is each side or the coach taps "Set a side" -- so a
+ * bench press looks exactly as it always did. The rules are
+ * [PrescriptionSides] and [RoutineEditing]; this only draws them.
  */
 @Composable
 private fun RoutineEditor(routine: Routine, onCancel: () -> Unit, onSave: (Routine) -> Unit) {
+    val context = LocalContext.current
+    val eachSideChoices = remember { EachSideChoices(context) }
     var name by rememberSaveable(routine.id) { mutableStateOf(routine.name) }
     var lines by rememberSaveable(routine.id) {
         mutableStateOf(routine.exercises.joinToString("\n", transform = RoutineEditing::renderLine))
+    }
+    // Held as JSON text: what rememberSaveable can put in a Bundle is what
+    // survives a theme change with the editor open.
+    var sidesText by rememberSaveable(routine.id) { mutableStateOf(RoutineEditing.encode(RoutineEditing.initial(routine))) }
+    val sides = remember(sidesText) { RoutineEditing.decode(sidesText) }
+    val parsed = remember(lines) { parseExercises(lines) }
+    val keys = remember(parsed) { RoutineEditing.keys(parsed) }
+    val edited = RoutineEditing.apply(parsed, routine, sides, eachSideChoices::get)
+    fun update(index: Int, change: (RoutineEditing.ExerciseSides) -> RoutineEditing.ExerciseSides) {
+        val key = keys[index]
+        val current = RoutineEditing.sidesFor(sides, key, parsed[index], eachSideChoices::get)
+        // An exercise that has not been touched yet starts from the sets it has.
+        val base = if (current.sides.isEmpty()) current.copy(sides = edited[index].sets.map { it.side }) else current
+        sidesText = RoutineEditing.encode(sides + (key to change(base)))
     }
 
     AlertDialog(
@@ -389,6 +420,19 @@ private fun RoutineEditor(routine: Routine, onCancel: () -> Unit, onSave: (Routi
                     label = { Text("One exercise per line") },
                     supportingText = { Text("Bench | Barbell | 3 x 8 @ 60") }
                 )
+                edited.forEachIndexed { index, exercise ->
+                    Spacer(Modifier.height(12.dp))
+                    ExerciseSidesEditor(
+                        exercise = exercise,
+                        asked = sides[keys[index]]?.asked == true,
+                        onEachSide = { on ->
+                            eachSideChoices.set(exercise.name, exercise.equipment, on)
+                            update(index) { it.copy(eachSide = on) }
+                        },
+                        onAsk = { update(index) { it.copy(asked = true) } },
+                        onSide = { setIndex, side -> update(index) { RoutineEditing.withSide(it, setIndex, side) } }
+                    )
+                }
                 Spacer(Modifier.height(12.dp))
                 HorizontalDivider()
                 Spacer(Modifier.height(12.dp))
@@ -409,13 +453,91 @@ private fun RoutineEditor(routine: Routine, onCancel: () -> Unit, onSave: (Routi
                 onClick = {
                     // Through RoutineEditing, not straight from the box: an
                     // unchanged line keeps its ramp and its note.
-                    onSave(routine.copy(name = name.trim(),
-                        exercises = RoutineEditing.apply(parseExercises(lines), routine)))
+                    onSave(routine.copy(name = name.trim(), exercises = edited))
                 }
             ) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } }
     )
+}
+
+/**
+ * One exercise's sides: its name and what it asks for ("3 × 30 × 8 each side
+ * + 1 L"), the "Each side" toggle, and -- once shown -- a row per set reading
+ * "30 × 8 L" with its Both / L / R control.
+ */
+@Composable
+private fun ExerciseSidesEditor(
+    exercise: RoutineExercise,
+    asked: Boolean,
+    onEachSide: (Boolean) -> Unit,
+    onAsk: () -> Unit,
+    onSide: (Int, SetSide?) -> Unit
+) {
+    Column(Modifier.fillMaxWidth()) {
+        Text(exercise.displayName, style = MaterialTheme.typography.titleSmall)
+        Text(
+            PrescriptionSides.summary(exercise),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        val shown = PrescriptionSides.showsSides(exercise, asked)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(
+                selected = exercise.eachSide,
+                onClick = { onEachSide(!exercise.eachSide) },
+                label = { Text("Each side") },
+                modifier = Modifier.semantics {
+                    stateDescription = if (exercise.eachSide) "Every set is done on both sides"
+                    else "Sets counted once"
+                }
+            )
+            if (!shown && exercise.sets.isNotEmpty()) {
+                TextButton(onClick = onAsk) { Text("Set a side") }
+            }
+        }
+        if (shown) {
+            exercise.sets.forEachIndexed { i, set ->
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        "${i + 1}.  ${PrescriptionSides.setText(set)}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    SingleChoiceSegmentedButtonRow {
+                        val choices = listOf<Pair<SetSide?, String>>(null to "Both", SetSide.LEFT to "L", SetSide.RIGHT to "R")
+                        choices.forEachIndexed { c, (side, label) ->
+                            SegmentedButton(
+                                selected = set.side == side,
+                                onClick = { onSide(i, side) },
+                                shape = SegmentedButtonDefaults.itemShape(index = c, count = choices.size),
+                                icon = {},
+                                modifier = Modifier.semantics {
+                                    contentDescription = "Set ${i + 1}, " + (side?.label ?: "both sides")
+                                }
+                            ) { Text(label) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The coach's own answer to "Each side" for a lift, kept once given, so the
+ * next time that lift is written the toggle starts where they left it rather
+ * than where the name guesses. Keyed `name|equipment`, as LIFT keys its
+ * per-side preference. On this device only: Coach web keeps its copy in its
+ * own settings.
+ */
+private class EachSideChoices(context: android.content.Context) {
+    private val prefs = context.getSharedPreferences("coach_settings", android.content.Context.MODE_PRIVATE)
+    private fun key(lift: String) = "each_side|$lift"
+    fun get(lift: String): Boolean? = if (prefs.contains(key(lift))) prefs.getBoolean(key(lift), false) else null
+    fun set(name: String, equipment: String, on: Boolean) {
+        prefs.edit().putBoolean(key(PrescriptionSides.eachSideKey(name, equipment)), on).apply()
+    }
 }
 
 /**
