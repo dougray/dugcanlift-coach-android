@@ -18,9 +18,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -55,6 +58,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.dugcanlift.coach.data.Client
@@ -64,8 +68,10 @@ import com.dugcanlift.coach.data.LibraryExercise
 import com.dugcanlift.coach.data.searchExerciseLibrary
 import com.dugcanlift.coach.data.titleCaseAscii
 import com.dugcanlift.coach.data.ClientRepository
+import com.dugcanlift.coach.data.PlanWeek
 import com.dugcanlift.coach.data.PrescribedSet
 import com.dugcanlift.coach.data.Routine
+import com.dugcanlift.coach.data.TrainPlanSend
 import com.dugcanlift.coach.data.PrescriptionSides
 import com.dugcanlift.coach.data.RoutineEditing
 import com.dugcanlift.coach.data.SetSide
@@ -112,6 +118,10 @@ fun TrainScreen(
     val editing = editingId?.let { id -> library.routines.firstOrNull { it.id == id } ?: Routine(id = id, name = "") }
     var confirmingDelete by remember { mutableStateOf<Routine?>(null) }
     var planClientId by rememberSaveable { mutableStateOf(clients.firstOrNull()?.id) }
+    // The week on screen, and the week a Send carries. Saved as its first day,
+    // as Coach iOS holds `planWeekStart`: a theme change mid-plan should not
+    // throw a coach back to today.
+    var weekStart by rememberSaveable { mutableStateOf(DayKey.today()) }
 
     Scaffold(
         modifier = modifier,
@@ -163,27 +173,63 @@ fun TrainScreen(
                     onDelete = { confirmingDelete = it }
                 )
 
-                TrainSection.SCHEDULE -> ScheduleList(
-                    clients = clients,
-                    selectedClientId = clientId,
-                    onPickClient = { planClientId = it },
-                    clientName = clientName,
-                    sessions = booked,
-                    routinesById = routinesById,
-                    routines = library.routines,
-                    onBook = { routine ->
-                        train.upsertSession(
-                            ScheduledSession(
-                                clientId = clientId ?: return@ScheduleList,
-                                dayKey = DayKey.today(),
-                                routineId = routine.id
+                TrainSection.SCHEDULE -> {
+                    // What the Send would carry, computed once per change rather
+                    // than on every recomposition: it filters, builds JSON and
+                    // DEFLATEs, and the button, the note and the tap all read the
+                    // same answer. Coach iOS computes it into state for the same
+                    // reason.
+                    val send = remember(revision, clientId, weekStart) {
+                        TrainPlanSend.build(
+                            clientId = clientId,
+                            clientName = clientName,
+                            week = PlanWeek(weekStart),
+                            sessions = library.sessions,
+                            routines = library.routines,
+                            coachName = TrainPlanSend.coachName(
+                                context.getSharedPreferences("connect", android.content.Context.MODE_PRIVATE)
+                                    .getString("coachName", "")
                             )
                         )
-                        revision++
-                    },
-                    onRemove = { train.deleteSession(it.id); revision++ },
-                    columns = columns
-                )
+                    }
+                    ScheduleList(
+                        clients = clients,
+                        selectedClientId = clientId,
+                        onPickClient = { planClientId = it },
+                        clientName = clientName,
+                        week = PlanWeek(weekStart),
+                        onWeek = { weekStart = it.startDayKey },
+                        sessions = booked,
+                        routinesById = routinesById,
+                        routines = library.routines,
+                        send = send,
+                        onBook = { routine, day ->
+                            train.upsertSession(
+                                ScheduledSession(
+                                    clientId = clientId ?: return@ScheduleList,
+                                    dayKey = day,
+                                    routineId = routine.id
+                                )
+                            )
+                            revision++
+                        },
+                        onRemove = { train.deleteSession(it.id); revision++ },
+                        onSend = {
+                            // Cook's Send, mechanism for mechanism: a plain-text
+                            // ACTION_SEND through the chooser, so a coach picks
+                            // the mail or message app they already use with this
+                            // client. Nothing is copied to a server on the way.
+                            val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(android.content.Intent.EXTRA_TEXT, send.message)
+                            }
+                            context.startActivity(
+                                android.content.Intent.createChooser(intent, "Send this week")
+                            )
+                        },
+                        columns = columns
+                    )
+                }
             }
         }
       }
@@ -282,17 +328,30 @@ private fun RoutineList(
     }
 }
 
+/**
+ * A client's week: which routine is booked on which day, and the link that
+ * sends it.
+ *
+ * The week is Coach iOS's `TrainPlanView` and Coach web's training week --
+ * seven days from a start a coach can move, a day at a time down the list on a
+ * phone and side by side where there is room. What the Send carries is
+ * [TrainPlanSend]'s decision, not this composable's; this only draws it.
+ */
 @Composable
 private fun ScheduleList(
     clients: List<Client>,
     selectedClientId: String?,
     onPickClient: (String) -> Unit,
     clientName: String?,
+    week: PlanWeek,
+    onWeek: (PlanWeek) -> Unit,
     sessions: List<ScheduledSession>,
     routinesById: Map<String, Routine>,
     routines: List<Routine>,
-    onBook: (Routine) -> Unit,
+    send: TrainPlanSend,
+    onBook: (Routine, String) -> Unit,
     onRemove: (ScheduledSession) -> Unit,
+    onSend: () -> Unit,
     columns: Int = 1
 ) {
     if (clients.isEmpty()) {
@@ -325,47 +384,110 @@ private fun ScheduleList(
         return
     }
 
-    val sessionCard: @Composable (ScheduledSession, Modifier) -> Unit = { session, modifier ->
+    if (routines.isEmpty()) {
+        Text("Write a routine first — a session is booked from one.",
+             style = MaterialTheme.typography.bodyMedium)
+        return
+    }
+
+    // ‹ This week ›, the control Coach iOS shares between Cook's and Train's
+    // plan screens so a coach learns it once.
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        TextButton(onClick = { onWeek(week.advanced(-1)) }) { Text("‹ Earlier") }
+        Text(
+            week.label(),
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.weight(1f),
+            textAlign = TextAlign.Center
+        )
+        TextButton(onClick = { onWeek(week.advanced(1)) }) { Text("Later ›") }
+    }
+    Spacer(Modifier.height(8.dp))
+
+    // Only with something booked to send: a link offering nothing is an import
+    // prompt on a client's phone that adds nothing, which is Coach iOS's reason
+    // for gating the same button.
+    if (send.isSendable) {
+        Button(onClick = onSend, modifier = Modifier.wideButton(columns)) {
+            Text("Send this week to $clientName")
+        }
+        Spacer(Modifier.height(4.dp))
+    }
+    Text(
+        send.note,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    if (send.removedBookings > 0) {
+        Text(
+            "${send.removedBookings} booking(s) this week point at a workout that has been " +
+                "deleted — they are not sent. Remove them or rebuild the routine before sending.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+    Spacer(Modifier.height(12.dp))
+
+    val dayCard: @Composable (String, Modifier) -> Unit = { day, modifier ->
         Card(modifier.fillMaxWidth(), border = dclCardBorder()) {
             Column(Modifier.padding(12.dp)) {
-                Text(
-                    routinesById[session.routineId]?.name ?: "Deleted routine",
-                    style = MaterialTheme.typography.titleSmall
-                )
-                Text(session.dayKey, style = MaterialTheme.typography.bodySmall)
-                TextButton(onClick = { onRemove(session) }) { Text("Remove") }
+                Text(formatShortDay(day), style = MaterialTheme.typography.titleSmall)
+                Text(day, style = MaterialTheme.typography.bodySmall)
+                val booked = sessions.filter { it.dayKey == day }
+                if (booked.isEmpty()) {
+                    Text("Rest.", style = MaterialTheme.typography.bodySmall,
+                         color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                booked.forEach { session ->
+                    Spacer(Modifier.height(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            // Coach iOS's name for a booking whose template is
+                            // gone. It is dropped from the link rather than sent
+                            // as a day carrying nothing.
+                            routinesById[session.routineId]?.name?.ifBlank { "Untitled" } ?: "Removed workout",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        TextButton(onClick = { onRemove(session) }) { Text("Remove") }
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                BookMenu(routines = routines, onBook = { onBook(it, day) })
             }
         }
     }
-    val bookButton: @Composable (Routine) -> Unit = { routine ->
-        OutlinedButton(onClick = { onBook(routine) }, modifier = Modifier.fillMaxWidth()) {
-            Text(routine.name.ifBlank { "Untitled" }, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-    }
 
+    val days = week.days
     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (columns == 1) {
-            items(sessions, key = { it.id }) { session -> sessionCard(session, Modifier) }
+            items(days, key = { it }) { day -> dayCard(day, Modifier) }
         } else {
-            items(rowMajor(sessions, columns), key = { row -> row.first().id }) { row ->
-                GridRow(row, columns) { session -> sessionCard(session, Modifier.fillMaxHeight()) }
+            items(rowMajor(days, columns), key = { row -> "day-${row.first()}" }) { row ->
+                GridRow(row, columns) { day -> dayCard(day, Modifier.fillMaxHeight()) }
             }
         }
+    }
+}
 
-        if (routines.isNotEmpty()) {
-            item { HorizontalDivider() }
-            item { Text("Book a session", style = MaterialTheme.typography.titleSmall) }
-            if (columns == 1) {
-                items(routines, key = { "book-${it.id}" }) { routine -> bookButton(routine) }
-            } else {
-                items(rowMajor(routines, columns), key = { row -> "book-${row.first().id}" }) { row ->
-                    GridRow(row, columns) { routine -> bookButton(routine) }
-                }
-            }
-        } else {
-            item {
-                Text("Write a routine first — a session is booked from one.",
-                     style = MaterialTheme.typography.bodyMedium)
+/** "Book" on a day, and the routines it can book, as one menu. */
+@Composable
+private fun BookMenu(routines: List<Routine>, onBook: (Routine) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { open = true }) { Text("Book") }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            routines.forEach { routine ->
+                DropdownMenuItem(
+                    text = { Text(routine.name.ifBlank { "Untitled" }) },
+                    onClick = { open = false; onBook(routine) }
+                )
             }
         }
     }
