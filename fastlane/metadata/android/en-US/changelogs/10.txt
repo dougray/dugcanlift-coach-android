@@ -1,0 +1,5 @@
+Train can send a week to a client. Book sessions onto the days you mean, then send that week as a link, the way Cook already sends meals.
+
+New: prescribe a lift each side ("3 × 8 each side"), or a single set on one side, such as an extra set on the left. Both travel in the link and show as targets in your client's app.
+
+Fixed: saving a routine turned a ramp like 60/60/70 into three 60s and dropped your notes.
