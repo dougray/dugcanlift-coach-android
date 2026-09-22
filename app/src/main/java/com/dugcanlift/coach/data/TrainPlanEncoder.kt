@@ -5,15 +5,16 @@ import org.json.JSONObject
 import kotlin.math.round
 
 /**
- * The training half of a plan link: a routine as PLAN-FORMAT's `w` entry.
+ * The training half of a plan link: a routine as PLAN-FORMAT's `w` entry, the
+ * sessions booked from it as `k`, and the fragment that carries them.
  *
- * Coach Android does not send a client's training yet -- Train has no Send,
- * only Cook does ([CookPlanEncoder]) -- so nothing on screen calls this. It
- * exists so the wire rules for per-side prescriptions live beside the editor
- * that writes them and are checked against Coach web's own link
- * (`fixtures/web-plan-per-side.txt`) and read back through the kit decoder
- * LIFT Android uses, ready for the day Train gets its Send. A port of Coach
- * web's `workoutWire` / `exerciseWire` / `setTuple` (`coach/prescriptions.js`).
+ * A port of Coach web's `workoutWire` / `exerciseWire` / `setTuple`
+ * (`coach/prescriptions.js`) and the `w`/`k` half of its `encodePlan`. Checked
+ * against Coach web's own links (`fixtures/web-plan-per-side.txt`,
+ * `fixtures/web-plan-link.txt`) and read back through the kit's
+ * `PlanLinkCodec`, the decoder LIFT Android ships, rather than against a second
+ * copy of these rules. What is *in* a send -- which client, which week -- is
+ * [TrainPlanSend]'s decision, not this object's.
  */
 object TrainPlanEncoder {
 
@@ -74,4 +75,47 @@ object TrainPlanEncoder {
     fun workoutWire(routine: Routine): JSONObject = JSONObject()
         .put("n", routine.name)
         .put("e", JSONArray().also { array -> routine.exercises.forEach { array.put(exerciseWire(it)) } })
+
+    /**
+     * A client's booked training as a plan fragment: `w` the templates, `k` the
+     * days they are booked on.
+     *
+     * @param routines the templates to inline, in the order `k` indexes them.
+     *   Only the ones this send actually books belong here -- an unbooked
+     *   routine would be a library send (PLAN-FORMAT "A payload may also carry
+     *   `r` or `w` with no `m` or `k`"), which this is not.
+     * @param sessions the bookings. A session whose routine is not in
+     *   [routines] is **dropped**, never pointed at whichever template happens
+     *   to sit at that index: `x` indexes into `w`, and a stale index is the
+     *   wrong workout on someone's Tuesday. That is also what a session left
+     *   behind by a deleted routine does here -- the screen says so in words
+     *   ("Removed workout") rather than sending a day that carries nothing.
+     * @return the fragment, without a leading `#`.
+     */
+    fun encode(
+        routines: List<Routine>,
+        sessions: List<ScheduledSession>,
+        lifterId: String,
+        coachName: String
+    ): String {
+        val indexById = routines.withIndex().associate { (i, r) -> r.id to i }
+
+        val w = JSONArray()
+        routines.forEach { w.put(workoutWire(it)) }
+
+        val k = JSONArray()
+        sessions.forEach { session ->
+            val index = indexById[session.routineId] ?: return@forEach
+            k.put(JSONObject().put("d", session.dayKey).put("x", index))
+        }
+
+        val payload = PlanEnvelope.payload(lifterId, coachName)
+        // Empty means absent, not `[]` -- PLAN-FORMAT: "a coach who plans only
+        // training sends a payload with no `r` or `m` at all," and the mirror
+        // of it here. Every decoder treats all four keys as optional.
+        if (w.length() > 0) payload.put("w", w)
+        if (k.length() > 0) payload.put("k", k)
+
+        return PlanEnvelope.fragment(payload)
+    }
 }

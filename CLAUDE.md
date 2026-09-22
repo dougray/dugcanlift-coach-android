@@ -363,12 +363,44 @@ are `PrescriptionSides`, a port of Coach web's `coach/prescriptions.js` -- chang
   the object it always did; an unknown side string reads as both and is not written back.
 - **The wire is `TrainPlanEncoder`**: `b: 1` (never `0`) and a sixth tuple position with the flags
   bits (`2` left, `4` right); a both-sides set writes no sixth position, and only trailing nulls are
-  trimmed. **Train has no Send on Android yet**, so nothing on screen calls it: it holds the rules
-  beside the editor and is checked against `fixtures/web-plan-per-side.txt` and
-  `fixtures/web-plan-link.txt` (both written by Coach web's own encoder -- never regenerate them)
-  and read back through the kit's `PlanLinkCodec`, the decoder LIFT Android ships. Pounds on the
-  wire, rounded to six places only to drop kilogram round-trip noise.
+  trimmed. Train's Send calls it (see "Sending a week from Train"), and it is checked against
+  `fixtures/web-plan-per-side.txt` and `fixtures/web-plan-link.txt` (both written by Coach web's own
+  encoder -- never regenerate them) and read back through the kit's `PlanLinkCodec`, the decoder
+  LIFT Android ships. Pounds on the wire, rounded to six places only to drop kilogram round-trip
+  noise.
 - Tracked and prescribed, never judged: nothing comments on an extra left set.
+
+## Sending a week from Train
+
+Train's Schedule shows one client's week -- seven days from a start the coach moves with
+Earlier/Later, `PlanWeek`, Coach iOS's own -- and sends it: `TrainPlanSend.build` picks what goes
+and `TrainPlanEncoder.encode` writes it, `PlanEnvelope` wraps it, and the screen hands the link to
+the system chooser as a plain-text `ACTION_SEND`, the mechanism Cook's Send already used.
+
+- **One client, one week, training only.** Three rules and the other two builds disagree about two
+  of them, so they are choices, not accidents. Coach web's `encodePlan` sends *every* session and
+  meal a client has, from either screen, in one link; Coach iOS sends the week on screen, training
+  from Train and food from Cook. Android follows iOS: each screen sends what it shows, the coach
+  can see the whole of it before they send it, and Cook's Send is left exactly as it was rather
+  than gaining a silent second payload.
+- **Only the routines that week books are inlined**, and a booking whose routine is gone is
+  dropped, never pointed at whichever template happens to sit at that index -- `x` indexes into
+  `w`. The day says "Removed workout" (iOS's name) and the note counts them, Coach web's warning in
+  the same place.
+- **Nothing bookable means no button**, not a button that ships an import prompt offering nothing.
+  The note then says so.
+- **The note is Coach web's `updateTrainPlanSize`**: what the link contains and about how much
+  email it is, and over `PlanEnvelope.RISKY_LINK_LENGTH` (16,000 characters, PLAN-FORMAT "Size")
+  that some mail apps will break it. It is measured on the finished link, after DEFLATE.
+- **`TrainPlanSend` is a plain value with no Compose in it**, for the reason `RosterLoader` is one:
+  there is no Compose harness here, and what a coach ships to a client is not a thing to leave in a
+  lambda. The screen computes it into `remember`, keyed on the client, the week and the library's
+  revision, so the button, the note and the tap cannot read three different answers.
+- **Kilograms out, pounds on the wire.** `TrainPlanEncoder.kgToLb` does it and
+  `TrainPlanSendTest` pins 100 kg leaving as 220.46 lb, in the decoded payload and in the raw
+  tuple. Nothing fails when the conversion goes missing; the client just trains 2.2x wrong.
+- Booking used to be "today or nowhere" -- every session landed on `DayKey.today()`. The week is
+  what made a Send mean anything.
 
 ## Estimated one-rep max has no rep cap
 
