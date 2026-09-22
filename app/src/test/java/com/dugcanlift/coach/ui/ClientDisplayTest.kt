@@ -170,6 +170,21 @@ class ClientDisplayTest {
         assertEquals("Mean estimated 1RM of the last 3 sessions each · gap closing", lines.detail)
     }
 
+    // 150 against 160 is exactly 0.0625, a half in the second decimal. The browser's Math.round
+    // takes it up to 6.3; Kotlin's round takes it to even and printed 6.2, so Coach Android
+    // disagreed with Coach web and every LIFT build on exactly this kind of figure.
+    @Test fun `an exact half rounds up as the browser does`() {
+        val lines = imbalanceLines(progression(
+            SideSession("2026-09-01", 150.0, 160.0),
+            SideSession("2026-09-04", 150.0, 160.0),
+            SideSession("2026-09-08", 150.0, 160.0)
+        ))!!
+        assertEquals("Right ahead by 6.3%", lines.headline)
+        assertEquals("6.3", imbalancePercentText(0.0625))
+        assertEquals("5", imbalancePercentText(0.05))
+        assertEquals("0.5", imbalancePercentText(0.005))
+    }
+
     @Test fun `a fractional gap keeps its one decimal`() {
         val lines = imbalanceLines(progression(
             SideSession("2026-09-01", 95.0, 100.0),
