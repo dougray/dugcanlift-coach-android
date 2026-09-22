@@ -1,0 +1,1 @@
+A client's left-right gap now rounds exactly as Coach does in the browser and on iPhone, so the same log shows the same figure everywhere. Library updates under the hood.
