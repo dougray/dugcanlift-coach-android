@@ -44,7 +44,13 @@ data class PrescribedSet(
     val targetRpe: Double? = null,
     val targetDurationSec: Int? = null,
     val targetDistanceMeters: Double? = null,
-    val unknownKeys: JSONObject? = null
+    val unknownKeys: JSONObject? = null,
+    /**
+     * A set for one side only, done on that side once (PLAN-FORMAT "Sides" rule
+     * 2) -- the asymmetric case: an extra set on the left, rehab side only. Null
+     * is both, which is what every set written before this means.
+     */
+    val side: SetSide? = null
 ) {
     val targetWeightLb: Double? get() = targetWeightKg?.let { it * LB_PER_KG }
 }
@@ -54,7 +60,12 @@ data class RoutineExercise(
     val equipment: String = "",
     val note: String? = null,
     val sets: List<PrescribedSet> = emptyList(),
-    val unknownKeys: JSONObject? = null
+    val unknownKeys: JSONObject? = null,
+    /**
+     * Every prescribed set is done on both sides (PLAN-FORMAT "Sides" rule 1):
+     * "3 x 8, each side" stays three [sets], and the client's LIFT expects six.
+     */
+    val eachSide: Boolean = false
 ) {
     val displayName: String get() = if (equipment.isBlank()) name else "$name ($equipment)"
 }
@@ -87,9 +98,9 @@ data class ScheduledSession(
 
 private val SET_KEYS = setOf(
     "targetWeightKg", "weightLb", "targetReps", "reps", "targetRPE", "rpe",
-    "targetDurationSec", "durationSec", "targetDistanceMeters", "distanceM"
+    "targetDurationSec", "durationSec", "targetDistanceMeters", "distanceM", "side"
 )
-private val EXERCISE_KEYS = setOf("name", "equipment", "note", "sets")
+private val EXERCISE_KEYS = setOf("name", "equipment", "note", "sets", "eachSide")
 private val ROUTINE_KEYS = setOf("id", "name", "exercises")
 private val SESSION_KEYS = setOf("id", "clientID", "clientId", "dayKey", "date", "routineID", "routineId", "workoutId")
 
@@ -125,10 +136,18 @@ fun prescribedSetFromJson(o: JSONObject): PrescribedSet = PrescribedSet(
     targetRpe = o.doubleOrNull("targetRPE") ?: o.doubleOrNull("rpe"),
     targetDurationSec = o.intOrNull("targetDurationSec") ?: o.intOrNull("durationSec"),
     targetDistanceMeters = o.doubleOrNull("targetDistanceMeters") ?: o.doubleOrNull("distanceM"),
-    unknownKeys = o.extras(SET_KEYS)
+    unknownKeys = o.extras(SET_KEYS),
+    // BACKUP-FORMAT's spelling, the one Coach web and Coach iOS write. Absent,
+    // "both", or a string this build does not know all read as both rather
+    // than failing the import -- and are not written back.
+    side = SetSide.fromWire(o.optStringOrNull("side"))
 )
 
-/** Coach iOS's spelling, which is what this app writes: kilograms, long names. */
+/**
+ * Coach iOS's spelling, which is what this app writes: kilograms, long names.
+ * `side` is `"left"` or `"right"`, omitted when both -- so a set with no side
+ * writes exactly the object it always did.
+ */
 fun PrescribedSet.toJson(): JSONObject {
     val o = JSONObject()
     unknownKeys?.mergeInto(o)
@@ -137,6 +156,7 @@ fun PrescribedSet.toJson(): JSONObject {
     targetRpe?.let { o.put("targetRPE", it) }
     targetDurationSec?.let { o.put("targetDurationSec", it) }
     targetDistanceMeters?.let { o.put("targetDistanceMeters", it) }
+    side?.let { o.put("side", it.wire) }
     return o
 }
 
@@ -150,15 +170,19 @@ fun routineExerciseFromJson(o: JSONObject): RoutineExercise = RoutineExercise(
     equipment = o.optStringOrNull("equipment").orEmpty(),
     note = o.optStringOrNull("note"),
     sets = o.optJSONArray("sets").mapObjects(::prescribedSetFromJson),
-    unknownKeys = o.extras(EXERCISE_KEYS)
+    unknownKeys = o.extras(EXERCISE_KEYS),
+    // Only `true` is each side; `false`, a string, or nothing is not.
+    eachSide = o.opt("eachSide") == true
 )
 
+/** `eachSide: true` only when it is, never `false`: an exercise without it writes what it always did. */
 fun RoutineExercise.toJson(): JSONObject {
     val o = JSONObject()
     unknownKeys?.mergeInto(o)
     o.put("name", name)
     o.put("equipment", equipment)
     note?.let { o.put("note", it) }
+    if (eachSide) o.put("eachSide", true)
     o.put("sets", JSONArray(sets.map { it.toJson() }))
     return o
 }
