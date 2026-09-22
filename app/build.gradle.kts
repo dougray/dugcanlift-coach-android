@@ -91,11 +91,7 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.window)
-    // TEMPORARY: dugcanlift-kit-android's per-side-prescriptions commit, built by JitPack from an
-    // immutable commit, so the per-side tests read Coach's output with the decoder LIFT Android
-    // ships (PlanSet.side, PlanWorkoutExercise.eachSide). Replace with the 1.6.0 release tag before
-    // this merges -- the rule is an exact release tag.
-    implementation("com.github.dougray:dugcanlift-kit-android:c36de3792a")
+    implementation("com.github.dougray:dugcanlift-kit-android:1.6.0")
     testImplementation(libs.junit)
     testImplementation(libs.json)
     testImplementation(libs.robolectric)
