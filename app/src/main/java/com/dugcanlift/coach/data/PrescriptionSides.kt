@@ -68,15 +68,24 @@ object PrescriptionSides {
      * names a side counts once on that side, each side or not. So "3 x 8 each
      * side plus one left" is left 4, right 3 -- seven sets.
      */
-    fun targets(exercise: RoutineExercise): Targets {
+    fun targets(exercise: RoutineExercise): Targets =
+        targets(exercise.eachSide, exercise.sets.map { it.side })
+
+    /**
+     * The same rule over a prescription this app did not write -- a plan payload Coach sent and
+     * kept ([PlanLog]) carries its sides as flags rather than as [PrescribedSet]s. One copy of the
+     * rule, two shapes of set, because two copies of it is how the editor and the card come to
+     * disagree about what "3 x 8 each side" asks for.
+     */
+    fun targets(eachSide: Boolean, sides: List<SetSide?>): Targets {
         var left = 0
         var right = 0
         var both = 0
-        exercise.sets.forEach {
+        sides.forEach { side ->
             when {
-                it.side == SetSide.LEFT -> left++
-                it.side == SetSide.RIGHT -> right++
-                exercise.eachSide -> { left++; right++ }
+                side == SetSide.LEFT -> left++
+                side == SetSide.RIGHT -> right++
+                eachSide -> { left++; right++ }
                 else -> both++
             }
         }
