@@ -45,6 +45,7 @@ import com.dugcanlift.coach.data.BackupOutcome
 import com.dugcanlift.coach.data.BackupService
 import com.dugcanlift.coach.data.CookRepository
 import com.dugcanlift.coach.data.RoadPickRepository
+import com.dugcanlift.coach.data.SentPlanRepository
 import com.dugcanlift.coach.data.TrainRepository
 import com.dugcanlift.coach.data.ClientRepository
 import java.io.File
@@ -102,7 +103,7 @@ fun ConnectScreen(repo: ClientRepository, onBack: () -> Unit, showBack: Boolean 
     val backups = remember(repo, context) {
         BackupService(repo, preservedLibraryFile(context),
                       CookRepository(context.filesDir), TrainRepository(context.filesDir),
-                      RoadPickRepository(context.filesDir))
+                      RoadPickRepository(context.filesDir), SentPlanRepository(context.filesDir))
     }
 
     fun show(outcome: BackupOutcome) {

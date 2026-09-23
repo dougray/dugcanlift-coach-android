@@ -121,7 +121,7 @@ class ShareOutdoorImportTest {
         val reloaded = ClientRepository(tmp.root).get(clientId)!!
         assertEquals(imported, reloaded)
 
-        val restored = BackupCodec.restore(BackupCodec.export(listOf(imported), null, emptyList(), emptyList(), emptyList(), emptyList(), emptyMap())).clients.single()
+        val restored = BackupCodec.restore(BackupCodec.export(listOf(imported), null, emptyList(), emptyList(), emptyList(), emptyList(), emptyMap(), emptyList())).clients.single()
         // lastImportedAt crosses a Foundation-seconds double and back, so compare everything but it.
         assertEquals(imported, restored.copy(lastImportedAtEpochMs = imported.lastImportedAtEpochMs))
     }

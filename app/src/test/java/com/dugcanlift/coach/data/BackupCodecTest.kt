@@ -31,7 +31,7 @@ class BackupCodecTest {
         val withCargo = JSONObject(fixture())
             .put("programs", org.json.JSONArray().put(JSONObject().put("id", "p9").put("name", "Block A")))
         val r = BackupCodec.restore(withCargo.toString())
-        val out = JSONObject(BackupCodec.export(r.clients, r.preservedLibrary, r.recipes, r.meals, r.routines, r.sessions, emptyMap()))
+        val out = JSONObject(BackupCodec.export(r.clients, r.preservedLibrary, r.recipes, r.meals, r.routines, r.sessions, emptyMap(), emptyList()))
         assertEquals(withCargo.getJSONArray("programs").toString(), out.getJSONArray("programs").toString())
         assertEquals(2, out.getInt("v"))
     }
@@ -39,7 +39,7 @@ class BackupCodecTest {
     @Test fun `the modelled arrays survive a round trip by value`() {
         val orig = JSONObject(fixture())
         val r = BackupCodec.restore(fixture())
-        val out = JSONObject(BackupCodec.export(r.clients, r.preservedLibrary, r.recipes, r.meals, r.routines, r.sessions, emptyMap()))
+        val out = JSONObject(BackupCodec.export(r.clients, r.preservedLibrary, r.recipes, r.meals, r.routines, r.sessions, emptyMap(), emptyList()))
 
         for (key in listOf("recipes", "meals", "routines", "sessions")) {
             val before = orig.optJSONArray(key) ?: continue
@@ -57,13 +57,13 @@ class BackupCodecTest {
 
     @Test fun `a v1 file with no library restores clients and writes no library keys`() {
         val v1 = """{"v":1,"clients":[{"id":"a","name":"Doug","displayUnit":"lb","lastImportedAt":0,"days":[]}]}"""
-        val out = JSONObject(BackupCodec.export(BackupCodec.restore(v1).clients, null, emptyList(), emptyList(), emptyList(), emptyList(), emptyMap()))
+        val out = JSONObject(BackupCodec.export(BackupCodec.restore(v1).clients, null, emptyList(), emptyList(), emptyList(), emptyList(), emptyMap(), emptyList()))
         assertFalse(out.has("recipes")); assertEquals("a", out.getJSONArray("clients").getJSONObject(0).getString("id"))
     }
 
     @Test fun `dates written back are Foundation seconds so iOS reads them`() {
         val c = Client("a", "Doug", "lb", null, 1_758_307_200_000L, null, emptyList())
-        assertEquals(780_000_000.0, JSONObject(BackupCodec.export(listOf(c), null, emptyList(), emptyList(), emptyList(), emptyList(), emptyMap())).getJSONArray("clients").getJSONObject(0).getDouble("lastImportedAt"), 0.5)
+        assertEquals(780_000_000.0, JSONObject(BackupCodec.export(listOf(c), null, emptyList(), emptyList(), emptyList(), emptyList(), emptyMap(), emptyList())).getJSONArray("clients").getJSONObject(0).getDouble("lastImportedAt"), 0.5)
     }
 
     // --- Beyond the brief's four ---
@@ -94,7 +94,7 @@ class BackupCodecTest {
         val r = BackupCodec.restore(json)
         val c = r.clients.single()
         assertNull(c.goal)
-        val out = JSONObject(BackupCodec.export(r.clients, r.preservedLibrary, r.recipes, r.meals, r.routines, r.sessions, emptyMap()))
+        val out = JSONObject(BackupCodec.export(r.clients, r.preservedLibrary, r.recipes, r.meals, r.routines, r.sessions, emptyMap(), emptyList()))
         assertTrue(out.getJSONArray("clients").getJSONObject(0).isNull("goal"))
     }
 
@@ -143,7 +143,7 @@ class BackupCodecTest {
     @Test fun `an unknown top-level key from a newer file survives restore and export`() {
         val newer = """{"v":3,"clients":[],"programs":[{"id":"p1","name":"5-3-1"}],"coachNotes":{"x":1}}"""
         val r = BackupCodec.restore(newer)
-        val out = JSONObject(BackupCodec.export(r.clients, r.preservedLibrary, r.recipes, r.meals, r.routines, r.sessions, emptyMap()))
+        val out = JSONObject(BackupCodec.export(r.clients, r.preservedLibrary, r.recipes, r.meals, r.routines, r.sessions, emptyMap(), emptyList()))
         assertEquals(JSONObject(newer).getJSONArray("programs").toString(), out.getJSONArray("programs").toString())
         assertEquals(JSONObject(newer).getJSONObject("coachNotes").toString(), out.getJSONObject("coachNotes").toString())
     }

@@ -283,7 +283,7 @@ class PerLimbSetsTest {
             set("Split Squat", "Dumbbell", 55.0, 8, SetSide.RIGHT),
             set("Bench Press", "Barbell", 185.0, 5, null)
         ))
-        val file = BackupCodec.export(listOf(c), null, emptyList(), emptyList(), emptyList(), emptyList(), emptyMap())
+        val file = BackupCodec.export(listOf(c), null, emptyList(), emptyList(), emptyList(), emptyList(), emptyMap(), emptyList())
         val restored = BackupCodec.restore(file).clients.single()
         assertEquals(
             listOf(SetSide.LEFT, SetSide.RIGHT, null),
@@ -295,7 +295,7 @@ class PerLimbSetsTest {
     // import, because the alternative is losing a roster to one string a newer writer invented.
     @Test fun `an unrecognised side in a backup reads as both rather than failing the restore`() {
         val c = client(day("2026-09-01", set("Split Squat", "Dumbbell", 60.0, 8, SetSide.LEFT)))
-        val file = JSONObject(BackupCodec.export(listOf(c), null, emptyList(), emptyList(), emptyList(), emptyList(), emptyMap()))
+        val file = JSONObject(BackupCodec.export(listOf(c), null, emptyList(), emptyList(), emptyList(), emptyList(), emptyMap(), emptyList()))
         file.getJSONArray("clients").getJSONObject(0)
             .getJSONArray("days").getJSONObject(0)
             .getJSONArray("sets").getJSONObject(0)
@@ -307,7 +307,7 @@ class PerLimbSetsTest {
 
     @Test fun `a set written before this field restores as both`() {
         val c = client(day("2026-09-01", set("Bench Press", "Barbell", 185.0, 5, null)))
-        val file = JSONObject(BackupCodec.export(listOf(c), null, emptyList(), emptyList(), emptyList(), emptyList(), emptyMap()))
+        val file = JSONObject(BackupCodec.export(listOf(c), null, emptyList(), emptyList(), emptyList(), emptyList(), emptyMap(), emptyList()))
         val set = file.getJSONArray("clients").getJSONObject(0)
             .getJSONArray("days").getJSONObject(0).getJSONArray("sets").getJSONObject(0)
         assertFalse("a roster with no per-limb sets writes the file it always wrote", set.has("side"))
