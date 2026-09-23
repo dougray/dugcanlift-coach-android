@@ -1,5 +1,6 @@
 package com.dugcanlift.coach.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -25,6 +26,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -38,11 +40,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -55,6 +60,12 @@ import com.dugcanlift.coach.data.CookPlanEncoder
 import com.dugcanlift.coach.data.CookRepository
 import com.dugcanlift.coach.data.PlannedMeal
 import com.dugcanlift.coach.data.Recipe
+import com.dugcanlift.coach.data.RoadFoodChain
+import com.dugcanlift.coach.data.RoadFoodData
+import com.dugcanlift.coach.data.RoadFoodItem
+import com.dugcanlift.coach.data.RoadFoodStore
+import com.dugcanlift.coach.data.RoadPickRepository
+import com.dugcanlift.coach.data.RoadPicks
 import com.dugcanlift.coach.data.forClient
 import com.dugcanlift.coach.data.hasMacros
 import com.dugcanlift.kit.CaptionRecipe
@@ -67,14 +78,18 @@ import kotlinx.coroutines.launch
 
 /**
  * COOK for Coach: the recipes a coach writes, the week they build for one
- * client, and the shopping list that falls out of it.
+ * client, the shopping list that falls out of it, and the Road Food items the
+ * coach is happy with for that client.
  *
- * Three sections behind one chip row rather than three routes, matching Coach
- * iOS's `CookView`. The week and the shopping list are two views of the same
- * planned meals, and a coach moves between them constantly while planning.
+ * Four sections behind one chip row rather than four routes, matching Coach
+ * iOS's `CookView` and Coach web's own chip row. The week and the shopping
+ * list are two views of the same planned meals, and a coach moves between them
+ * constantly while planning; Road sits beside them on the same client picker
+ * because a pick is addressed to one person and rides in the same plan link.
+ * Train was the other candidate and is the wrong half of the app: this is food.
  */
 private enum class CookSection(val label: String) {
-    RECIPES("Recipes"), PLAN("Plan"), SHOPPING("Shopping")
+    RECIPES("Recipes"), PLAN("Plan"), SHOPPING("Shopping"), ROAD("Road")
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -87,6 +102,7 @@ fun CookScreen(
 ) {
     val context = LocalContext.current
     val cook = remember { CookRepository(context.filesDir) }
+    val pickStore = remember { RoadPickRepository(context.filesDir) }
     val clients = remember { repo.all() }
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
@@ -107,6 +123,28 @@ fun CookScreen(
     var planClientId by rememberSaveable { mutableStateOf(clients.firstOrNull()?.id) }
     // The recipe open in the editor, saved as its id so an activity recreation (a theme or
     // density change) reopens it. An id the library does not hold is a new, unsaved recipe.
+    // Its own revision, not the library's: a tick should not re-read the whole
+    // recipe book, and the recipe book's writes should not re-read the picks.
+    var pickRevision by remember { mutableStateOf(0) }
+    val storedPicks = remember(pickRevision) { pickStore.load() }
+
+    // The Road Food file, read the first time the Road section is opened rather
+    // than at launch -- a coach who never marks a pick never pays for it.
+    var roadData by remember { mutableStateOf<RoadFoodData?>(null) }
+    var roadError by remember { mutableStateOf<String?>(null) }
+    // Which place cards are open, held here rather than inside the section:
+    // each section is its own subtree, so state below would be torn down on
+    // every switch. The same reason planClientId lives at this level.
+    val roadOpen = remember { mutableStateMapOf<String, Boolean>() }
+    var confirmingClearPicks by remember { mutableStateOf(false) }
+
+    LaunchedEffect(section) {
+        if (section == CookSection.ROAD && roadData == null && roadError == null) {
+            roadData = RoadFoodStore.load(context)
+            if (roadData == null) roadError = RoadFoodStore.lastError ?: "unknown error"
+        }
+    }
+
     var editingId by rememberSaveable { mutableStateOf<String?>(null) }
     val editing = editingId?.let { id -> library.recipes.firstOrNull { it.id == id } ?: Recipe(id = id, name = "") }
     var confirmingDelete by remember { mutableStateOf<Recipe?>(null) }
@@ -154,6 +192,7 @@ fun CookScreen(
             val clientId = planClientId
             val clientName = clients.firstOrNull { it.id == clientId }?.name
             val weekMeals = clientId?.let { library.meals.forClient(it) } ?: emptyList()
+            val clientPicks = storedPicks.forClient(clientId)
 
             when (section) {
                 CookSection.RECIPES -> RecipeList(
@@ -172,6 +211,7 @@ fun CookScreen(
                     meals = weekMeals,
                     recipesById = recipesById,
                     canPlan = clientId != null && library.recipes.isNotEmpty(),
+                    roadPickCount = clientPicks.size,
                     dayColumns = AdaptiveLayout.planDayColumns(available),
                     buttonColumns = AdaptiveLayout.cardColumns(available),
                     onAdd = { recipe ->
@@ -196,9 +236,12 @@ fun CookScreen(
                         val coachName = context
                             .getSharedPreferences("connect", android.content.Context.MODE_PRIVATE)
                             .getString("coachName", "") ?: ""
+                        // Road picks ride in the same link; nothing is filtered
+                        // against this app's copy of road-food.json on the way
+                        // out. See RoadPicks.
                         val fragment = CookPlanEncoder.encode(
                             weekMeals, recipesById, clientId.orEmpty(),
-                            coachName.ifBlank { "Your coach" }
+                            coachName.ifBlank { "Your coach" }, clientPicks
                         )
                         val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                             type = "text/plain"
@@ -217,6 +260,23 @@ fun CookScreen(
                     lines = CoachShoppingList.build(weekMeals, recipesById),
                     columns = AdaptiveLayout.shoppingColumns(available)
                 )
+
+                CookSection.ROAD -> RoadList(
+                    clients = clients,
+                    selectedClientId = clientId,
+                    onPickClient = { planClientId = it },
+                    clientName = clientName,
+                    data = roadData,
+                    loadError = roadError,
+                    unreadable = storedPicks.isUnreadable,
+                    picks = clientPicks,
+                    open = roadOpen,
+                    onSetPicks = { ids ->
+                        pickStore.setForClient(clientId.orEmpty(), ids)
+                        pickRevision++
+                    },
+                    onClearAll = { confirmingClearPicks = true }
+                )
             }
         }
       }
@@ -232,6 +292,29 @@ fun CookScreen(
                 revision++
                 scope.launch { snackbar.showSnackbar("Saved ${it.name}.") }
             }
+        )
+    }
+
+    if (confirmingClearPicks) {
+        val name = clients.firstOrNull { it.id == planClientId }?.name ?: "this client"
+        AlertDialog(
+            onDismissRequest = { confirmingClearPicks = false },
+            title = { Text("Clear every road pick for $name?") },
+            text = {
+                Text(
+                    "Their picks stop going in the plan link. A link you already sent is " +
+                        "unaffected — it left as a link, and clearing them here does not reach " +
+                        "the copy on their phone."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    planClientId?.let { pickStore.setForClient(it, emptyList()) }
+                    confirmingClearPicks = false
+                    pickRevision++
+                }) { Text("Clear") }
+            },
+            dismissButton = { TextButton(onClick = { confirmingClearPicks = false }) { Text("Keep") } }
         )
     }
 
@@ -325,6 +408,8 @@ private fun PlanList(
     recipesById: Map<String, Recipe>,
     recipes: List<Recipe>,
     canPlan: Boolean,
+    /** How many road picks this client has. They travel in the same link. */
+    roadPickCount: Int,
     dayColumns: Int,
     buttonColumns: Int,
     onAdd: (Recipe) -> Unit,
@@ -363,9 +448,22 @@ private fun PlanList(
         return
     }
 
-    if (meals.isNotEmpty()) {
+    // Road picks travel in the same link, so a coach whose only answer this
+    // week is "these are fine on the road" still has something to send.
+    if (meals.isNotEmpty() || roadPickCount > 0) {
         Button(onClick = onSend, modifier = Modifier.wideButton(dayColumns)) {
-            Text("Send this week to $clientName")
+            Text(
+                if (meals.isEmpty())
+                    "Send ${roadPickCount} road pick${if (roadPickCount == 1) "" else "s"} to $clientName"
+                else "Send this week to $clientName"
+            )
+        }
+        if (meals.isNotEmpty() && roadPickCount > 0) {
+            Text(
+                "The $roadPickCount road pick${if (roadPickCount == 1) "" else "s"} you marked " +
+                    "for $clientName go in the same link.",
+                style = MaterialTheme.typography.bodySmall
+            )
         }
         Spacer(Modifier.height(12.dp))
     }
@@ -441,9 +539,237 @@ private fun PlanList(
             }
         } else if (recipes.isEmpty()) {
             item {
-                Text("Write a recipe first — a week is built from them.",
-                     style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    if (roadPickCount > 0)
+                        "No recipes yet — a week is built from them. The road picks you marked " +
+                            "still go in the link."
+                    else "Write a recipe first — a week is built from them.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
             }
+        }
+    }
+}
+
+/* ---------------- road picks ----------------
+ *
+ * The items a coach is happy with at the places a client stops on the road.
+ *
+ * In Cook, beside the week and the shopping list, rather than on the client's
+ * page: that page is a record of what a client did, and this is something the
+ * coach makes for them -- addressed to one person and sent in the same plan
+ * link as the rest of Cook. Coach web puts it in the same place for the same
+ * reason.
+ *
+ * A pick says "this fits how I want you eating on the road" and nothing about
+ * calories or macros: LIFT already ranks Road Food against what is left of the
+ * client's day, and a pick floats to the top of that list, labelled, without
+ * re-ranking the numbers underneath or hiding anything that fits. Nothing here
+ * or there judges what a client ate against what was picked.
+ */
+@Composable
+private fun RoadList(
+    clients: List<Client>,
+    selectedClientId: String?,
+    onPickClient: (String) -> Unit,
+    clientName: String?,
+    data: RoadFoodData?,
+    loadError: String?,
+    unreadable: Boolean,
+    picks: List<String>,
+    open: MutableMap<String, Boolean>,
+    onSetPicks: (List<String>) -> Unit,
+    onClearAll: () -> Unit
+) {
+    if (clients.isEmpty()) {
+        Text(
+            "No clients yet. Picks are made for one person, so import a client from the " +
+                "roster first.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        return
+    }
+    if (unreadable) {
+        // The same distinction StoredRoadPicks exists to make: this is not "no
+        // picks", and offering a tick box here would invite saving over what is
+        // still on disk for every other client.
+        Text(
+            "This device's road picks can't be read. Nothing has been deleted — restore a " +
+                "backup from Connect before ticking anything new.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        return
+    }
+
+    Text("Picking for", style = MaterialTheme.typography.labelMedium)
+    Spacer(Modifier.height(4.dp))
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.horizontalScroll(rememberScrollState())
+    ) {
+        clients.forEach { client ->
+            FilterChip(
+                selected = client.id == selectedClientId,
+                onClick = { onPickClient(client.id) },
+                label = { Text(client.name) }
+            )
+        }
+    }
+    Spacer(Modifier.height(12.dp))
+
+    if (clientName == null) {
+        Text("Pick a client to mark picks for.", style = MaterialTheme.typography.bodyMedium)
+        return
+    }
+
+    Text(
+        "Marked here, sent with the plan link. In LIFT they sit at the top of that place's " +
+            "list, named as yours. The ranking underneath is unchanged, and nothing that fits " +
+            "is hidden.",
+        style = MaterialTheme.typography.bodyMedium
+    )
+    Spacer(Modifier.height(12.dp))
+
+    if (data == null) {
+        Text(
+            if (loadError != null)
+                "The Road Food list could not load. It is part of the app, so this is a bad " +
+                    "install rather than a connection ($loadError)."
+            else "Loading the Road Food list...",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        return
+    }
+
+    val summary = RoadPicks.summary(picks, data)
+    val missing = RoadPicks.missing(picks, data)
+
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        item(key = "road-summary") {
+            Card(Modifier.fillMaxWidth(), border = dclCardBorder()) {
+                Column(Modifier.padding(12.dp)) {
+                    Text(
+                        if (summary.isEmpty()) "Nothing picked for $clientName yet."
+                        else "$summary picked for $clientName.",
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    if (missing.isNotEmpty()) {
+                        // A pick for an item this copy of the file no longer
+                        // lists. It still travels: the client's app knows what
+                        // its own menus hold, and skips what it cannot find
+                        // rather than drawing a broken row.
+                        Text(
+                            "${missing.size} more ${if (missing.size == 1) "pick is" else "picks are"} " +
+                                "not on the menus this copy has. They still travel; an app skips " +
+                                "what it cannot find.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    if (picks.isNotEmpty()) {
+                        TextButton(onClick = onClearAll) { Text("Clear these picks") }
+                    }
+                }
+            }
+        }
+
+        data.chains.forEach { chain ->
+            roadPlace(chain.id, chain.name, chain.items, picks, open, onSetPicks, showCategory = false)
+        }
+        if (data.snacks.isNotEmpty()) {
+            val snacks = data.snacks.sortedWith(
+                compareBy({ it.category.orEmpty() }, { it.name })
+            )
+            roadPlace(
+                RoadPicks.SNACKS_PLACE_ID, RoadPicks.SNACKS_PLACE_NAME, snacks,
+                picks, open, onSetPicks, showCategory = true
+            )
+        }
+    }
+}
+
+/**
+ * One place: a card that folds open to its items, each a tick. Folded by
+ * default -- eight chains and twenty-two snacks is a scroll nobody asked for.
+ */
+private fun androidx.compose.foundation.lazy.LazyListScope.roadPlace(
+    placeId: String,
+    name: String,
+    items: List<RoadFoodItem>,
+    picks: List<String>,
+    open: MutableMap<String, Boolean>,
+    onSetPicks: (List<String>) -> Unit,
+    showCategory: Boolean
+) {
+    item(key = "road-place-$placeId") {
+        val isOpen = open[placeId] == true
+        val picked = RoadPicks.countIn(picks, items)
+        Card(Modifier.fillMaxWidth(), border = dclCardBorder()) {
+            Column(Modifier.padding(12.dp)) {
+                Row(
+                    Modifier.fillMaxWidth().clickable { open[placeId] = !isOpen },
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(name, style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        if (picked > 0) "$picked of ${items.size} picked" else "${items.size} items",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                if (!isOpen) return@Column
+
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { onSetPicks(RoadPicks.toggleAll(picks, items, true)) }) {
+                        Text("Pick all")
+                    }
+                    TextButton(
+                        enabled = picked > 0,
+                        onClick = { onSetPicks(RoadPicks.toggleAll(picks, items, false)) }
+                    ) { Text("Clear") }
+                }
+                items.forEach { item ->
+                    HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                    RoadPickRow(
+                        item = item,
+                        checked = item.id in picks,
+                        showCategory = showCategory,
+                        onToggle = { on -> onSetPicks(RoadPicks.toggle(picks, item.id, on)) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * One item: the tick, the name, and the figures plainly. No colour, no
+ * threshold, nothing ranked -- the ranking is the client's app's job, against
+ * a day this screen knows nothing about.
+ */
+@Composable
+private fun RoadPickRow(
+    item: RoadFoodItem,
+    checked: Boolean,
+    showCategory: Boolean,
+    onToggle: (Boolean) -> Unit
+) {
+    Row(
+        Modifier.fillMaxWidth().clickable { onToggle(!checked) },
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Checkbox(checked = checked, onCheckedChange = onToggle)
+        Column(Modifier.weight(1f).padding(vertical = 4.dp)) {
+            Text(item.name, style = MaterialTheme.typography.bodyMedium)
+            // Blank stays blank: an item with no figure says so rather than showing 0.
+            val bits = buildList {
+                if (showCategory) item.category?.let { add(it) }
+                add(item.kcal?.let { "${Math.round(it)} kcal" } ?: "kcal not listed")
+                add(item.proteinG?.let { "P ${Math.round(it)} g" } ?: "protein not listed")
+                item.serving?.let { add(it) }
+            }
+            Text(bits.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
+            item.modification?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         }
     }
 }
