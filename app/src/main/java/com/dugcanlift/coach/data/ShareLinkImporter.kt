@@ -83,10 +83,28 @@ object ShareLinkImporter {
             (kept + incoming.values).sortedBy { it.dayKey },
             outdoorBests = if (newer) toBests(p.outdoorBests) else existing?.outdoorBests,
             lastRoute = if (newer) toLastRoute(p.lastRoute) else existing?.lastRoute,
-            exportedAtEpochSec = if (newer) p.exportedAtEpochSeconds else stored
+            exportedAtEpochSec = if (newer) p.exportedAtEpochSeconds else stored,
+            // The window this link covered, widened onto what the client has sent before. Unlike
+            // the all-time fields above this follows every link, newer or older: a link opened
+            // late still proves the client sent those days, and forgetting that would have the
+            // Booked card call a day "not logged" that the client never sent at all. Coach web's
+            // `absorb` widens it exactly here and exactly this way.
+            coveredFrom = widen(existing?.coveredFrom, p.startDay, keepLower = true),
+            coveredTo = widen(existing?.coveredTo, p.endDay, keepLower = false)
         )
         repo.save(client)
         return ImportResult.Imported(client.id, client.name, incoming.size)
+    }
+
+    /**
+     * The wider of a stored bound and an incoming one, ignoring anything that is not a day key.
+     * Day keys are `yyyy-MM-dd`, so a string comparison is a date comparison -- but only for keys
+     * that really are one, which is why an unparseable bound is dropped rather than compared.
+     */
+    private fun widen(stored: String?, incoming: String?, keepLower: Boolean): String? {
+        val candidates = listOfNotNull(stored, incoming).filter { DayKey.parse(it) != null }
+        if (candidates.isEmpty()) return null
+        return if (keepLower) candidates.min() else candidates.max()
     }
 
     /** `r` + `k` as a real calendar date, or null for any `r` or `k` no calendar can resolve. */
