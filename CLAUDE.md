@@ -402,6 +402,63 @@ the system chooser as a plain-text `ACTION_SEND`, the mechanism Cook's Send alre
 - Booking used to be "today or nowhere" -- every session landed on `DayKey.today()`. The week is
   what made a Send mean anything.
 
+## Road picks
+
+A coach marks the Road Food items they are happy with for a client, and they
+ride in the plan link as `rf`. Spec: PLAN-FORMAT.md "Road picks",
+BACKUP-FORMAT.md "The Coach backup's road picks", and the Road Food spec in
+`dugcanlift-wip-backups/lift-road-food-spec.md` ("Coach, later"). The rules are
+`data/RoadPicks.kt`, a port of Coach web's `coach/road-picks.js` -- change them
+there first, as with `SideBalance` and `sides.js`.
+
+- **Where it lives: Cook -> Road**, a fourth section on the same client picker
+  as Plan and Shopping, matching Coach web. The client's page is a record of
+  what a client did; a pick is something the coach makes for them, addressed to
+  one person and sent in the same link as the rest of Cook.
+- **The wire is item ids and nothing else.** No chain ids, no "all of Wendy's";
+  "Pick all" ticks the items the coach could see when they ticked them. `rf` is
+  omitted entirely when empty -- never `[]` -- so a plan with no picks is byte
+  for byte the plan `CookPlanEncoder` wrote before they existed, which
+  `RoadPicksTest` pins. `v` stays 1: purely additive.
+- **Nothing is filtered against this app's copy of `road-food.json` on the way
+  out.** The coach's bundle and the client's are two builds updated at
+  different times, so only the receiver can say what it has, and it skips an id
+  it does not know silently. Coach counts what it *can* see on screen and says
+  how many more travel, so a mismatched count is never a puzzle.
+- **The data is `app/src/main/assets/road-food.json`**, a verbatim copy of
+  `dugcanlift-kit/data/road-food.json` -- the same bytes LIFT Android bundles,
+  because item ids are the contract picks travel on. Edit it in the kit and
+  copy it here, never here alone. Coach's parser reads a deliberate **subset**:
+  no ordering rules, no `kind`, no staleness, because Coach does not rank.
+  LIFT ranks, against a day this app knows nothing about.
+- **Storage is `road-picks.json`**, one list of ids per client, with
+  `CookRepository`'s unreadable-is-not-empty care: every write is a
+  read-modify-write that would otherwise save an empty read over the real file.
+- **The backup's `roadPicks` restores per client, not by id.** A client this
+  device already has picks for keeps them; one it has none for takes the file's
+  list; a file without the key changes nothing. That is BACKUP-FORMAT's rule
+  rather than this app's replace-the-library habit, because the format is what
+  the three Coach builds share. `roadPicks` is in `ENVELOPE_KEYS` -- a key that
+  becomes modelled must join that set in the same commit or a file written by a
+  build that carried it as cargo writes it twice.
+- **An unreadable picks file does not refuse the export.** Clients and the
+  library restore by replace, so a backup missing either deletes it; picks
+  restore per client and never delete, so a file without them takes nothing
+  away. Blocking a coach's whole backup over a handful of ticks they can redo
+  would be following that rule past its reason. The message says what happened
+  and the unreadable file is left exactly as it is.
+- **A removal takes the client's picks** and is deliberately **not** in the
+  confirmation sentence: Coach iOS's and Coach web's tests pin that sentence
+  word for word, and a clause added here alone would break all three. Coach
+  web's own road-picks branch left its copy alone for the same reason.
+- **Cook's Send carries them; Train's does not.** Each screen sends what it
+  shows (see "Sending a week from Train"), and a pick is food. A picks-only
+  send is legitimate -- the button appears for picks alone.
+- Tracked and shown, never targeted: no score, no colour, no threshold, and
+  nothing anywhere judging what a client ate against what was picked.
+- `fixtures/web-plan-road-picks.txt` is a link **Coach web's own encoder
+  wrote** -- never regenerate it from Kotlin.
+
 ## Estimated one-rep max has no rep cap
 
 `Stats.e1rm` is Epley (`weightLb * (1 + reps / 30.0)`) with **no ceiling on
