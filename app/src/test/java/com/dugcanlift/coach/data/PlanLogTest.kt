@@ -169,7 +169,7 @@ class PlanLogTest {
             listOf(workout("Lower A", listOf(ex("Back Squat", "Barbell", listOf(listOf(225, 5)))))),
             listOf(day("2026-10-12", "Lower A", listOf(set("Back Squat", "Barbell", 225.0, 5))))
         )
-        assertEquals("Mon 12 · Lower A · logged", day(r, 0).text)
+        assertEquals("Mon 12 Oct · Lower A · logged", day(r, 0).text)
         assertEquals(PlanLog.Counts(1, 1, 0, 0, 0), r.groups[0].counts)
     }
 
@@ -179,7 +179,7 @@ class PlanLogTest {
             listOf(workout("Lower A", listOf(ex("Back Squat", "Barbell", listOf(listOf(225, 5)))))),
             emptyList()
         )
-        assertEquals("Mon 12 · Lower A · not logged", day(r, 0).text)
+        assertEquals("Mon 12 Oct · Lower A · not logged", day(r, 0).text)
         assertEquals("Booked 1 day, 12 Oct · logged 0", r.groups[0].head)
     }
 
@@ -190,7 +190,7 @@ class PlanLogTest {
             emptyList(),
             coverage = "2026-09-01" to "2026-10-05"
         )
-        assertEquals("Mon 12 · Lower A · outside the log they sent", day(r, 0).text)
+        assertEquals("Mon 12 Oct · Lower A · outside the log they sent", day(r, 0).text)
         assertEquals("Booked 1 day, 12 Oct · no log covering them", r.groups[0].head)
         assertFalse(PlanLog.lines(r).joinToString(" ").contains("not logged"))
     }
@@ -213,9 +213,9 @@ class PlanLogTest {
         )
         assertEquals(
             listOf(
-                "Mon 12 · Lower A · not logged",
-                "Tue 13 · Upper B · not booked",
-                "Fri 16 · Lower A · not logged"
+                "Mon 12 Oct · Lower A · not logged",
+                "Tue 13 Oct · Upper B · not booked",
+                "Fri 16 Oct · Lower A · not logged"
             ),
             r.groups[0].days.map { it.text }
         )
