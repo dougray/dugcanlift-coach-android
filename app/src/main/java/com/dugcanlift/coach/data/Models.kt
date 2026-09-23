@@ -396,7 +396,19 @@ data class Client(
      * which any send counts as newer than. Decides whether [outdoorBests] and [lastRoute] are
      * replaced -- see [ShareLinkImporter].
      */
-    val exportedAtEpochSec: Long? = null
+    val exportedAtEpochSec: Long? = null,
+    /**
+     * The **union** of every window this client has sent: `r` and `t` of each link, widened as
+     * links arrive. Null for a client stored before this field, and for one who has sent nothing.
+     *
+     * Without it a booked Tuesday with no [TrainingDay] is indistinguishable from a Tuesday
+     * outside the window the client chose to send, and one of those is "not logged" while the
+     * other is "we do not know" -- see [PlanLog]. The cost of a union, stated: two imports with a
+     * gap between their windows read that gap as covered. A client sending weekly has no gap; one
+     * sending twice a year does, and Coach will be wrong about it.
+     */
+    val coveredFrom: String? = null,
+    val coveredTo: String? = null
 ) {
     /**
      * Days since the client's most recent stored day. **Any** stored day counts —
@@ -436,6 +448,8 @@ data class Client(
         put("outdoorBests", outdoorBests?.let { b -> JSONArray(b.map { it.toJson() }) } ?: JSONObject.NULL)
         put("lastRoute", lastRoute?.toJson() ?: JSONObject.NULL)
         put("exportedAtEpochSec", exportedAtEpochSec ?: JSONObject.NULL)
+        put("coveredFrom", coveredFrom ?: JSONObject.NULL)
+        put("coveredTo", coveredTo ?: JSONObject.NULL)
     }
 
     companion object {
@@ -449,8 +463,19 @@ data class Client(
             days = json.optJSONArray("days")?.let { arr -> (0 until arr.length()).map { TrainingDay.fromJson(arr.getJSONObject(it)) } }.orEmpty(),
             outdoorBests = outdoorBestsFromJson(json),
             lastRoute = lastRouteFromJson(json),
-            exportedAtEpochSec = json.optLongOrNull("exportedAtEpochSec")
+            exportedAtEpochSec = json.optLongOrNull("exportedAtEpochSec"),
+            coveredFrom = coveredKey(json, "coveredFrom"),
+            coveredTo = coveredKey(json, "coveredTo")
         )
+
+        /**
+         * A stored coverage bound, or null. A key that is not a real day is dropped rather than
+         * throwing: unlike a `dayKey`, this one is only ever compared as a string, so a junk value
+         * costs a card's fourth state and never a crash -- but it must not be compared either,
+         * because "2026-9-3" sorts after "2026-09-06".
+         */
+        internal fun coveredKey(json: JSONObject, name: String): String? =
+            json.optStringOrNull(name)?.takeIf { DayKey.parse(it) != null }
 
         /** Shared with [BackupCodec], which spells the client envelope itself. */
         internal fun outdoorBestsFromJson(json: JSONObject): List<OutdoorBest>? =

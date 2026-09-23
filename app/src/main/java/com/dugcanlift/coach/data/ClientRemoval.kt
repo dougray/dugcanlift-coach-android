@@ -22,6 +22,10 @@ data class RemovalOutcome(val removed: Boolean, val message: String, val problem
  * and would still ride along in every backup -- data about a former client the coach can neither
  * see nor delete. Recipes and routines stay; they are the coach's own library.
  *
+ * **The record of what was sent to them goes too, for the reason the meals do** ([SentPlan]): a
+ * payload addressed to one person, readable on no screen once they are gone, and still in every
+ * backup from now on. It is out of the confirmation sentence for the reason the picks are.
+ *
  * **Road picks go too, for the reason the meals do**: a list made for one client, keyed by that
  * client's id, which with the client gone can be neither seen nor sent while still riding in every
  * backup. They are deliberately **not** in the confirmation sentence: that sentence is pinned word
@@ -36,10 +40,12 @@ class ClientRemoval(
     private val repo: ClientRepository,
     private val cook: CookRepository,
     private val train: TrainRepository,
-    private val picks: RoadPickRepository
+    private val picks: RoadPickRepository,
+    private val sentPlans: SentPlanRepository
 ) {
     constructor(repo: ClientRepository, filesDir: File) :
-        this(repo, CookRepository(filesDir), TrainRepository(filesDir), RoadPickRepository(filesDir))
+        this(repo, CookRepository(filesDir), TrainRepository(filesDir), RoadPickRepository(filesDir),
+            SentPlanRepository(filesDir))
 
     /** Null when the client is not on this device (already removed, or never readable). */
     fun impact(clientId: String): RemovalImpact? {
@@ -85,6 +91,13 @@ class ClientRemoval(
             skipped += "road picks"
         } else if (storedPicks.forClient(clientId).isNotEmpty()) {
             picks.removeClient(clientId)
+        }
+        // And the same rule again for what was sent to them.
+        val storedSends = sentPlans.load()
+        if (storedSends.isUnreadable) {
+            skipped += "sent plans"
+        } else if (storedSends.forClient(clientId).isNotEmpty()) {
+            sentPlans.removeClient(clientId)
         }
 
         return if (skipped.isEmpty()) {

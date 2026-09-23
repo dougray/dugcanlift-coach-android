@@ -62,7 +62,14 @@ data class TrainPlanSend(
     val sessions: List<ScheduledSession>,
     val routines: List<Routine>,
     val removedBookings: Int,
-    val link: String
+    val link: String,
+    /** Who this is addressed to; empty when no client is picked. */
+    val clientId: String = "",
+    /**
+     * The payload inside [link], as encoded. Kept so the screen can file what it sent
+     * ([SentPlan]) without re-encoding it and risking a record of a different plan.
+     */
+    val payloadJson: String = ""
 ) {
 
     /** Nothing bookable in this week means no button: a link offering nothing is not a send. */
@@ -94,6 +101,22 @@ data class TrainPlanSend(
      */
     val message: String get() = "Here's your training — $contents.\n\n$link"
 
+    /**
+     * The row to file when the coach actually sends this, or null when there is nothing to send.
+     *
+     * Recorded when the coach asks for the link, not when a client receives one: the chooser and a
+     * mail app are both past where this app can see, and no platform sees into either. A plan a
+     * coach opened the chooser for and then backed out of may be recorded, which is the accepted
+     * cost -- the card says so in its own words and never claims the link arrived, and an
+     * abandoned send is re-sent identically a moment later, which the hash reads as one plan
+     * rather than two.
+     */
+    fun sentPlan(id: String, sentAtEpochSec: Long): SentPlan? {
+        if (!isSendable || clientId.isEmpty() || payloadJson.isEmpty()) return null
+        val payload = runCatching { org.json.JSONObject(payloadJson) }.getOrNull() ?: return null
+        return SentPlan(id, clientId, sentAtEpochSec, SentPlans.hash(payload), payloadJson)
+    }
+
     companion object {
 
         /**
@@ -120,15 +143,18 @@ data class TrainPlanSend(
             // First booked, first inlined: `k`'s `x` indexes this list.
             val used = sendable.map { it.routineId }.distinct().mapNotNull { byId[it] }
 
-            val link = if (sendable.isEmpty()) "" else PlanEnvelope.LIFT_URL + "#" +
-                TrainPlanEncoder.encode(used, sendable, clientId, coachName)
+            val payload = if (sendable.isEmpty()) null
+            else TrainPlanEncoder.payload(used, sendable, clientId, coachName)
+            val link = payload?.let { PlanEnvelope.LIFT_URL + "#" + PlanEnvelope.fragment(it) }.orEmpty()
 
             return TrainPlanSend(
                 clientName = name,
                 sessions = sendable,
                 routines = used,
                 removedBookings = booked.size - sendable.size,
-                link = link
+                link = link,
+                clientId = clientId,
+                payloadJson = payload?.toString().orEmpty()
             )
         }
 

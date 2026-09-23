@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -41,10 +42,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
 import com.dugcanlift.coach.data.Client
 import com.dugcanlift.coach.data.ClientRepository
 import com.dugcanlift.coach.data.ExerciseSet
 import com.dugcanlift.coach.data.LiftSeries
+import com.dugcanlift.coach.data.PlanLog
+import com.dugcanlift.coach.data.SentPlan
+import com.dugcanlift.coach.data.SentPlanRepository
 import com.dugcanlift.coach.data.SetSide
 import com.dugcanlift.coach.data.LastRoute
 import com.dugcanlift.coach.data.OutdoorBest
@@ -87,7 +92,11 @@ private val CHART_WEEK_SLOT_WIDTH = 28.dp
 fun ClientScreen(clientId: String, repo: ClientRepository, onBack: () -> Unit,
                  onCook: () -> Unit = {}, showBack: Boolean = true, reloadKey: Any? = null,
                  onRemoved: (RemovalOutcome) -> Unit = {}) {
+    val context = LocalContext.current
     var client by remember(clientId) { mutableStateOf<Client?>(null) }
+    // What this device sent this client. Read with the client, off the main thread, because the
+    // Booked card puts it beside what came back -- see PlanLog.
+    var sentPlans by remember(clientId) { mutableStateOf<List<SentPlan>>(emptyList()) }
     var loaded by remember(clientId) { mutableStateOf(false) }
     var confirmingRemove by rememberSaveable(clientId) { mutableStateOf(false) }
     var removalError by remember(clientId) { mutableStateOf<String?>(null) }
@@ -97,6 +106,9 @@ fun ClientScreen(clientId: String, repo: ClientRepository, onBack: () -> Unit,
     // changes when the roster beside this page (two-pane) reloads, e.g. after an import.
     LaunchedEffect(clientId, reloadKey) {
         client = withContext(Dispatchers.IO) { repo.get(clientId) }
+        sentPlans = withContext(Dispatchers.IO) {
+            runCatching { SentPlanRepository(context.filesDir).load().rows }.getOrDefault(emptyList())
+        }
         loaded = true
     }
 
@@ -122,6 +134,7 @@ fun ClientScreen(clientId: String, repo: ClientRepository, onBack: () -> Unit,
             }
             else -> ClientDetail(
                 client = client!!,
+                sentPlans = sentPlans,
                 onRemove = { confirmingRemove = true },
                 modifier = Modifier.padding(padding).fillMaxSize()
             )
@@ -167,15 +180,25 @@ private data class LiftChartData(
 )
 
 @Composable
-private fun ClientDetail(client: Client, onRemove: () -> Unit, modifier: Modifier = Modifier) {
+private fun ClientDetail(
+    client: Client,
+    sentPlans: List<SentPlan>,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     // The page's own width, not the screen's: in the roster's two-pane layout this page is a pane.
     BoxWithConstraints(modifier) {
-        ClientDetailContent(client = client, paneWidth = maxWidth, onRemove = onRemove)
+        ClientDetailContent(client = client, sentPlans = sentPlans, paneWidth = maxWidth, onRemove = onRemove)
     }
 }
 
 @Composable
-private fun ClientDetailContent(client: Client, paneWidth: Dp, onRemove: () -> Unit) {
+private fun ClientDetailContent(
+    client: Client,
+    sentPlans: List<SentPlan>,
+    paneWidth: Dp,
+    onRemove: () -> Unit
+) {
     val today = remember { DayKey.today() }
     val unit = client.displayUnit
 
@@ -247,6 +270,23 @@ private fun ClientDetailContent(client: Client, paneWidth: Dp, onRemove: () -> U
                 )
             }
     }
+
+    // What was booked, beside what came back. The rules -- which day joins which, which lift
+    // answers which, and every sentence on screen -- are PlanLog, which the unit tests read; this
+    // page draws what it returns and decides nothing of its own. Absent entirely for a client
+    // never sent a plan: plans sent before this existed cannot be reconstructed, and a line saying
+    // so is a line every coach reads once and never again.
+    val booked = remember(client, sentPlans, today) {
+        PlanLog.compare(
+            clientId = client.id,
+            sentPlans = sentPlans,
+            days = client.days.associateBy { it.dayKey },
+            coverage = client.coveredFrom?.let { from -> client.coveredTo?.let { from to it } },
+            unit = unit,
+            today = today
+        )
+    }
+    var bookedByLift by rememberSaveable(client.id) { mutableStateOf(false) }
 
     // A run is a session too: a day holding only an outdoor activity belongs in the log.
     val sessionDays = remember(client) { client.days.filter { it.sets.isNotEmpty() || it.outdoor.isNotEmpty() }.sortedByDescending { it.dayKey } }
@@ -435,6 +475,50 @@ private fun ClientDetailContent(client: Client, paneWidth: Dp, onRemove: () -> U
             }
         }
 
+        if (booked.groups.isNotEmpty()) {
+            item {
+                Column(wide) {
+                    SectionTitle("Booked")
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilterChip(
+                            selected = !bookedByLift,
+                            onClick = { bookedByLift = false },
+                            label = { Text("By day") }
+                        )
+                        FilterChip(
+                            selected = bookedByLift,
+                            onClick = { bookedByLift = true },
+                            label = { Text("By lift") }
+                        )
+                    }
+                }
+            }
+            if (bookedByLift) {
+                items(booked.byLift, key = { "lift-${it.key}" }) { lift ->
+                    Column(wide) { BookedLiftCard(lift) }
+                }
+            } else {
+                items(booked.groups, key = { "sent-${it.id}" }) { group ->
+                    Column(wide) { BookedGroupCard(group) }
+                }
+            }
+            // Permanently, whatever is above it: Coach knows what it handed to a chooser and
+            // nothing after that.
+            item {
+                Column(wide) {
+                    Text(
+                        text = booked.footer,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = DclMuted,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
+            }
+        }
+
         item {
             Column(wide) {
                 SectionTitle("Session Log")
@@ -469,6 +553,117 @@ private fun ClientDetailContent(client: Client, paneWidth: Dp, onRemove: () -> U
 }
 
 /** A heading and its lines; shown only when a caller has lines to show. */
+/* ---------------- booked ----------------
+ *
+ * **Counting, never grading.** Every day row is the same weight and the same colour, whichever of
+ * the four states it is in. The nearest precedent on this page goes the other way -- a chart's
+ * muted series, a nutrient line's grey -- and this deliberately does not follow it. A booked day
+ * nobody logged is a person's week, not a number on a dial.
+ */
+
+@Composable
+private fun BookedSetRow(row: PlanLog.SetRow) {
+    Row(modifier = Modifier.padding(vertical = 2.dp)) {
+        Text(
+            text = "${row.label} ",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold
+        )
+        // The groups and the clause. "each side" is what makes three rows six, so a view that
+        // draws the groups and forgets the suffix prints a plan nobody wrote.
+        Text(text = row.text, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
+private fun BookedExercise(ex: PlanLog.ExerciseLines, heading: String) {
+    Column(Modifier.padding(vertical = 4.dp)) {
+        Text(text = heading, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        ex.sideLine?.let { Text(text = it, style = MaterialTheme.typography.bodyMedium, color = DclMuted) }
+        ex.countLine?.let { Text(text = it, style = MaterialTheme.typography.bodyMedium, color = DclMuted) }
+        ex.asked?.let { BookedSetRow(it) }
+        ex.logged?.let { BookedSetRow(it) }
+        ex.substitution?.let { Text(text = it, style = MaterialTheme.typography.bodyMedium, color = DclMuted) }
+    }
+}
+
+@Composable
+private fun BookedDay(day: PlanLog.DayRow) {
+    val hasDetail = day.exercises.isNotEmpty() || day.alsoLogged.isNotEmpty()
+    var expanded by rememberSaveable(day.key) { mutableStateOf(false) }
+    Column(
+        Modifier.fillMaxWidth()
+            .then(if (hasDetail) Modifier.clickable { expanded = !expanded } else Modifier)
+            .padding(vertical = 6.dp)
+    ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            // The same weight and the same colour in all four states.
+            Text(text = day.text, style = MaterialTheme.typography.bodyLarge)
+            if (hasDetail) {
+                Text(
+                    text = if (expanded) "▾" else "▸",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = DclMuted
+                )
+            }
+        }
+        if (expanded) {
+            day.exercises.forEach { BookedExercise(it, it.title) }
+            if (day.alsoLogged.isNotEmpty()) {
+                Text(
+                    text = "Also logged",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+                day.alsoLogged.forEach {
+                    Text(text = it.text, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BookedGroupCard(group: PlanLog.Group) {
+    Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), border = dclCardBorder()) {
+        Column(Modifier.padding(16.dp)) {
+            Text(text = group.head, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(8.dp))
+            group.days.forEach { BookedDay(it) }
+        }
+    }
+}
+
+@Composable
+private fun BookedLiftCard(lift: PlanLog.LiftRows) {
+    Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), border = dclCardBorder()) {
+        Column(Modifier.padding(16.dp)) {
+            Text(text = lift.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            lift.entries.forEach { entry ->
+                Column(Modifier.padding(top = 8.dp)) {
+                    Text(text = entry.whenText, style = MaterialTheme.typography.bodyMedium, color = DclMuted)
+                    // A day with nothing logged against this lift says so in the rule's own words.
+                    if (entry.exercise.state != "logged") {
+                        Text(text = entry.exercise.title, style = MaterialTheme.typography.bodyMedium)
+                    }
+                    entry.exercise.sideLine?.let {
+                        Text(text = it, style = MaterialTheme.typography.bodyMedium, color = DclMuted)
+                    }
+                    entry.exercise.countLine?.let {
+                        Text(text = it, style = MaterialTheme.typography.bodyMedium, color = DclMuted)
+                    }
+                    entry.exercise.asked?.let { BookedSetRow(it) }
+                    entry.exercise.logged?.let { BookedSetRow(it) }
+                    entry.exercise.substitution?.let {
+                        Text(text = it, style = MaterialTheme.typography.bodyMedium, color = DclMuted)
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun NutrientBlock(heading: String, lines: List<String>) {
     if (lines.isEmpty()) return

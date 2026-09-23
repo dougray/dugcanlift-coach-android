@@ -97,7 +97,23 @@ object TrainPlanEncoder {
         sessions: List<ScheduledSession>,
         lifterId: String,
         coachName: String
-    ): String {
+    ): String = PlanEnvelope.fragment(payload(routines, sessions, lifterId, coachName))
+
+    /**
+     * The same plan as the payload itself, before it is deflated into a fragment.
+     *
+     * Split out because Coach keeps a record of what it sent ([SentPlan]) and that record holds the
+     * payload rather than the fragment: a fragment has to be inflated on every render and a future
+     * `v` would make it unreadable. Building the link and recording it are two calls on purpose --
+     * the note under the Send button re-encodes on every change, and recording from there would
+     * file a plan nobody sent.
+     */
+    fun payload(
+        routines: List<Routine>,
+        sessions: List<ScheduledSession>,
+        lifterId: String,
+        coachName: String
+    ): JSONObject {
         val indexById = routines.withIndex().associate { (i, r) -> r.id to i }
 
         val w = JSONArray()
@@ -116,6 +132,6 @@ object TrainPlanEncoder {
         if (w.length() > 0) payload.put("w", w)
         if (k.length() > 0) payload.put("k", k)
 
-        return PlanEnvelope.fragment(payload)
+        return payload
     }
 }
