@@ -253,7 +253,7 @@ class RoadPicksTest {
         val out = JSONObject(
             BackupCodec.export(
                 emptyList(), null, emptyList(), emptyList(), emptyList(), emptyList(),
-                mapOf("jordan" to listOf("wendys-large-chili", "snack-rxbar-blueberry"))
+                mapOf("jordan" to listOf("wendys-large-chili", "snack-rxbar-blueberry")), emptyList()
             )
         )
         assertEquals(
@@ -261,7 +261,7 @@ class RoadPicksTest {
             out.getJSONObject("roadPicks").getJSONArray("jordan").toString()
         )
         val none = JSONObject(
-            BackupCodec.export(emptyList(), null, emptyList(), emptyList(), emptyList(), emptyList(), emptyMap())
+            BackupCodec.export(emptyList(), null, emptyList(), emptyList(), emptyList(), emptyList(), emptyMap(), emptyList())
         )
         assertFalse("omitted, never an empty object", none.has("roadPicks"))
     }
@@ -269,7 +269,7 @@ class RoadPicksTest {
     @Test fun `roadPicks round-trips by value, and a file without it restores unchanged`() {
         val picks = mapOf("jordan" to listOf("a", "b"), "sam" to listOf("c"))
         val json = BackupCodec.export(
-            emptyList(), null, emptyList(), emptyList(), emptyList(), emptyList(), picks
+            emptyList(), null, emptyList(), emptyList(), emptyList(), emptyList(), picks, emptyList()
         )
         assertEquals(picks, BackupCodec.restore(json).roadPicks)
 
@@ -287,7 +287,7 @@ class RoadPicksTest {
         val out = JSONObject(
             BackupCodec.export(
                 restored.clients, restored.preservedLibrary, restored.recipes, restored.meals,
-                restored.routines, restored.sessions, restored.roadPicks
+                restored.routines, restored.sessions, restored.roadPicks, restored.sentPlans
             )
         )
         assertEquals(
@@ -324,7 +324,8 @@ class RoadPicksTest {
         picks.setForClient("jordan", listOf("wendys-large-chili"))
         picks.setForClient("sam", listOf("subway-oven-roasted-turkey-6-inch"))
 
-        val removal = ClientRemoval(clients, CookRepository(root), TrainRepository(root), picks)
+        val removal = ClientRemoval(clients, CookRepository(root), TrainRepository(root), picks,
+            SentPlanRepository(root))
         val outcome = removal.remove("jordan")
         assertTrue(outcome.removed)
         assertFalse(outcome.problem)

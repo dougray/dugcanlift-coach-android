@@ -108,7 +108,7 @@ class CookBackupRoundTripTest {
         val out = JSONObject(
             BackupCodec.export(restored.clients, restored.preservedLibrary,
                                restored.recipes, restored.meals,
-                               restored.routines, restored.sessions, emptyMap())
+                               restored.routines, restored.sessions, emptyMap(), emptyList())
         )
         assertEquals("Chili", out.getJSONArray("recipes").getJSONObject(0).getString("name"))
         assertEquals("c1", out.getJSONArray("meals").getJSONObject(0).getString("clientID"))
@@ -121,7 +121,7 @@ class CookBackupRoundTripTest {
         val out = JSONObject(
             BackupCodec.export(restored.clients, restored.preservedLibrary,
                                restored.recipes, restored.meals,
-                               restored.routines, restored.sessions, emptyMap())
+                               restored.routines, restored.sessions, emptyMap(), emptyList())
         )
         // Recipes are rewritten in this app's own spelling...
         assertEquals("500 g beef mince",
@@ -138,7 +138,7 @@ class CookBackupRoundTripTest {
         val out = JSONObject(
             BackupCodec.export(restored.clients, restored.preservedLibrary,
                                restored.recipes, restored.meals,
-                               restored.routines, restored.sessions, emptyMap())
+                               restored.routines, restored.sessions, emptyMap(), emptyList())
         )
         assertEquals("from a video",
                      out.getJSONArray("recipes").getJSONObject(0).getString("sourceTranscript"))
@@ -150,7 +150,7 @@ class CookBackupRoundTripTest {
         val out = JSONObject(
             BackupCodec.export(restored.clients, restored.preservedLibrary,
                                restored.recipes, restored.meals,
-                               restored.routines, restored.sessions, emptyMap())
+                               restored.routines, restored.sessions, emptyMap(), emptyList())
         )
         assertEquals("p9", out.getJSONArray("programs").getJSONObject(0).getString("id"))
     }
@@ -167,7 +167,7 @@ class CookBackupRoundTripTest {
         // Matches what this codec has always done for a library it had nothing
         // for, and is safe in both directions: iOS merges the library by id and
         // never deletes from it, so absent and empty mean the same thing there.
-        val out = JSONObject(BackupCodec.export(emptyList(), null, emptyList(), emptyList(), emptyList(), emptyList(), emptyMap()))
+        val out = JSONObject(BackupCodec.export(emptyList(), null, emptyList(), emptyList(), emptyList(), emptyList(), emptyMap(), emptyList()))
         assertTrue("a v1 file must not sprout v2 keys on the way out", !out.has("recipes"))
         assertTrue(!out.has("meals"))
     }

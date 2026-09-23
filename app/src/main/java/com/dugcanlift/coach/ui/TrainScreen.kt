@@ -71,6 +71,7 @@ import com.dugcanlift.coach.data.ClientRepository
 import com.dugcanlift.coach.data.PlanWeek
 import com.dugcanlift.coach.data.PrescribedSet
 import com.dugcanlift.coach.data.Routine
+import com.dugcanlift.coach.data.SentPlanRepository
 import com.dugcanlift.coach.data.TrainPlanSend
 import com.dugcanlift.coach.data.PrescriptionSides
 import com.dugcanlift.coach.data.RoutineEditing
@@ -80,6 +81,7 @@ import com.dugcanlift.coach.data.ScheduledSession
 import com.dugcanlift.coach.data.TrainRepository
 import com.dugcanlift.coach.data.forClient
 import com.dugcanlift.kit.DayKey
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
@@ -105,6 +107,8 @@ fun TrainScreen(
 ) {
     val context = LocalContext.current
     val train = remember { TrainRepository(context.filesDir) }
+    // What this screen sends is recorded here, so the client page can put it beside what came back.
+    val sentPlans = remember { SentPlanRepository(context.filesDir) }
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
 
@@ -215,6 +219,21 @@ fun TrainScreen(
                         },
                         onRemove = { train.deleteSession(it.id); revision++ },
                         onSend = {
+                            // What was sent, kept: this link is built fresh on every render and a
+                            // routine edited tomorrow leaves the store no longer saying what the
+                            // client got. Filed when the chooser opens, because that is the last
+                            // moment this app can see (see TrainPlanSend.sentPlan), and off the
+                            // main thread because it is a read-modify-write of a file.
+                            send.sentPlan(java.util.UUID.randomUUID().toString(), System.currentTimeMillis() / 1000)
+                                ?.let { row ->
+                                    scope.launch(Dispatchers.IO) {
+                                        // A record that cannot be written must never stop a plan
+                                        // being sent, and must never be written over an unreadable
+                                        // file -- SentPlanRepository.record throws rather than
+                                        // saving an empty read over the real one.
+                                        runCatching { sentPlans.record(row) }
+                                    }
+                                }
                             // Cook's Send, mechanism for mechanism: a plain-text
                             // ACTION_SEND through the chooser, so a coach picks
                             // the mail or message app they already use with this
