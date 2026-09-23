@@ -63,8 +63,13 @@ object PlanLog {
 
     private fun dayOf(key: String): Int = parseKey(key)?.dayOfMonth ?: 0
 
-    /** "Mon 13" -- the month is on the head line above it. */
-    fun dayLabel(key: String): String = "${weekdayName(key)} ${dayOf(key)}"
+    /**
+     * "Mon 13 Oct". The month is on the head line above it too, and it is here as well on purpose
+     * (Doug, 2026-09-23): a day row is read on its own, and a bare "Mon 13" in a card that can
+     * hold several sends is a date a coach has to look up. Every day row carries it, in all four
+     * states.
+     */
+    fun dayLabel(key: String): String = "${weekdayName(key)} ${dayMonth(key)}"
 
     /** "13 Oct" -- for the by-lift view, where rows cross weeks. */
     fun dayMonth(key: String): String = "${dayOf(key)} ${monthName(key)}"
