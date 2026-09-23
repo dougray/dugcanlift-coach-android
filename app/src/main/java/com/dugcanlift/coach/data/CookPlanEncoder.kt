@@ -44,13 +44,20 @@ object CookPlanEncoder {
      * @param lifterId the client's id. The decoder refuses a fragment whose `l`
      *   is not the reader's own id ([PlanDecodeResult.NotAddressedToYou]), which
      *   is what stops one client opening another's plan.
+     * @param roadPicks the Road Food item ids this coach is happy with for this
+     *   client ([RoadPicks]). Defaults to none, which writes no `rf` key at
+     *   all: a plan with no picks is byte for byte the plan this encoder wrote
+     *   before they existed, and every existing caller's link is unchanged.
+     *   Cook's Send is the one that carries them -- Train's sends training, and
+     *   a pick is food.
      * @return the fragment, without a leading `#`.
      */
     fun encode(
         meals: List<PlannedMeal>,
         recipes: Map<String, Recipe>,
         lifterId: String,
-        coachName: String
+        coachName: String,
+        roadPicks: List<String> = emptyList()
     ): String {
         // `x` indexes into `r`, so only recipes actually inlined may be
         // referenced. A meal whose recipe is missing is dropped rather than
@@ -98,6 +105,14 @@ object CookPlanEncoder {
         // training sends a payload with no `r` or `m` at all."
         if (r.length() > 0) payload.put("r", r)
         if (m.length() > 0) payload.put("m", m)
+
+        // `rf` is a flat list of Road Food item ids, left out entirely when
+        // there are none -- never `[]`, the same rule `r` and `m` follow.
+        // Nothing is dropped here for being absent from this app's copy of
+        // road-food.json: the client's build is the only one that can say what
+        // it has, and it skips an id it does not know. PLAN-FORMAT "Road
+        // picks"; RoadPicks holds the rule.
+        RoadPicks.wire(roadPicks)?.let { payload.put("rf", JSONArray(it)) }
 
         return PlanEnvelope.fragment(payload)
     }

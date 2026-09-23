@@ -22,16 +22,24 @@ data class RemovalOutcome(val removed: Boolean, val message: String, val problem
  * and would still ride along in every backup -- data about a former client the coach can neither
  * see nor delete. Recipes and routines stay; they are the coach's own library.
  *
+ * **Road picks go too, for the reason the meals do**: a list made for one client, keyed by that
+ * client's id, which with the client gone can be neither seen nor sent while still riding in every
+ * backup. They are deliberately **not** in the confirmation sentence: that sentence is pinned word
+ * for word by Coach iOS's and Coach web's tests as well as this repo's, and a clause added here
+ * alone would break all three. Coach web's own road-picks branch left its copy alone for the same
+ * reason.
+ *
  * Out of the Composable for the reason `BackupService` is: this repo has no way to test logic that
  * lives only in a screen. Blocking I/O: call it from `Dispatchers.IO`.
  */
 class ClientRemoval(
     private val repo: ClientRepository,
     private val cook: CookRepository,
-    private val train: TrainRepository
+    private val train: TrainRepository,
+    private val picks: RoadPickRepository
 ) {
     constructor(repo: ClientRepository, filesDir: File) :
-        this(repo, CookRepository(filesDir), TrainRepository(filesDir))
+        this(repo, CookRepository(filesDir), TrainRepository(filesDir), RoadPickRepository(filesDir))
 
     /** Null when the client is not on this device (already removed, or never readable). */
     fun impact(clientId: String): RemovalImpact? {
@@ -70,13 +78,21 @@ class ClientRemoval(
         } else if (trainLibrary.sessions.any { it.clientId == clientId }) {
             train.save(trainLibrary.routines, trainLibrary.sessions.filterNot { it.clientId == clientId })
         }
+        // Same rule: an unreadable picks file is left alone rather than rewritten from an empty
+        // read, which is what would destroy every other client's ticks.
+        val storedPicks = picks.load()
+        if (storedPicks.isUnreadable) {
+            skipped += "road picks"
+        } else if (storedPicks.forClient(clientId).isNotEmpty()) {
+            picks.removeClient(clientId)
+        }
 
         return if (skipped.isEmpty()) {
             RemovalOutcome(true, "Removed $name.")
         } else {
             RemovalOutcome(
                 true,
-                "Removed $name. Their ${skipped.joinToString(" and ")} couldn't be removed, because " +
+                "Removed $name. Their ${andList(skipped)} couldn't be removed, because " +
                     "that part of this device's library can't be read.",
                 problem = true
             )
@@ -84,6 +100,11 @@ class ClientRemoval(
     }
 
     companion object {
+        /** "a", "a and b", "a, b and c" -- the two-item form is what this message always had. */
+        private fun andList(parts: List<String>): String =
+            if (parts.size < 3) parts.joinToString(" and ")
+            else parts.dropLast(1).joinToString(", ") + " and " + parts.last()
+
         /** The confirmation's body: what goes, in words, before anything does. */
         fun confirmationText(impact: RemovalImpact): String {
             val days = if (impact.loggedDays == 1) "1 logged day" else "${impact.loggedDays} logged days"

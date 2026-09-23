@@ -165,7 +165,7 @@ class PerSidePrescriptionsTest {
     }
 
     @Test fun `round trip through the backup - eachSide and side as Coach web and iOS spell them`() {
-        val out = JSONObject(BackupCodec.export(emptyList(), null, emptyList(), emptyList(), listOf(perSide), emptyList()))
+        val out = JSONObject(BackupCodec.export(emptyList(), null, emptyList(), emptyList(), listOf(perSide), emptyList(), emptyMap()))
         val exercises = out.getJSONArray("routines").getJSONObject(0).getJSONArray("exercises")
         assertFalse("false is never written", exercises.getJSONObject(0).has("eachSide"))
         assertFalse("both is never written", exercises.getJSONObject(0).getJSONArray("sets").getJSONObject(0).has("side"))
