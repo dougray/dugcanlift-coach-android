@@ -31,7 +31,7 @@ private const val FOUNDATION_EPOCH_OFFSET_SECONDS = 978_307_200L
  * this set applies at the top level, one layer down. A file written by a newer Coach iOS with a
  * field Cook has never heard of still round-trips through this app intact.
  */
-private val ENVELOPE_KEYS = setOf("v", "clients", "recipes", "meals", "routines", "sessions", "roadPicks")
+private val ENVELOPE_KEYS = setOf("v", "clients", "recipes", "meals", "routines", "sessions", "roadPicks", "sentPlans")
 
 // optStringOrNull and optLongOrNull live in JsonExtensions.kt -- shared with Models.kt.
 
@@ -70,7 +70,14 @@ data class RestoreResult(
      * carried none, which must restore as "this file has no picks", never as
      * "clear the ones on this device" -- see [RoadPickRepository.merge].
      */
-    val roadPicks: Map<String, List<String>> = emptyMap()
+    val roadPicks: Map<String, List<String>> = emptyMap(),
+    /**
+     * Decoded from `sentPlans`: one row per plan a coach sent, the payload as encoded
+     * (BACKUP-FORMAT.md "The Coach backup's sent plans"). Empty when the file carried none --
+     * which must restore as "this file has no sends", never as "forget what this device sent";
+     * see [SentPlans.mergeBackup].
+     */
+    val sentPlans: List<SentPlan> = emptyList()
 )
 
 /**
@@ -118,6 +125,7 @@ object BackupCodec {
         val sessions = root.optJSONArray("sessions")
             .mapObjectsOrEmpty(::scheduledSessionFromJson).filterNotNull()
         val roadPicks = RoadPickRepository.decode(root.optJSONObject("roadPicks"))
+        val sentPlans = SentPlans.decode(root.optJSONArray("sentPlans"))
 
         var preserved: JSONObject? = null
         for (key in root.keys()) {
@@ -125,7 +133,7 @@ object BackupCodec {
             val library = preserved ?: JSONObject().also { preserved = it }
             library.put(key, root.get(key))
         }
-        return RestoreResult(clients, preserved, recipes, meals, routines, sessions, roadPicks)
+        return RestoreResult(clients, preserved, recipes, meals, routines, sessions, roadPicks, sentPlans)
     }
 
     /**
@@ -154,7 +162,8 @@ object BackupCodec {
         meals: List<PlannedMeal>,
         routines: List<Routine>,
         sessions: List<ScheduledSession>,
-        roadPicks: Map<String, List<String>>
+        roadPicks: Map<String, List<String>>,
+        sentPlans: List<SentPlan>
     ): String {
         val root = JSONObject()
         root.put("v", 2)
@@ -166,6 +175,10 @@ object BackupCodec {
         // An object keyed by client id, omitted when there are none -- what
         // Coach web writes, and what its restore reads back per client.
         RoadPickRepository.encode(roadPicks)?.let { root.put("roadPicks", it) }
+        // Rows with ids of their own, so they merge by id on the way back in the way recipes and
+        // routines do. Omitted when there are none, so a coach who has never sent a plan writes
+        // the file they always did.
+        SentPlans.encode(sentPlans)?.let { root.put("sentPlans", it) }
         if (preservedLibrary != null) {
             // Every preserved key, not a fixed list -- and never one of this codec's own envelope
             // keys, which are written above and must not be sourced from the cargo.
@@ -208,7 +221,12 @@ object BackupCodec {
             // outdoor arrived: both read as "nothing sent", which is what they were.
             outdoorBests = Client.outdoorBestsFromJson(json),
             lastRoute = Client.lastRouteFromJson(json),
-            exportedAtEpochSec = json.optLongOrNull("exportedAtEpochSec")
+            exportedAtEpochSec = json.optLongOrNull("exportedAtEpochSec"),
+            // Absent in every file written before the Booked card: a client restored without them
+            // has no covered window until their next link arrives, which reads as "we do not know"
+            // rather than as "they did not log it".
+            coveredFrom = Client.coveredKey(json, "coveredFrom"),
+            coveredTo = Client.coveredKey(json, "coveredTo")
         )
     }
 
@@ -225,6 +243,8 @@ object BackupCodec {
         put("outdoorBests", client.outdoorBests?.let { b -> JSONArray(b.map { it.toJson() }) } ?: JSONObject.NULL)
         put("lastRoute", client.lastRoute?.toJson() ?: JSONObject.NULL)
         put("exportedAtEpochSec", client.exportedAtEpochSec ?: JSONObject.NULL)
+        put("coveredFrom", client.coveredFrom ?: JSONObject.NULL)
+        put("coveredTo", client.coveredTo ?: JSONObject.NULL)
     }
 }
 

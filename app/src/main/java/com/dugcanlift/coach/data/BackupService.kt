@@ -34,6 +34,7 @@ class BackupService(
     private val cook: CookRepository,
     private val train: TrainRepository,
     private val picks: RoadPickRepository,
+    private val sentPlans: SentPlanRepository,
     private val io: CoroutineDispatcher = Dispatchers.IO
 ) {
     /**
@@ -86,6 +87,10 @@ class BackupService(
             // that rule past its reason. The unreadable file is left exactly as
             // it is, and the message says so.
             val storedPicks = picks.load()
+            // Sent plans follow the picks, not the library: they restore by merge and never
+            // delete, so a file without them takes nothing away, and one unreadable file of
+            // records a coach can re-create by sending again is not worth refusing a backup over.
+            val storedSends = sentPlans.load()
             val json = BackupCodec.export(
                 roster.clients,
                 PreservedLibraryStore.load(libraryFile),
@@ -93,7 +98,8 @@ class BackupService(
                 library.meals,
                 trainLibrary.routines,
                 trainLibrary.sessions,
-                storedPicks.byClient
+                storedPicks.byClient,
+                storedSends.rows
             )
             val stream = openOutput() ?: throw IllegalStateException("Couldn't open that location.")
             stream.use { it.write(json.toByteArray()) }
@@ -155,6 +161,9 @@ class BackupService(
             // BACKUP-FORMAT.md's rule, which is the one the three Coach builds
             // share -- see RoadPickRepository.merge.
             picks.merge(decoded.roadPicks)
+            // By id, additively: an older backup must never delete a newer send, and a file
+            // written before sent plans existed has no key at all and changes nothing.
+            sentPlans.merge(decoded.sentPlans)
         } catch (e: Exception) {
             return@withContext BackupOutcome(
                 "Restored ${decoded.clients.size} clients, but couldn't save this backup's recipes: " +

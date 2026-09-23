@@ -211,6 +211,37 @@ class ShareLinkImporterTest {
         assertTrue(repo.all().isEmpty())
     }
 
+    /* ---------------- the window a client sent ---------------- */
+
+    private fun window(r: String, t: String) =
+        rawFragment("""{"v":1,"c":{"i":"a1b2c3d4","n":"Doug","u":"lb"},"r":"$r","t":"$t","z":1,"x":[],"d":[{"k":0,"bw":180}]}""")
+
+    @Test fun `the covered window is the union of every link the client has sent`() {
+        val repo = ClientRepository(tmp.root)
+        ShareLinkImporter.import(window("2026-09-01", "2026-09-30"), repo)
+        assertEquals("2026-09-01", repo.get("a1b2c3d4")!!.coveredFrom)
+        assertEquals("2026-09-30", repo.get("a1b2c3d4")!!.coveredTo)
+
+        // A later window widens the end and leaves the start.
+        ShareLinkImporter.import(window("2026-09-20", "2026-10-16"), repo)
+        assertEquals("2026-09-01", repo.get("a1b2c3d4")!!.coveredFrom)
+        assertEquals("2026-10-16", repo.get("a1b2c3d4")!!.coveredTo)
+
+        // An older link pasted late still proves the client sent those days, so it widens too --
+        // unlike the all-time outdoor fields, which follow the newest send alone.
+        ShareLinkImporter.import(window("2026-08-01", "2026-08-31"), repo)
+        assertEquals("2026-08-01", repo.get("a1b2c3d4")!!.coveredFrom)
+        assertEquals("2026-10-16", repo.get("a1b2c3d4")!!.coveredTo)
+    }
+
+    @Test fun `a client stored before the window was kept has none, and one link gives them one`() {
+        val repo = ClientRepository(tmp.root)
+        repo.save(Client("a1b2c3d4", "Doug", "lb", "ios", 0, null, emptyList()))
+        assertNull(repo.get("a1b2c3d4")!!.coveredFrom)
+        ShareLinkImporter.import(window("2026-09-01", "2026-09-30"), repo)
+        assertEquals("2026-09-01", repo.get("a1b2c3d4")!!.coveredFrom)
+    }
+
     @Test fun `a non-numeric food total is dropped rather than poisoning the save with NaN`() {
         val repo = ClientRepository(tmp.root)
         val r = ShareLinkImporter.import(rawLink("2026-09-01", """[{"k":0,"ft":[2410,188,71,230,"x"]}]"""), repo) as ImportResult.Imported

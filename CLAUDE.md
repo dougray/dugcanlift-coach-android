@@ -399,6 +399,10 @@ the system chooser as a plain-text `ACTION_SEND`, the mechanism Cook's Send alre
 - **Kilograms out, pounds on the wire.** `TrainPlanEncoder.kgToLb` does it and
   `TrainPlanSendTest` pins 100 kg leaving as 220.46 lb, in the decoded payload and in the raw
   tuple. Nothing fails when the conversion goes missing; the client just trains 2.2x wrong.
+- **A Send files what it sent** (`SentPlan`, see "What you booked, and what they logged"): the
+  link is built fresh on every render, so a routine edited tomorrow would otherwise leave the store
+  no longer saying what the client got. `TrainPlanEncoder.payload` is the split that lets the link
+  and the record be one encode.
 - Booking used to be "today or nowhere" -- every session landed on `DayKey.today()`. The week is
   what made a Send mean anything.
 
@@ -438,7 +442,7 @@ there first, as with `SideBalance` and `sides.js`.
   device already has picks for keeps them; one it has none for takes the file's
   list; a file without the key changes nothing. That is BACKUP-FORMAT's rule
   rather than this app's replace-the-library habit, because the format is what
-  the three Coach builds share. `roadPicks` is in `ENVELOPE_KEYS` -- a key that
+  the three Coach builds share. `roadPicks` is in `ENVELOPE_KEYS` (as `sentPlans` is) -- a key that
   becomes modelled must join that set in the same commit or a file written by a
   build that carried it as cargo writes it twice.
 - **An unreadable picks file does not refuse the export.** Clients and the
@@ -458,6 +462,92 @@ there first, as with `SideBalance` and `sides.js`.
   nothing anywhere judging what a client ate against what was picked.
 - `fixtures/web-plan-road-picks.txt` is a link **Coach web's own encoder
   wrote** -- never regenerate it from Kotlin.
+
+## What you booked, and what they logged
+
+The **Booked** card on the client page, immediately above the Session Log: the
+week a coach sent against the week the client logged. Spec:
+`dugcanlift-wip-backups/coach-adherence-spec.md`. The rules are
+`data/PlanLog.kt`, a port of Coach web's `coach/plan-log.js` -- change them
+there first, as with `SideBalance` and `PrescriptionSides`.
+
+**Counting is allowed; grading is not.** No score, no percentage, no colour on
+an absence, no roster column, nothing carried across weeks and nothing comparing
+one client to another. Every day row is the same weight and the same colour in
+all four of its states. The words are `not logged`, never "missed" or "skipped":
+a client may have trained and not sent, been ill, or been told to rest, and
+Coach cannot tell those apart. The word "adherence" is the name of the spec and
+never reaches a screen. `PlanLogTest` pins both, over the fixture and over the
+source of the roster.
+
+- **Nothing new travels.** SHARE-FORMAT and PLAN-FORMAT are unchanged, so this
+  works against every LIFT build in the field and against a link a client never
+  opened. The cost, accepted: a session lifted the day after it was booked is a
+  booked day with nothing logged plus a session of its own, sitting next to each
+  other where a coach can read what happened. **Strict date** -- a session counts
+  on the day it was booked and no other (Doug, 2026-09-23).
+- **Training only.** A payload's `r`/`m`/`rf` are stored with it and compared by
+  nothing. Food is where this tips into nagging fastest.
+- **`SentPlan` is the record that makes it possible** (`data/SentPlan.kt`,
+  `data/SentPlanRepository.kt`): one row per send, the plan payload **as
+  encoded** with a canonical SHA-256 over its sorted-key form. The payload, not
+  the fragment -- a fragment has to be inflated on every render and a future `v`
+  would make it unreadable. A send whose hash matches this client's newest send
+  **replaces** it and keeps its id, so an abandoned chooser re-sent a moment
+  later is one plan and one backup row. Pruned to the newest **26 per client**.
+  Storage is `sent-plans.json`, with `RoadPickRepository`'s
+  unreadable-is-not-empty care: every write is a read-modify-write that would
+  otherwise save an empty read over the real file.
+- **Train's Send files one, and Cook's does not.** Each screen sends what it
+  shows (see "Sending a week from Train"), and Cook's Send carries no `w` or
+  `k` -- a recorded food plan would book nothing and would only eat into the
+  26-row cap. If meals are ever compared, Cook's Send joins this then.
+  `TrainPlanEncoder.payload` exists so the link and the record are one encode:
+  `encode` still returns the fragment, and the note under the button re-encodes
+  on every change, which is why recording is a separate call at the tap.
+- **Recorded when the chooser opens**, not when a client receives anything: the
+  chooser and a mail app are both past where this app can see. The card says so
+  in a permanent footer -- "This is what you shared. Whether it arrived, and
+  whether they opened it, only they know." -- and never claims the link arrived.
+  A record that cannot be written never stops a plan being sent.
+- **`Client.coveredFrom` / `coveredTo`** is the union of every window the client
+  has sent (`r`..`t` of each link), widened by **every** link, newer or older --
+  unlike the all-time outdoor fields, because an older link pasted late still
+  proves those days were sent. Without it a booked Tuesday with no `TrainingDay`
+  is indistinguishable from a Tuesday outside the window the client chose to
+  send, and one of those is `not logged` while the other is `outside the log they
+  sent`. The cost of a union, stated: two imports with a gap between their
+  windows read that gap as covered.
+- **Both rows are pounds until the last moment.** The stored payload's weights
+  and the wire's are both PLAN-FORMAT/SHARE-FORMAT pounds, converted once in
+  `PlanLog.setText` through the client's display unit.
+  `RoutinePrescribedSet`/`PrescribedSet` stores **kilograms** and must never be
+  read here: an asked row from the routine above a logged row from the wire
+  would be two units in one card, silently and 2.2x wrong, in a number a coach
+  reads about a client's training. `PlanLogTest`'s "a routine's kilograms never
+  reach either row" pins the whole chain -- 100 kg out through
+  `TrainPlanEncoder.kgToLb` as 220.46 lb, back as "100 x 5" on both rows.
+- **Joins**: days on client and date; lifts on `name|equipment`, then a second
+  pass on name alone which labels the pair `Asked Barbell · logged Smith
+  machine`. Sets are **counted, never paired** -- if they did three of four,
+  Coach cannot say which one they dropped. Warmups are out of both counts,
+  masked never compared. Blank stays blank: `[null, 5]` is `5 reps`.
+- **In a backup it is `sentPlans`**, Coach web's and Coach iOS's spelling, so one
+  file moves between all three. Rows merge **by id** and are never deleted by an
+  older file -- the library half's rule -- and a file written before sent plans
+  existed has no key at all and changes nothing. `sentPlans` is in
+  `ENVELOPE_KEYS`. It does not refuse an export when unreadable, for the reason
+  road picks do not.
+- **A removal takes the client's sends** (`ClientRemoval`), and is deliberately
+  **not** in the confirmation sentence: three Coach builds pin that sentence word
+  for word, and it gains a clause in all three at once or in none.
+- **Plans sent before this existed are simply absent** and cannot be
+  reconstructed -- the routines have moved on. No card, no heading, no
+  explanation: a line saying so is a line every coach reads once and never again.
+- `fixtures/plan-log-sent-plan.json`, `plan-log-share-link.txt` and
+  `plan-log-expected.json` are the three files **all three Coach builds check
+  their own port against**, written by hand against the formats. Never
+  regenerate them from Kotlin.
 
 ## Estimated one-rep max has no rep cap
 
@@ -622,6 +712,8 @@ before anything does; `data/ClientRemoval.kt` does the work. It deletes the
 client's file under `ShareLinkImporter`'s import lock, then the planned meals and
 booked sessions carrying that client's id -- invisible and unsendable once the
 client is gone, yet still written into every backup. Recipes and routines stay.
+It also takes the client's road picks and the record
+of the plans sent to them, neither of which is in the confirmation sentence.
 An unreadable cook or train library is left untouched (rewriting it would
 destroy it) and the message says what stayed. Coach web removes only the
 client; the privacy policy promises the client's data leaves the device, which

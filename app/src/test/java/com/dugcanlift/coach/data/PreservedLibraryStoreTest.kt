@@ -47,7 +47,7 @@ class PreservedLibraryStoreTest {
         PreservedLibraryStore.update(file(), library)
 
         val reloaded = PreservedLibraryStore.load(file())
-        val out = JSONObject(BackupCodec.export(emptyList(), reloaded, emptyList(), emptyList(), emptyList(), emptyList(), emptyMap()))
+        val out = JSONObject(BackupCodec.export(emptyList(), reloaded, emptyList(), emptyList(), emptyList(), emptyList(), emptyMap(), emptyList()))
         for (k in listOf("plans", "programs")) assertEquals(library.opt(k)?.toString(), out.opt(k)?.toString())
     }
 
@@ -138,7 +138,7 @@ class PreservedLibraryStoreTest {
         PreservedLibraryStore.update(file(), JSONObject().put("plans", JSONArray(listOf(entry("B", "B")))))
 
         val reloaded = PreservedLibraryStore.load(file())
-        val out = JSONObject(BackupCodec.export(emptyList(), reloaded, emptyList(), emptyList(), emptyList(), emptyList(), emptyMap()))
+        val out = JSONObject(BackupCodec.export(emptyList(), reloaded, emptyList(), emptyList(), emptyList(), emptyList(), emptyMap(), emptyList()))
         for (k in listOf("plans", "programs")) assertEquals(reloaded?.opt(k)?.toString(), out.opt(k)?.toString())
 
         val ids = (0 until out.getJSONArray("plans").length())

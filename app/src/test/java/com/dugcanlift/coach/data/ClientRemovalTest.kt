@@ -21,6 +21,7 @@ class ClientRemovalTest {
     private lateinit var cook: CookRepository
     private lateinit var train: TrainRepository
     private lateinit var picks: RoadPickRepository
+    private lateinit var sentPlans: SentPlanRepository
     private lateinit var removal: ClientRemoval
 
     private fun day(key: String) = TrainingDay(key, null, null, null, null, null, null, null, null, null, emptyList(), emptyList())
@@ -31,7 +32,8 @@ class ClientRemovalTest {
         cook = CookRepository(root)
         train = TrainRepository(root)
         picks = RoadPickRepository(root)
-        removal = ClientRemoval(repo, cook, train, picks)
+        sentPlans = SentPlanRepository(root)
+        removal = ClientRemoval(repo, cook, train, picks, sentPlans)
 
         repo.save(Client("jordan", "Jordan Reyes", "lb", "and", 0, null, listOf(day("2026-09-14"), day("2026-09-15"))))
         repo.save(Client("sam", "Sam Ortiz", "lb", "ios", 0, null, listOf(day("2026-09-15"))))
@@ -105,6 +107,43 @@ class ClientRemovalTest {
 
         assertTrue(removal.remove("solo").removed)
         assertEquals(before, File(root, "cook-library.json").lastModified())
+    }
+
+    /* ---------------- sent plans ---------------- */
+
+    @Test fun `a removal takes the record of what was sent to them and leaves everyone else's`() {
+        sentPlans.record(SentPlan("sp1", "jordan", 100, "h1", """{"v":1}"""))
+        sentPlans.record(SentPlan("sp2", "sam", 200, "h2", """{"v":1}"""))
+
+        assertTrue(removal.remove("jordan").removed)
+        // Addressed to one person, readable on no screen once they are gone, and otherwise in
+        // every backup from now on.
+        assertEquals(listOf("sp2"), sentPlans.load().rows.map { it.id })
+    }
+
+    @Test fun `a client who was never sent a plan is not an error`() {
+        assertTrue(removal.remove("jordan").removed)
+        assertEquals(emptyList<SentPlan>(), sentPlans.load().rows)
+    }
+
+    @Test fun `an unreadable sent-plans file is left alone and the message says so`() {
+        File(root, "sent-plans.json").writeText("{not json")
+
+        val outcome = removal.remove("jordan")
+
+        assertTrue(outcome.removed)
+        assertTrue(outcome.problem)
+        assertTrue(outcome.message, outcome.message.contains("sent plans couldn't be removed"))
+        assertEquals("{not json", File(root, "sent-plans.json").readText())
+    }
+
+    @Test fun `the confirmation sentence is unchanged by any of this`() {
+        // Three Coach builds pin this sentence word for word, and it was written before sent plans
+        // existed. It gains a clause in all three at once or in none -- the call road picks made.
+        val text = ClientRemoval.confirmationText(RemovalImpact("Jordan Reyes", 2, 2, 1)).lowercase()
+        listOf("sent plan", "plan you sent", "road pick").forEach { clause ->
+            assertFalse("the sentence gained \"$clause\"", text.contains(clause))
+        }
     }
 
     @Test fun `the confirmation says what goes and what stays`() {
