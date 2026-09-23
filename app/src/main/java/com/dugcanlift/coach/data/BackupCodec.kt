@@ -208,7 +208,11 @@ object BackupCodec {
             // outdoor arrived: both read as "nothing sent", which is what they were.
             outdoorBests = Client.outdoorBestsFromJson(json),
             lastRoute = Client.lastRouteFromJson(json),
-            exportedAtEpochSec = json.optLongOrNull("exportedAtEpochSec")
+            exportedAtEpochSec = json.optLongOrNull("exportedAtEpochSec"),
+            // Absent in every file written before the covered window was kept: a client restored
+            // without one has no window until their next link arrives.
+            coveredFrom = Client.coveredKey(json, "coveredFrom"),
+            coveredTo = Client.coveredKey(json, "coveredTo")
         )
     }
 
@@ -225,6 +229,8 @@ object BackupCodec {
         put("outdoorBests", client.outdoorBests?.let { b -> JSONArray(b.map { it.toJson() }) } ?: JSONObject.NULL)
         put("lastRoute", client.lastRoute?.toJson() ?: JSONObject.NULL)
         put("exportedAtEpochSec", client.exportedAtEpochSec ?: JSONObject.NULL)
+        put("coveredFrom", client.coveredFrom ?: JSONObject.NULL)
+        put("coveredTo", client.coveredTo ?: JSONObject.NULL)
     }
 }
 
