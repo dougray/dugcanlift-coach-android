@@ -13,6 +13,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import java.security.MessageDigest
 
 /**
  * Road picks (PLAN-FORMAT "Road picks"): the stored list, the wire, the
@@ -347,4 +348,42 @@ class RoadPicksTest {
         assertFalse(ClientRemoval.confirmationText(impact).contains("pick"))
         assertFalse(ClientRemoval.confirmationText(impact).contains("road"))
     }
+
+    // MARK: - The copy is the kit's bytes
+
+    /**
+     * road-food.json is curated once in `dugcanlift-kit/data/` and copied byte
+     * for byte into six app repos. On 2026-09-23 this one was missed when
+     * Burger King, Whataburger and Chipotle went round the others: a coach
+     * could not pick at a place their client could see, and nothing failed,
+     * because every other check here reads the data's shape and an old copy
+     * has a perfectly good shape.
+     *
+     * Item ids are the contract a coach's picks travel on, and LIFT skips an
+     * id it does not know in silence by design, so a stale copy here is a real
+     * failure rather than an untidiness.
+     *
+     * The kit writes the checksum (`node data/validate-road-food.mjs
+     * --write-checksum`); copy road-food.json AND road-food.sha256 over
+     * together, and never re-write the hash by hand to make this pass -- the
+     * other five repos pin the same one, so that only moves the failure.
+     */
+    @Test
+    fun `the bundled road food file is the kit's bytes`() {
+        val bytes = File("src/main/assets/$ROAD_FOOD_ASSET").readBytes()
+        val pinned = File("src/main/assets/road-food.sha256").readText().trim()
+        assertTrue(
+            "road-food.sha256 should be one bare sha256 and nothing else",
+            Regex("^[0-9a-f]{64}$").matches(pinned)
+        )
+        val actual = MessageDigest.getInstance("SHA-256").digest(bytes)
+            .joinToString("") { "%02x".format(it) }
+        assertEquals(
+            "src/main/assets/$ROAD_FOOD_ASSET does not match road-food.sha256. " +
+                "Copy dugcanlift-kit/data/road-food.json and data/road-food.sha256 over together.",
+            pinned,
+            actual
+        )
+    }
+
 }
