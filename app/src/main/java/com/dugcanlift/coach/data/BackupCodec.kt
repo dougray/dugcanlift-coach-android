@@ -18,15 +18,20 @@ private const val FOUNDATION_EPOCH_OFFSET_SECONDS = 978_307_200L
  * tomorrow -- is opaque cargo, preserved byte-for-byte. See [RestoreResult.preservedLibrary].
  *
  * `recipes` and `meals` joined this set when Cook arrived; `routines` and `sessions` when Train
- * did. The browser build's own `plans` and `workouts` stay cargo -- different keys carrying
- * different shapes, which this codec would rather carry whole than half-understand.
+ * did; `roadPicks` when Cook's Road section did. The browser build's own `plans` and `workouts`
+ * stay cargo -- different keys carrying different shapes, which this codec would rather carry
+ * whole than half-understand.
+ *
+ * A key that becomes modelled has to join this set in the same commit, or it is written twice:
+ * once from the model and once out of [RestoreResult.preservedLibrary], where a file written by a
+ * build that carried it as cargo still holds it.
  *
  * Note what this does NOT mean. Being modelled is not permission to be lossy: [recipeFromJson]
  * preserves every per-recipe key it has no field for, the same preservation-by-exclusion rule
  * this set applies at the top level, one layer down. A file written by a newer Coach iOS with a
  * field Cook has never heard of still round-trips through this app intact.
  */
-private val ENVELOPE_KEYS = setOf("v", "clients", "recipes", "meals", "routines", "sessions")
+private val ENVELOPE_KEYS = setOf("v", "clients", "recipes", "meals", "routines", "sessions", "roadPicks")
 
 // optStringOrNull and optLongOrNull live in JsonExtensions.kt -- shared with Models.kt.
 
@@ -58,7 +63,14 @@ data class RestoreResult(
     val routines: List<Routine> = emptyList(),
     /** Decoded from `sessions`. A row naming no client is dropped -- see
      *  [scheduledSessionFromJson]. */
-    val sessions: List<ScheduledSession> = emptyList()
+    val sessions: List<ScheduledSession> = emptyList(),
+    /**
+     * Decoded from `roadPicks`: one list of Road Food item ids per client id
+     * (BACKUP-FORMAT.md "The Coach backup's road picks"). Empty when the file
+     * carried none, which must restore as "this file has no picks", never as
+     * "clear the ones on this device" -- see [RoadPickRepository.merge].
+     */
+    val roadPicks: Map<String, List<String>> = emptyMap()
 )
 
 /**
@@ -105,6 +117,7 @@ object BackupCodec {
         val routines = root.optJSONArray("routines").mapObjectsOrEmpty(::routineFromJson)
         val sessions = root.optJSONArray("sessions")
             .mapObjectsOrEmpty(::scheduledSessionFromJson).filterNotNull()
+        val roadPicks = RoadPickRepository.decode(root.optJSONObject("roadPicks"))
 
         var preserved: JSONObject? = null
         for (key in root.keys()) {
@@ -112,7 +125,7 @@ object BackupCodec {
             val library = preserved ?: JSONObject().also { preserved = it }
             library.put(key, root.get(key))
         }
-        return RestoreResult(clients, preserved, recipes, meals, routines, sessions)
+        return RestoreResult(clients, preserved, recipes, meals, routines, sessions, roadPicks)
     }
 
     /**
@@ -140,7 +153,8 @@ object BackupCodec {
         recipes: List<Recipe>,
         meals: List<PlannedMeal>,
         routines: List<Routine>,
-        sessions: List<ScheduledSession>
+        sessions: List<ScheduledSession>,
+        roadPicks: Map<String, List<String>>
     ): String {
         val root = JSONObject()
         root.put("v", 2)
@@ -149,6 +163,9 @@ object BackupCodec {
         if (meals.isNotEmpty()) root.put("meals", JSONArray(meals.map { it.toJson() }))
         if (routines.isNotEmpty()) root.put("routines", JSONArray(routines.map { it.toJson() }))
         if (sessions.isNotEmpty()) root.put("sessions", JSONArray(sessions.map { it.toJson() }))
+        // An object keyed by client id, omitted when there are none -- what
+        // Coach web writes, and what its restore reads back per client.
+        RoadPickRepository.encode(roadPicks)?.let { root.put("roadPicks", it) }
         if (preservedLibrary != null) {
             // Every preserved key, not a fixed list -- and never one of this codec's own envelope
             // keys, which are written above and must not be sourced from the cargo.

@@ -81,7 +81,7 @@ class RecipeNutrientDetailsTest {
         assertNull(r.clients.single().days.single().nutrientTotals)
         assertNull(r.clients.single().days.single().foodEntries.single().sodiumMg)
 
-        val again = BackupCodec.restore(BackupCodec.export(r.clients, r.preservedLibrary, r.recipes, r.meals, r.routines, r.sessions))
+        val again = BackupCodec.restore(BackupCodec.export(r.clients, r.preservedLibrary, r.recipes, r.meals, r.routines, r.sessions, emptyMap()))
         // Nothing in this recipe is unmodelled any more, so the data classes compare whole.
         assertNull(r.recipes.single().nutritionUnknownKeys)
         assertEquals(r.recipes, again.recipes)
@@ -93,7 +93,7 @@ class RecipeNutrientDetailsTest {
             listOf(ClientFoodEntry("Oats", 2.0, 380.0, 13.0, 6.6, 68.0, 10.0, 0, saturatedFatG = 1.2, sugarG = null, sodiumMg = 4.0)),
             nutrientTotals = DayNutrientTotals(1.2, null, 4.0, 1, 1, 0, 1))
         val client = Client("c1", "Doug", "lb", "android", 1_758_307_200_000, null, listOf(day))
-        val json = JSONObject(BackupCodec.export(listOf(client), null, emptyList(), emptyList(), emptyList(), emptyList()))
+        val json = JSONObject(BackupCodec.export(listOf(client), null, emptyList(), emptyList(), emptyList(), emptyList(), emptyMap()))
 
         val d = json.getJSONArray("clients").getJSONObject(0).getJSONArray("days").getJSONObject(0)
         val t = d.getJSONObject("nutrientTotals")
