@@ -1,0 +1,3 @@
+A client's page now shows what you booked beside what they logged: which days were done, which were missed, and for each lift what you asked against what they did, per side when they log that way.
+
+It counts and nothing more. No score, no percentage, no red marks — and it says plainly that whether a plan arrived, and whether they opened it, only they know.
