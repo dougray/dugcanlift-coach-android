@@ -20,6 +20,7 @@ class ClientRemovalTest {
     private lateinit var repo: ClientRepository
     private lateinit var cook: CookRepository
     private lateinit var train: TrainRepository
+    private lateinit var picks: RoadPickRepository
     private lateinit var removal: ClientRemoval
 
     private fun day(key: String) = TrainingDay(key, null, null, null, null, null, null, null, null, null, emptyList(), emptyList())
@@ -29,7 +30,8 @@ class ClientRemovalTest {
         repo = ClientRepository(root)
         cook = CookRepository(root)
         train = TrainRepository(root)
-        removal = ClientRemoval(repo, cook, train)
+        picks = RoadPickRepository(root)
+        removal = ClientRemoval(repo, cook, train, picks)
 
         repo.save(Client("jordan", "Jordan Reyes", "lb", "and", 0, null, listOf(day("2026-09-14"), day("2026-09-15"))))
         repo.save(Client("sam", "Sam Ortiz", "lb", "ios", 0, null, listOf(day("2026-09-15"))))

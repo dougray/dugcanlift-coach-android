@@ -33,6 +33,7 @@ class BackupService(
     private val libraryFile: File,
     private val cook: CookRepository,
     private val train: TrainRepository,
+    private val picks: RoadPickRepository,
     private val io: CoroutineDispatcher = Dispatchers.IO
 ) {
     /**
@@ -75,17 +76,36 @@ class BackupService(
                     true
                 )
             }
+            // Road picks do NOT refuse the export the way the three above do,
+            // and the difference is the restore rule, not how much they matter.
+            // Clients and the library restore by replace, so a backup missing
+            // either is a backup that deletes it; picks restore per client and
+            // never delete (BACKUP-FORMAT.md, RoadPickRepository.merge), so a
+            // file without them takes nothing away. Blocking a coach's whole
+            // backup over a handful of ticks they can redo would be following
+            // that rule past its reason. The unreadable file is left exactly as
+            // it is, and the message says so.
+            val storedPicks = picks.load()
             val json = BackupCodec.export(
                 roster.clients,
                 PreservedLibraryStore.load(libraryFile),
                 library.recipes,
                 library.meals,
                 trainLibrary.routines,
-                trainLibrary.sessions
+                trainLibrary.sessions,
+                storedPicks.byClient
             )
             val stream = openOutput() ?: throw IllegalStateException("Couldn't open that location.")
             stream.use { it.write(json.toByteArray()) }
-            BackupOutcome("Backup saved.", false)
+            if (storedPicks.isUnreadable) {
+                BackupOutcome(
+                    "Backup saved. This device's road picks couldn't be read, so they aren't in " +
+                        "it; nothing was changed, and a restore never deletes picks.",
+                    false
+                )
+            } else {
+                BackupOutcome("Backup saved.", false)
+            }
         } catch (e: PreservedLibraryUnreadableException) {
             BackupOutcome(
                 "Couldn't create a backup: this device's saved recipes and routines can't be read, " +
@@ -130,6 +150,11 @@ class BackupService(
             // documented in coach-ios's own BackupCodec.
             cook.replaceAll(decoded.recipes, decoded.meals)
             train.replaceAll(decoded.routines, decoded.sessions)
+            // Per client, not replace: a client this device already has picks
+            // for keeps them, and one it has none for takes the file's list.
+            // BACKUP-FORMAT.md's rule, which is the one the three Coach builds
+            // share -- see RoadPickRepository.merge.
+            picks.merge(decoded.roadPicks)
         } catch (e: Exception) {
             return@withContext BackupOutcome(
                 "Restored ${decoded.clients.size} clients, but couldn't save this backup's recipes: " +
