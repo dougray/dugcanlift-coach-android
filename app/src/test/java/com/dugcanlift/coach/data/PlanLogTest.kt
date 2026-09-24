@@ -1329,6 +1329,36 @@ class PlanLogTest {
         "failed", "poor", "behind", "compliance", "adherence", "streak", "%"
     )
 
+    /**
+     * Two sends read as one list of days, exercising every shape merging can make: a day booked by
+     * both, a day booked to eat and trained anyway, a day one send covers and the other does not,
+     * and an edited re-send pooled under one row.
+     */
+    private fun mergedFixture(): PlanLog.Result = runSends(
+        listOf(
+            plan(
+                listOf("2026-10-12" to 0, "2026-10-16" to 0),
+                listOf(workout("Lower A", listOf(ex("Back Squat", "Barbell",
+                    listOf(listOf(225, 5), listOf(225, 5)))))),
+                id = "train", sentAt = 3000
+            ),
+            plan(
+                listOf("2026-10-12" to 0),
+                listOf(workout("Lower A", listOf(ex("Back Squat", "Barbell", listOf(listOf(225, 5)))))),
+                id = "train-before-the-edit", sentAt = 2000
+            ),
+            cookPlan(listOf(recipe("Beef Chilli")), (12..18).map { meal("2026-10-$it", dinner, 0) })
+        ),
+        listOf(
+            foodDay(
+                "2026-10-12", listOf(food("Beef Chilli", dinner)), name = "Lower A",
+                sets = listOf(set("Back Squat", "Barbell", 225.0, 5))
+            ),
+            foodDay("2026-10-14", name = "Conditioning",
+                sets = listOf(set("Deadlift", "Barbell", 315.0, 3)))
+        )
+    )
+
     @Test fun `nothing in this card tells a coach what to do`() {
         // Every state the card has: a logged day, a day with nothing logged, a day outside the
         // window the client sent, a day logged and not booked; and a matched lift, a substituted
@@ -1336,8 +1366,17 @@ class PlanLogTest {
         // for. The fixture exercises all of them.
         val training = PlanLog.lines(fromFixture())
         val meals = PlanLog.lines(mealFixture())
+        // And the shape neither fixture has: two sends read as one list of days, where a row can
+        // carry a training verdict and a meal clause at once. Every clause in it is one of the
+        // above, which is the point -- but a merged row is a sentence the fixtures never produce,
+        // so it is read here rather than assumed to be safe.
+        val merged = PlanLog.lines(mergedFixture())
         assertTrue("the meal fixture should exercise every meal state", meals.size > 15)
-        val every = (training + meals).joinToString(" · ").lowercase(Locale.US)
+        assertTrue(
+            "the merged fixture should produce a row carrying both halves",
+            merged.any { it.contains("not booked") && it.contains("meal booked") }
+        )
+        val every = (training + meals + merged).joinToString(" · ").lowercase(Locale.US)
         assertTrue("the fixture should exercise the whole card", every.length > 200)
         forbidden.forEach { word ->
             assertFalse("\"$word\" reached a screen: $every", every.contains(word))
