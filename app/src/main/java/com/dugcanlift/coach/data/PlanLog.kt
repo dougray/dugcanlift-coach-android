@@ -667,17 +667,56 @@ object PlanLog {
         val booked: List<ExerciseLines>
     )
 
-    /** One send: the days it booked, and the days logged beside them. */
-    data class Group(
+    /**
+     * One send, as its own head line reads it.
+     *
+     * **Two sends are two records.** Coach Android sends a client two links -- Train's `w`/`k` and
+     * Cook's `r`/`m` -- so a week a coach booked to train and to eat files two [SentPlan] rows,
+     * each a real thing that left the phone on its own date carrying its own days. A head line
+     * describes the send it belongs to and no other: its own range, the days it booked, the meals
+     * it booked, and what became of the days *it* booked. Nothing here is ever a sum across sends.
+     */
+    data class Send(
         val id: String,
         val sentAt: Long,
         val from: String,
         val to: String,
         val range: String,
         val counts: Counts,
-        val head: String,
-        val days: List<DayRow>
+        val head: String
     )
+
+    /**
+     * The sends a coach reads together, and one row per date across all of them.
+     *
+     * **A day is the unit a coach reads.** Coach web sends one link carrying training and meals
+     * together, so a booked Tuesday has always been one row there. On Android that same Tuesday
+     * arrives as two sends, and the card grouped per send: "Tue 22 Sep · Upper B · logged" under
+     * one head line and "Tue 22 Sep · 2 meals booked" under another, each reading quieter than the
+     * day really was. Sends whose booked spans overlap are therefore drawn together, one row per
+     * date, carrying what every one of them booked for it.
+     *
+     * **The sends themselves are not merged.** [sends] keeps each one's own head line, its own
+     * range and its own counts, newest first. Folding one send's dates into another send's group
+     * instead would leave a head line saying "Booked 4 days" above rows it does not account for,
+     * which is the kind of quiet lie this card exists to avoid. The invariant that replaces it:
+     * **every row under a group is counted by at least one head line above it, and every head line
+     * counts only days its own send booked.**
+     */
+    data class Group(
+        /** Newest send first, the order the card reads in. */
+        val sends: List<Send>,
+        /** The first and last day any of these sends booked. */
+        val from: String,
+        val to: String,
+        val days: List<DayRow>
+    ) {
+        /**
+         * Stable for a list: the sends that made this group, in the order they read. A group of
+         * one is that send's id, as it always was.
+         */
+        val id: String get() = sends.joinToString("+") { it.id }
+    }
 
     /** One lift across the sent weeks, its asked and logged rows stacked by date. */
     data class LiftEntry(val key: String, val whenText: String, val exercise: ExerciseLines)
@@ -734,6 +773,11 @@ object PlanLog {
      * on Saturday is the case everyone asks about, and the honest answer is that Coach cannot know
      * they did: the card puts the two facts on the same seven days and says nothing about cause.
      *
+     * A send's range is the first and last day *it* booked -- not a calendar week, because a coach
+     * sends the days they book -- and a group is every send whose range overlaps another's, drawn
+     * as one list of days. See [Group]: a date booked by Train's send and by Cook's send is one
+     * row, and each send keeps its own head line above it.
+     *
      * @param sentPlans every row this device holds; this client's are picked out here.
      * @param days the client's stored days, keyed by day key.
      * @param coverage the window the client has sent, as [Client.coveredFrom] to [Client.coveredTo].
@@ -753,45 +797,101 @@ object PlanLog {
         val display = if (unit == "kg") "kg" else "lb"
         val from = shiftKey(today, -(7 * weeks - 1))
 
-        val groups = mutableListOf<Group>()
-        SentPlans.forClient(sentPlans, clientId).forEach { row ->
+        // This client's rows, newest first -- the order the card reads in. A send that booked no
+        // day inside the window -- a library send, or one older than it -- is no group.
+        val sent = SentPlans.forClient(sentPlans, clientId).mapNotNull { row ->
             val booked = bookingsIn(row.payload()).filter { it.date in from..today }
-            if (booked.isEmpty()) return@forEach
+            if (booked.isEmpty()) null
+            else Sent(row, booked, booked.first().date, booked.last().date)
+        }
 
-            val first = booked.first().date
-            val last = booked.last().date
-            val bookedDates = booked.map { it.date }.toSet()
+        val groups = mutableListOf<Group>()
+        clusters(sent.map { it.first to it.last }).forEach { cluster ->
+            // `sent` is already newest first, so ascending indices keep that.
+            val members = cluster.sorted().map { sent[it] }
+            val spanFrom = members.minOf { it.first }
+            val spanTo = members.maxOf { it.last }
 
-            var training = 0
-            var logged = 0
-            var notLogged = 0
-            var outside = 0
-            var other = 0
-            var mealCount = 0
-            val rows = mutableListOf<DayRow>()
+            // What the group booked for each date. A coach who booked Tuesday's session in one
+            // link and Tuesday's dinners in another booked one Tuesday.
+            val byDate = LinkedHashMap<String, MutableList<Booking>>()
+            val trainedDates = mutableSetOf<String>()
+            members.forEach { member ->
+                member.booked.forEach { booking ->
+                    byDate.getOrPut(booking.date) { mutableListOf() }.add(booking)
+                    if (booking.workout) trainedDates += booking.date
+                }
+            }
 
-            booked.forEach { booking ->
+            // A day inside a send's span that was trained and that **no send in the group booked a
+            // session for**. Shown beside the bookings, saying nothing about cause: a session
+            // lifted the day after the one it was booked for looks exactly like this, and so does
+            // a session the client added themselves.
+            //
+            // Counted per send, over that send's own span and only when that send booked training
+            // at all -- a food plan booked no session for a logged one to be a displaced version
+            // of, and holding up a client's own training under it as `not booked` would be Coach
+            // holding up work nobody set out to book. Two sends whose spans both hold the day each
+            // count it, because each is saying something true about its own week; the day itself
+            // is one row.
+            //
+            // The test is training, not booking. Cook's send books meals on every day of the week,
+            // so a stray session would otherwise land on a date already booked for dinner and
+            // vanish -- the row would read "1 meal booked" and say nothing about the session.
+            val other = IntArray(members.size)
+            val unbookedTraining = mutableSetOf<String>()
+            members.forEachIndexed { index, member ->
+                if (member.booked.none { it.workout }) return@forEachIndexed
+                days.keys.sorted().forEach { key ->
+                    if (key < member.first || key > member.last || key in trainedDates) return@forEach
+                    if (!hasTraining(days[key])) return@forEach
+                    other[index] += 1
+                    unbookedTraining += key
+                }
+            }
+
+            // The verdict is the day's, read once from what the group booked for it and what the
+            // log holds. Each send's counts then read it back for the days that send booked.
+            val states = mutableMapOf<String, String>()
+            val rows = (byDate.keys + unbookedTraining).sorted().map { date ->
+                merge(byDate[date] ?: listOf(emptyBooking(date)))
+            }.map { booking ->
                 val day = days[booking.date]
                 val isCovered = covered(booking.date, coverage)
-                if (booking.workout) training += 1
-                mealCount += booking.meals.size
                 val state = when {
-                    !isCovered -> { outside += 1; "outside" }
+                    // A date no send booked at all, swept in above.
+                    !booking.workout && booking.meals.isEmpty() -> "notBooked"
+                    !isCovered -> "outside"
+                    booking.workout -> if (hasTraining(day)) "logged" else "notLogged"
+                    // Booked to eat and trained anyway. The meals are still this day's, and so is
+                    // the session -- one row says both, rather than the session being swallowed by
+                    // the dinner booked over it.
+                    booking.date in unbookedTraining -> "notBooked"
                     // A day that booked no training gets no training verdict. `not logged` against
                     // a day nobody was asked to train would be Coach inventing a booking to hold
                     // against them.
-                    !booking.workout -> "meals"
-                    hasTraining(day) -> { logged += 1; "logged" }
-                    else -> { notLogged += 1; "notLogged" }
+                    else -> "meals"
                 }
+                states[booking.date] = state
+
+                // A session nobody booked is named by the log, because there is no booking to
+                // name it.
+                val name = if (state == "notBooked") day?.sessionName.orEmpty() else booking.name
                 val word = when (state) {
                     "logged" -> "logged"
                     "notLogged" -> "not logged"
                     "outside" -> "outside the log they sent"
+                    "notBooked" -> "not booked"
                     else -> ""
                 }
-                val joined = if (state == "logged") joinExercises(booking.exercises, loggedIn(day), display)
-                else Joined(emptyList(), emptyList())
+                val joined = when (state) {
+                    "logged" -> joinExercises(booking.exercises, loggedIn(day), display)
+                    "notBooked" -> Joined(
+                        emptyList(),
+                        loggedIn(day).filter { it.sets.isNotEmpty() }.map(::alsoLogged)
+                    )
+                    else -> Joined(emptyList(), emptyList())
+                }
                 val food = if (isCovered) foodIn(day) else null
                 val meals = booking.meals.map { meal ->
                     meal.copy(logged = food?.let { slotLine(meal, it) })
@@ -801,13 +901,13 @@ object PlanLog {
                 // The training word hugs the session it judges; the meal clause follows it. A day
                 // that booked only meals has no session for it to hug, so what is left --
                 // `outside the log they sent`, or nothing -- goes last instead.
-                val head = if (booking.name.isNotEmpty())
-                    listOf(dayLabel(booking.date), booking.name, word, mealsClause)
+                val head = if (name.isNotEmpty())
+                    listOf(dayLabel(booking.date), name, word, mealsClause)
                 else listOf(dayLabel(booking.date), mealsClause, word)
-                rows += DayRow(
+                DayRow(
                     key = booking.date,
                     state = state,
-                    name = booking.name,
+                    name = name,
                     text = head.filter { it.isNotEmpty() }.joinToString(" · "),
                     exercises = joined.exercises,
                     alsoLogged = joined.alsoLogged,
@@ -816,52 +916,123 @@ object PlanLog {
                     booked = if (state == "logged") emptyList()
                     else booking.exercises.map { pairLines(it, null, display, false, word) }
                 )
-            }
+            }.sortedBy { it.key }
 
-            // A day inside this send's span that was trained and not booked. Shown beside the
-            // bookings, saying nothing about cause: a session lifted the day after the one it was
-            // booked for looks exactly like this, and so does a session the client added themselves.
-            //
-            // Only when this send booked training at all. A food plan booked no session for a
-            // logged one to be a displaced version of, and listing a client's own training under it
-            // as `not booked` would be Coach holding up work nobody set out to book.
-            if (training > 0) days.keys.sorted().forEach { key ->
-                if (key < first || key > last || key in bookedDates) return@forEach
-                val day = days[key]
-                if (!hasTraining(day)) return@forEach
-                other += 1
-                rows += DayRow(
-                    key = key,
-                    state = "notBooked",
-                    name = day?.sessionName.orEmpty(),
-                    text = listOf(dayLabel(key), day?.sessionName.orEmpty(), "not booked")
-                        .filter { it.isNotEmpty() }.joinToString(" · "),
-                    exercises = emptyList(),
-                    alsoLogged = loggedIn(day).filter { it.sets.isNotEmpty() }.map(::alsoLogged),
-                    meals = emptyList(),
-                    foodContext = null,
-                    booked = emptyList()
+            val sends = members.mapIndexed { index, member ->
+                var training = 0
+                var logged = 0
+                var notLogged = 0
+                var outside = 0
+                var mealCount = 0
+                member.booked.forEach { booking ->
+                    if (booking.workout) training += 1
+                    mealCount += booking.meals.size
+                    when (states[booking.date]) {
+                        "outside" -> outside += 1
+                        // What became of a day this send booked a session on. A session another
+                        // send booked is that send's to count.
+                        "logged" -> if (booking.workout) logged += 1
+                        "notLogged" -> if (booking.workout) notLogged += 1
+                    }
+                }
+                val counts = Counts(
+                    member.booked.size, training, logged, notLogged, outside, other[index], mealCount
                 )
+                val range = rangeText(member.first, member.last)
+                Send(member.row.id, member.row.sentAt, member.first, member.last, range, counts,
+                    headLine(range, counts))
             }
-            rows.sortBy { it.key }
 
-            val counts = Counts(booked.size, training, logged, notLogged, outside, other, mealCount)
-            groups += Group(
-                id = row.id,
-                sentAt = row.sentAt,
-                from = first,
-                to = last,
-                range = rangeText(first, last),
-                counts = counts,
-                head = headLine(rangeText(first, last), counts),
-                days = rows
-            )
+            groups += Group(sends, spanFrom, spanTo, rows)
         }
 
         // Only when there is a meal row for it to be about. A training-only card is byte for byte
         // what it was.
-        val anyMeal = groups.any { it.counts.meals > 0 }
+        val anyMeal = groups.any { group -> group.sends.any { it.counts.meals > 0 } }
         return Result(groups, byLift(groups), if (anyMeal) MEAL_NOTE else null, FOOTER)
+    }
+
+    /** One send's bookings inside the window. */
+    private data class Sent(
+        val row: SentPlan,
+        val booked: List<Booking>,
+        val first: String,
+        val last: String
+    )
+
+    /**
+     * The sends whose booked spans overlap, as indices into [spans].
+     *
+     * Two sends that book the same stretch of days are one week to a coach, even though they left
+     * the phone as two links, so their days are drawn as one list. Two that book different weeks
+     * are two weeks and stay apart -- the card has always read a week at a time and still does.
+     *
+     * Touching is not overlapping: Train booking Mon-Fri and Cook booking the Saturday after are
+     * two stretches, and a group is only ever the days a coach reads together.
+     */
+    fun clusters(spans: List<Pair<String, String>>): List<List<Int>> {
+        val order = spans.indices.sortedWith(
+            compareBy({ spans[it].first }, { spans[it].second })
+        )
+        val out = mutableListOf<MutableList<Int>>()
+        var reach = ""
+        order.forEach { index ->
+            if (out.isNotEmpty() && spans[index].first <= reach) {
+                out.last().add(index)
+                if (spans[index].second > reach) reach = spans[index].second
+            } else {
+                out.add(mutableListOf(index))
+                reach = spans[index].second
+            }
+        }
+        // A group reads newest send first, so the groups do too: the cluster holding the newest
+        // send is the one at the top of the card.
+        return out.sortedBy { it.minOrNull() ?: 0 }
+    }
+
+    /**
+     * A date the group booked nothing for, carried through the same path as a booked one so a day
+     * is built in one place and not two.
+     */
+    private fun emptyBooking(date: String): Booking =
+        Booking(date, "", false, emptyList(), emptyList())
+
+    /**
+     * Two sends booking the same date are one day.
+     *
+     * **Training pools**, exactly as two sessions booked on one date inside a single payload
+     * already pool -- SHARE-FORMAT gives a day one `w` array, so the log has already merged two
+     * sessions into one before Coach sees it, and the asked side has to be read the same way. A
+     * plan edited and re-sent for the same day is therefore one row whose Asked rows carry both
+     * prescriptions: Coach knows both links went out and cannot know which one the client opened,
+     * so it shows what was asked across them and picks no winner. An identical re-send never
+     * reaches here -- [SentPlans.record] replaces a send whose payload hashes the same.
+     *
+     * **Meals do not pool**: two dishes at one dinner are two dishes, and a coach who booked both
+     * wants to see both.
+     *
+     * A session name repeated across sends is said once. Inside one payload, two sessions of a
+     * name are two sessions a coach booked twice and both are named; across sends it is one
+     * session re-sent, and "Upper B · Upper B" would read as a mistake rather than as a fact.
+     *
+     * One booking merges to itself, unchanged, so a client sent one link a week reads byte for
+     * byte as they always have.
+     */
+    fun merge(list: List<Booking>): Booking {
+        val first = list.firstOrNull() ?: emptyBooking("")
+        if (list.size < 2) return first
+        val names = LinkedHashSet<String>()
+        list.forEach { if (it.name.isNotEmpty()) names += it.name }
+        return Booking(
+            date = first.date,
+            name = names.joinToString(" · "),
+            workout = list.any { it.workout },
+            exercises = pool(list.flatMap { it.exercises }),
+            // Breakfast, lunch, dinner, snack, whichever link carried which -- the order a day is
+            // eaten in, as one payload's own meals are already sorted. A slot Coach cannot read
+            // sorts last rather than being dropped.
+            meals = list.flatMap { it.meals }.sortedBy { if (it.slot < 0) 9 else it.slot }
+        )
     }
 
     /**
@@ -896,7 +1067,9 @@ object PlanLog {
     fun lines(result: Result): List<String> {
         val out = mutableListOf<String>()
         result.groups.forEach { group ->
-            out += group.head
+            // One head line per send, each describing its own send, above the days they were read
+            // together on -- see [Group].
+            group.sends.forEach { out += it.head }
             group.days.forEach { day ->
                 out += day.text
                 day.exercises.forEach { ex ->
