@@ -58,7 +58,23 @@ object CookPlanEncoder {
         lifterId: String,
         coachName: String,
         roadPicks: List<String> = emptyList()
-    ): String {
+    ): String = PlanEnvelope.fragment(payload(meals, recipes, lifterId, coachName, roadPicks))
+
+    /**
+     * The same payload, before it is squeezed into a fragment.
+     *
+     * Split out for the reason [TrainPlanEncoder.payload] is: a Send files what it sent
+     * ([SentPlan]), and a record built by a second encode is a record of a different plan. The
+     * screen encodes once and uses both halves -- the fragment for the chooser, the payload for
+     * the row.
+     */
+    fun payload(
+        meals: List<PlannedMeal>,
+        recipes: Map<String, Recipe>,
+        lifterId: String,
+        coachName: String,
+        roadPicks: List<String> = emptyList()
+    ): JSONObject {
         // `x` indexes into `r`, so only recipes actually inlined may be
         // referenced. A meal whose recipe is missing is dropped rather than
         // pointed at whichever recipe happens to sit at that index -- a stale
@@ -114,6 +130,6 @@ object CookPlanEncoder {
         // picks"; RoadPicks holds the rule.
         RoadPicks.wire(roadPicks)?.let { payload.put("rf", JSONArray(it)) }
 
-        return PlanEnvelope.fragment(payload)
+        return payload
     }
 }

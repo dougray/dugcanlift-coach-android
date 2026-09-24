@@ -112,6 +112,51 @@ class CookPlanEncoderTest {
         assertEquals(emptyList<Any>(), payload.meals)
     }
 
+    /* ---------------- what a Send files ---------------- */
+
+    @Test fun `the link and the record are one encode, not two`() {
+        // The record must be of the plan that was actually sent. Two encodes is how a coach ends
+        // up with a row describing a week they did not ship -- the reason [TrainPlanEncoder] was
+        // split the same way.
+        val meals = listOf(PlannedMeal(recipeId = "r1", clientId = "c1", dayKey = "2026-09-14",
+                                       meal = "dinner", servings = 2.0))
+        val payload = CookPlanEncoder.payload(meals, mapOf("r1" to chili), "c1", "Doug")
+        val fragment = CookPlanEncoder.encode(meals, mapOf("r1" to chili), "c1", "Doug")
+        assertEquals("the fragment is that payload and no other", PlanEnvelope.fragment(payload), fragment)
+        assertEquals("Chili", success(fragment).recipes.single().name)
+    }
+
+    @Test fun `a filed food plan is a plan the Booked card can read`() {
+        // Cook's Send files a row now, because the card compares meals. A payload with `m` and no
+        // `w` books days all the same -- see PlanLog -- so this is what makes those rows reachable
+        // on this app at all.
+        val meals = listOf(
+            PlannedMeal(recipeId = "r1", clientId = "c1", dayKey = "2026-09-14",
+                        meal = "dinner", servings = 2.0),
+            PlannedMeal(recipeId = "r2", clientId = "c1", dayKey = "2026-09-15",
+                        meal = "breakfast", servings = 1.0)
+        )
+        val payload = CookPlanEncoder.payload(meals, mapOf("r1" to chili, "r2" to oats), "c1", "Doug")
+        val row = SentPlan("p1", "c1", 1_700_000_000L, SentPlans.hash(payload), payload.toString())
+        val bookings = PlanLog.bookingsIn(row.payload())
+        assertEquals(listOf("2026-09-14", "2026-09-15"), bookings.map { it.date })
+        assertEquals(
+            listOf("Dinner · Chili · 2 servings", "Breakfast · Oats · 1 serving"),
+            bookings.flatMap { day -> day.meals.map { it.title } }
+        )
+        assertTrue("a food plan books no training", bookings.none { it.workout })
+    }
+
+    @Test fun `Cook's Send files what it sent`() {
+        // The call site, checked as source, for the reason Coach web checks its own view code: a
+        // screen that builds the link and forgets the row leaves the card permanently empty on
+        // this app, and no unit test of PlanLog would ever notice.
+        val source = java.io.File("src/main/java/com/dugcanlift/coach/ui/CookScreen.kt").readText()
+        assertTrue("CookScreen moved; re-point this test", source.contains("CookPlanEncoder.payload("))
+        assertTrue("the fragment still goes to the chooser", source.contains("PlanEnvelope.fragment(payload)"))
+        assertTrue("and the payload is filed", source.contains("SentPlanRepository(context.filesDir).record("))
+    }
+
     @Test fun `the fragment is compressed`() {
         val meals = List(12) { PlannedMeal(recipeId = "r1", dayKey = "2026-09-14") }
         val fragment = CookPlanEncoder.encode(meals, mapOf("r1" to chili), "c1", "Doug")
