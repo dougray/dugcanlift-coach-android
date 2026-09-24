@@ -58,6 +58,7 @@ import com.dugcanlift.coach.data.ClientRepository
 import com.dugcanlift.coach.data.CoachShoppingList
 import com.dugcanlift.coach.data.CookPlanEncoder
 import com.dugcanlift.coach.data.CookRepository
+import com.dugcanlift.coach.data.PlanEnvelope
 import com.dugcanlift.coach.data.PlannedMeal
 import com.dugcanlift.coach.data.Recipe
 import com.dugcanlift.coach.data.RoadFoodChain
@@ -66,6 +67,9 @@ import com.dugcanlift.coach.data.RoadFoodItem
 import com.dugcanlift.coach.data.RoadFoodStore
 import com.dugcanlift.coach.data.RoadPickRepository
 import com.dugcanlift.coach.data.RoadPicks
+import com.dugcanlift.coach.data.SentPlan
+import com.dugcanlift.coach.data.SentPlanRepository
+import com.dugcanlift.coach.data.SentPlans
 import com.dugcanlift.coach.data.forClient
 import com.dugcanlift.coach.data.hasMacros
 import com.dugcanlift.kit.CaptionRecipe
@@ -74,6 +78,7 @@ import com.dugcanlift.kit.Split
 import com.dugcanlift.coach.data.RecipeWeightUnit
 import com.dugcanlift.kit.RecipeNutrition
 import com.dugcanlift.kit.trimZeros
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
@@ -239,10 +244,31 @@ fun CookScreen(
                         // Road picks ride in the same link; nothing is filtered
                         // against this app's copy of road-food.json on the way
                         // out. See RoadPicks.
-                        val fragment = CookPlanEncoder.encode(
+                        val payload = CookPlanEncoder.payload(
                             weekMeals, recipesById, clientId.orEmpty(),
                             coachName.ifBlank { "Your coach" }, clientPicks
                         )
+                        val fragment = PlanEnvelope.fragment(payload)
+                        // What was sent, kept. Train's Send has filed one since the Booked card
+                        // shipped and Cook's did not, because nothing then read a payload's meals;
+                        // a food plan that books nobody's day still has to be a record now that
+                        // the card puts a booked dinner beside the log. Filed when the chooser
+                        // opens, which is the last moment this app can see, and off the main
+                        // thread because it is a read-modify-write of a file.
+                        if (!clientId.isNullOrEmpty()) {
+                            val row = SentPlan(
+                                id = java.util.UUID.randomUUID().toString(),
+                                clientId = clientId,
+                                sentAt = System.currentTimeMillis() / 1000,
+                                payloadHash = SentPlans.hash(payload),
+                                payloadJson = payload.toString()
+                            )
+                            scope.launch(Dispatchers.IO) {
+                                // A record that cannot be written must never stop a plan being
+                                // sent, and must never be written over an unreadable file.
+                                runCatching { SentPlanRepository(context.filesDir).record(row) }
+                            }
+                        }
                         val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                             type = "text/plain"
                             putExtra(
