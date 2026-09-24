@@ -145,11 +145,11 @@ class PlanLogTest {
                 counts.getInt("notLogged"), counts.getInt("outside"), counts.getInt("other"),
                 counts.getInt("meals")
             ),
-            result.groups[0].counts
+            result.groups[0].sends[0].counts
         )
         val states = expected.getJSONArray("dayStates").let { a -> (0 until a.length()).map { a.getString(it) } }
         assertEquals(states, result.groups[0].days.map { it.state })
-        assertEquals("12–17 Oct", result.groups[0].range)
+        assertEquals("12–17 Oct", result.groups[0].sends[0].range)
     }
 
     @Test fun `the covered window comes off the link the client sent`() {
@@ -171,7 +171,7 @@ class PlanLogTest {
             listOf(day("2026-10-12", "Lower A", listOf(set("Back Squat", "Barbell", 225.0, 5))))
         )
         assertEquals("Mon 12 Oct · Lower A · logged", day(r, 0).text)
-        assertEquals(PlanLog.Counts(1, 1, 1, 0, 0, 0, 0), r.groups[0].counts)
+        assertEquals(PlanLog.Counts(1, 1, 1, 0, 0, 0, 0), r.groups[0].sends[0].counts)
     }
 
     @Test fun `a booked day with nothing logged reads not logged, never missed`() {
@@ -181,7 +181,7 @@ class PlanLogTest {
             emptyList()
         )
         assertEquals("Mon 12 Oct · Lower A · not logged", day(r, 0).text)
-        assertEquals("Booked 1 day, 12 Oct · logged 0", r.groups[0].head)
+        assertEquals("Booked 1 day, 12 Oct · logged 0", r.groups[0].sends[0].head)
     }
 
     @Test fun `a booked day outside the window the client sent is never called not logged`() {
@@ -192,7 +192,7 @@ class PlanLogTest {
             coverage = "2026-09-01" to "2026-10-05"
         )
         assertEquals("Mon 12 Oct · Lower A · outside the log they sent", day(r, 0).text)
-        assertEquals("Booked 1 day, 12 Oct · no log covering them", r.groups[0].head)
+        assertEquals("Booked 1 day, 12 Oct · no log covering them", r.groups[0].sends[0].head)
         assertFalse(PlanLog.lines(r).joinToString(" ").contains("not logged"))
     }
 
@@ -220,8 +220,8 @@ class PlanLogTest {
             ),
             r.groups[0].days.map { it.text }
         )
-        assertEquals(1, r.groups[0].counts.other)
-        assertTrue(r.groups[0].head.endsWith("1 other day logged"))
+        assertEquals(1, r.groups[0].sends[0].counts.other)
+        assertTrue(r.groups[0].sends[0].head.endsWith("1 other day logged"))
     }
 
     @Test fun `a substitution shows as one pair on name alone, labelled`() {
@@ -301,8 +301,8 @@ class PlanLogTest {
             unit = "lb",
             today = "2026-10-20"
         )
-        assertEquals(listOf("new", "old"), r.groups.map { it.id })
-        assertEquals(listOf("12 Oct", "5 Oct"), r.groups.map { it.range })
+        assertEquals(listOf("new", "old"), r.groups.flatMap { g -> g.sends.map { it.id } })
+        assertEquals(listOf("12 Oct", "5 Oct"), r.groups.flatMap { g -> g.sends.map { it.range } })
     }
 
     @Test fun `a plan booking nothing in the last eight weeks is not a group at all`() {
@@ -671,7 +671,7 @@ class PlanLogTest {
     @Test fun `a plan that books meals and no training is a card, not a skipped group`() {
         val r = runMeals(listOf(recipe("Beef Chilli")), listOf(meal("2026-10-12", dinner, 0, 2.0)))
         assertEquals("the training-only card skipped this entirely", 1, r.groups.size)
-        assertEquals("Booked 1 day, 12 Oct · 1 meal booked", r.groups[0].head)
+        assertEquals("Booked 1 day, 12 Oct · 1 meal booked", r.groups[0].sends[0].head)
         assertEquals("Mon 12 Oct · 1 meal booked", day(r, 0).text)
         assertEquals("meals", day(r, 0).state)
     }
@@ -682,7 +682,7 @@ class PlanLogTest {
         val r = runMeals(listOf(recipe("Beef Chilli")), listOf(meal("2026-10-12", dinner, 0)))
         val every = PlanLog.lines(r).joinToString(" · ")
         assertFalse(every, every.contains("not logged"))
-        assertEquals(PlanLog.Counts(1, 0, 0, 0, 0, 0, 1), r.groups[0].counts)
+        assertEquals(PlanLog.Counts(1, 0, 0, 0, 0, 0, 1), r.groups[0].sends[0].counts)
     }
 
     @Test fun `a booked meal names the slot, the dish and the servings, and no macros`() {
@@ -799,7 +799,7 @@ class PlanLogTest {
         assertEquals("Mon 12 Oct · 1 meal booked · outside the log they sent", day(r, 0).text)
         assertNull(day(r, 0).meals[0].logged)
         assertNull(day(r, 0).foodContext)
-        assertEquals("Booked 1 day, 12 Oct · 1 meal booked · no log covering them", r.groups[0].head)
+        assertEquals("Booked 1 day, 12 Oct · 1 meal booked · no log covering them", r.groups[0].sends[0].head)
     }
 
     @Test fun `a client whose log predates the send gets no verdict on any meal of it`() {
@@ -857,9 +857,9 @@ class PlanLogTest {
         // training at all, so the figure names what it counts.
         assertEquals(
             "Booked 2 days, 12–13 Oct · 3 meals booked · 1 training day, 1 logged",
-            r.groups[0].head
+            r.groups[0].sends[0].head
         )
-        assertEquals(PlanLog.Counts(2, 1, 1, 0, 0, 0, 3), r.groups[0].counts)
+        assertEquals(PlanLog.Counts(2, 1, 1, 0, 0, 0, 3), r.groups[0].sends[0].counts)
     }
 
     @Test fun `a training-only send reads exactly as it did before meals existed`() {
@@ -868,7 +868,7 @@ class PlanLogTest {
             listOf(workout("Lower A", listOf(ex("Back Squat", "Barbell", listOf(listOf(225, 5)))))),
             listOf(day("2026-10-12", "Lower A", listOf(set("Back Squat", "Barbell", 225.0, 5))))
         )
-        assertEquals("Booked 1 day, 12 Oct · logged 1", r.groups[0].head)
+        assertEquals("Booked 1 day, 12 Oct · logged 1", r.groups[0].sends[0].head)
         assertEquals(emptyList<PlanLog.MealBooking>(), day(r, 0).meals)
         assertNull(day(r, 0).foodContext)
         assertNull("and no note about meals under a card with none", r.mealFooter)
@@ -888,7 +888,7 @@ class PlanLogTest {
             listOf("Mon 12 Oct · 1 meal booked", "Wed 14 Oct · 1 meal booked"),
             r.groups[0].days.map { it.text }
         )
-        assertEquals(0, r.groups[0].counts.other)
+        assertEquals(0, r.groups[0].sends[0].counts.other)
         assertFalse(PlanLog.lines(r).joinToString(" ").contains("not booked"))
     }
 
@@ -905,7 +905,7 @@ class PlanLogTest {
             coverage = "2026-10-01" to "2026-10-31", unit = "lb", today = "2026-10-20"
         )
         assertEquals("Tue 13 Oct · Conditioning · not booked", r.groups[0].days[1].text)
-        assertEquals(1, r.groups[0].counts.other)
+        assertEquals(1, r.groups[0].sends[0].counts.other)
     }
 
     @Test fun `by lift stays about lifts, and a meals-only plan has none`() {
@@ -980,6 +980,346 @@ class PlanLogTest {
         coverage = "2026-10-01" to "2026-10-16", unit = "lb", today = "2026-10-20"
     )
 
+    /* ---------------- one day, however many sends booked it ----------------
+     *
+     * Coach web sends one link carrying training and meals together, so a booked Tuesday has
+     * always been one row there. Coach Android sends two -- Train's `w`/`k` and Cook's `r`/`m` --
+     * so the same Tuesday filed two SentPlan rows and the card grouped per send:
+     * "Tue 13 Oct · Upper B · logged" under one head line and "Tue 13 Oct · 2 meals booked" under
+     * another, each reading quieter than the day really was.
+     *
+     * Sends whose booked spans overlap are now read together, one row per date. The sends are not
+     * merged: each keeps its own head line, its own range and its own counts. */
+
+    private fun cookPlan(
+        recipes: List<JSONObject>,
+        meals: List<JSONObject>,
+        id: String = "cook",
+        sentAt: Long = 1000
+    ): SentPlan = foodPlan(recipes, meals).copy(id = id, sentAt = sentAt)
+
+    private fun runSends(
+        plans: List<SentPlan>,
+        days: List<TrainingDay> = emptyList(),
+        coverage: Pair<String, String>? = "2026-10-01" to "2026-10-31"
+    ) = PlanLog.compare(
+        clientId = "c",
+        sentPlans = plans,
+        days = days.associateBy { it.dayKey },
+        coverage = coverage,
+        unit = "lb",
+        today = "2026-10-20"
+    )
+
+    /** Train's send and Cook's send, one Tuesday. */
+    private fun twoSends(days: List<TrainingDay>) = runSends(
+        listOf(
+            plan(
+                listOf("2026-10-13" to 0),
+                listOf(workout("Upper B", listOf(ex("Bench Press", "Barbell", listOf(listOf(185, 5)))))),
+                id = "train", sentAt = 2000
+            ),
+            cookPlan(
+                listOf(recipe("Beef Chilli"), recipe("Overnight Oats")),
+                listOf(meal("2026-10-13", dinner, 0, 2.0), meal("2026-10-13", breakfast, 1))
+            )
+        ),
+        days
+    )
+
+    private fun sharedTuesday() = listOf(
+        foodDay(
+            "2026-10-13", listOf(food("Beef Chilli", dinner)), name = "Upper B",
+            sets = listOf(set("Bench Press", "Barbell", 185.0, 5))
+        )
+    )
+
+    @Test fun `a day booked by two sends is one row carrying both`() {
+        val r = twoSends(sharedTuesday())
+        assertEquals("one day, one group", 1, r.groups.size)
+        // Web's own order and separator: the training verdict, then the meals.
+        assertEquals(
+            listOf("Tue 13 Oct · Upper B · logged · 2 meals booked"),
+            r.groups[0].days.map { it.text }
+        )
+        assertEquals("the session Train booked", 1, day(r, 0).exercises.size)
+        assertEquals(
+            "both links' meals, in the order a day is eaten",
+            listOf("Breakfast · Overnight Oats · 1 serving", "Dinner · Beef Chilli · 2 servings"),
+            day(r, 0).meals.map { it.title }
+        )
+    }
+
+    /**
+     * Two sends are two records. Each head line describes the send it belongs to -- its own range,
+     * its own days, its own meals -- and neither is ever a sum across the two.
+     */
+    @Test fun `each send keeps its own head line above the days they share`() {
+        val r = twoSends(sharedTuesday())
+        assertEquals(
+            listOf("Booked 1 day, 13 Oct · logged 1", "Booked 1 day, 13 Oct · 2 meals booked"),
+            r.groups[0].sends.map { it.head }
+        )
+        // Newest first, and the meal count belongs only to the send that booked the meals.
+        assertEquals(listOf("train", "cook"), r.groups[0].sends.map { it.id })
+        assertEquals(listOf(0, 2), r.groups[0].sends.map { it.counts.meals })
+        assertEquals(listOf(1, 0), r.groups[0].sends.map { it.counts.training })
+        // Both head lines reach the lines the discipline tests read.
+        assertEquals(r.groups[0].sends.map { it.head }, PlanLog.lines(r).take(2))
+    }
+
+    /**
+     * Train books three days of a week; Cook books all seven. One list of seven days, and each
+     * head line still prints the range it counted over.
+     */
+    @Test fun `a date one send covers and the other does not is still one list of days`() {
+        val r = runSends(
+            listOf(
+                plan(
+                    listOf("2026-10-12" to 0, "2026-10-14" to 0, "2026-10-16" to 0),
+                    listOf(workout("Lower A", listOf(ex("Back Squat", "Barbell", listOf(listOf(225, 5)))))),
+                    id = "train", sentAt = 2000
+                ),
+                cookPlan(
+                    listOf(recipe("Beef Chilli")),
+                    (12..18).map { meal("2026-10-$it", dinner, 0) }
+                )
+            ),
+            listOf(day("2026-10-12", "Lower A", listOf(set("Back Squat", "Barbell", 225.0, 5))))
+        )
+        assertEquals(1, r.groups.size)
+        assertEquals("seven dates, seven rows", (12..18).map { "2026-10-$it" },
+            r.groups[0].days.map { it.key })
+        assertEquals(
+            listOf("Booked 3 days, 12–16 Oct · logged 1", "Booked 7 days, 12–18 Oct · 7 meals booked"),
+            r.groups[0].sends.map { it.head }
+        )
+        assertEquals(
+            listOf(
+                "Mon 12 Oct · Lower A · logged · 1 meal booked",
+                "Tue 13 Oct · 1 meal booked",
+                "Wed 14 Oct · Lower A · not logged · 1 meal booked",
+                "Thu 15 Oct · 1 meal booked",
+                "Fri 16 Oct · Lower A · not logged · 1 meal booked",
+                "Sat 17 Oct · 1 meal booked",
+                "Sun 18 Oct · 1 meal booked"
+            ),
+            r.groups[0].days.map { it.text }
+        )
+    }
+
+    /**
+     * Sends that book different weeks are different weeks, and stay apart -- the card has always
+     * read a week at a time. Touching is not overlapping.
+     */
+    @Test fun `sends that book different weeks stay two groups`() {
+        val workouts = listOf(workout("Lower A", listOf(ex("Back Squat", "Barbell", listOf(listOf(225, 5))))))
+        val r = runSends(
+            listOf(
+                plan(listOf("2026-10-12" to 0), workouts, id = "week2", sentAt = 2),
+                plan(listOf("2026-10-05" to 0), workouts, id = "week1", sentAt = 1)
+            )
+        )
+        assertEquals(2, r.groups.size)
+        assertEquals(listOf("week2", "week1"), r.groups.map { it.id })
+        assertEquals(listOf(1, 1), r.groups.map { it.sends.size })
+    }
+
+    /**
+     * The edited re-send. [SentPlans.record] replaces a send whose payload hashes the same, so two
+     * rows on one date are two *different* plans that both left the phone. Coach cannot know which
+     * link the client opened, so it pools them exactly as two sessions booked on one date inside
+     * one payload already pool, and picks no winner.
+     */
+    @Test fun `two sends booking one day with different workouts pool and pick no winner`() {
+        val r = runSends(
+            listOf(
+                plan(
+                    listOf("2026-10-13" to 0),
+                    listOf(workout("Upper B", listOf(ex("Bench Press", "Barbell",
+                        listOf(listOf(185, 5), listOf(185, 5), listOf(205, 3)))))),
+                    id = "edited", sentAt = 2000
+                ),
+                plan(
+                    listOf("2026-10-13" to 0),
+                    listOf(workout("Upper B", listOf(ex("Bench Press", "Barbell",
+                        listOf(listOf(185, 5), listOf(185, 5)))))),
+                    id = "first", sentAt = 1000
+                )
+            ),
+            listOf(day("2026-10-13", "Upper B", listOf(
+                set("Bench Press", "Barbell", 185.0, 5), set("Bench Press", "Barbell", 185.0, 5))))
+        )
+        assertEquals(1, r.groups.size)
+        // The name is said once. Inside one payload two sessions of a name are two sessions a
+        // coach booked twice; across sends it is one session re-sent, and "Upper B · Upper B"
+        // would read as a mistake.
+        assertEquals(listOf("Tue 13 Oct · Upper B · logged"), r.groups[0].days.map { it.text })
+        val ex = day(r, 0).exercises
+        assertEquals(1, ex.size)
+        assertEquals(
+            "what was asked across both links, newest first",
+            "185 × 5 · 185 × 5 · 205 × 3 · 185 × 5 · 185 × 5", ex[0].asked?.text
+        )
+        assertEquals("185 × 5 · 185 × 5", ex[0].logged?.text)
+        assertEquals("Asked 5 sets · logged 2", ex[0].countLine)
+        // And each send still says, truthfully, what it booked.
+        assertEquals(
+            listOf("Booked 1 day, 13 Oct · logged 1", "Booked 1 day, 13 Oct · logged 1"),
+            r.groups[0].sends.map { it.head }
+        )
+    }
+
+    /**
+     * A different workout on the same date reads as the two lifts it is, pooled under the one day
+     * -- there is no arithmetic on the difference, and nothing says one plan replaced the other.
+     */
+    @Test fun `a re-send that changed the lifts shows both plans lifts`() {
+        val r = runSends(
+            listOf(
+                plan(
+                    listOf("2026-10-13" to 0),
+                    listOf(workout("Upper B", listOf(ex("Overhead Press", "Barbell", listOf(listOf(95, 8)))))),
+                    id = "edited", sentAt = 2000
+                ),
+                plan(
+                    listOf("2026-10-13" to 0),
+                    listOf(workout("Upper B", listOf(ex("Bench Press", "Barbell", listOf(listOf(185, 5)))))),
+                    id = "first", sentAt = 1000
+                )
+            ),
+            listOf(day("2026-10-13", "Upper B", listOf(set("Overhead Press", "Barbell", 95.0, 8))))
+        )
+        assertEquals(
+            listOf("Overhead Press (Barbell)", "Bench Press (Barbell) · not logged"),
+            day(r, 0).exercises.map { it.title }
+        )
+        val every = PlanLog.lines(r).joinToString(" · ").lowercase(Locale.US)
+        listOf("replaced", "superseded", "instead of", "changed").forEach {
+            assertFalse("\"$it\" claims one send replaced another", every.contains(it))
+        }
+    }
+
+    /**
+     * **The session must not be swallowed by the dinner booked over it.** Cook's send books every
+     * day of the week, so a stray session lands on a date that is already booked. It still reads
+     * as the session it was.
+     */
+    @Test fun `a session nobody booked is still said on a day booked to eat`() {
+        val r = runSends(
+            listOf(
+                plan(
+                    listOf("2026-10-12" to 0, "2026-10-16" to 0),
+                    listOf(workout("Lower A", listOf(ex("Back Squat", "Barbell", listOf(listOf(225, 5)))))),
+                    id = "train", sentAt = 2000
+                ),
+                cookPlan(listOf(recipe("Beef Chilli")), (12..16).map { meal("2026-10-$it", dinner, 0) })
+            ),
+            listOf(foodDay("2026-10-13", name = "Conditioning",
+                sets = listOf(set("Deadlift", "Barbell", 315.0, 3))))
+        )
+        assertEquals(
+            listOf(
+                "Mon 12 Oct · Lower A · not logged · 1 meal booked",
+                "Tue 13 Oct · Conditioning · not booked · 1 meal booked",
+                "Wed 14 Oct · 1 meal booked",
+                "Thu 15 Oct · 1 meal booked",
+                "Fri 16 Oct · Lower A · not logged · 1 meal booked"
+            ),
+            r.groups[0].days.map { it.text }
+        )
+        assertEquals(listOf("Deadlift (Barbell) · 1 set"), day(r, 1).alsoLogged.map { it.text })
+        // Counted by the send that booked training, not by the food plan.
+        assertEquals(listOf(1, 0), r.groups[0].sends.map { it.counts.other })
+        assertTrue(r.groups[0].sends[0].head.endsWith("1 other day logged"))
+    }
+
+    /**
+     * A client sent nothing but a food plan keeps the old answer: a food plan booked no session
+     * for a logged one to be a displaced version of, so their own training is not held up under it
+     * as `not booked`.
+     */
+    @Test fun `a food plan alone still never calls a clients own training not booked`() {
+        val r = runSends(
+            listOf(cookPlan(listOf(recipe("Beef Chilli")), listOf(meal("2026-10-13", dinner, 0)))),
+            listOf(foodDay("2026-10-13", name = "Conditioning",
+                sets = listOf(set("Deadlift", "Barbell", 315.0, 3))))
+        )
+        assertEquals(listOf("Tue 13 Oct · 1 meal booked"), r.groups[0].days.map { it.text })
+        assertEquals("meals", day(r, 0).state)
+        assertFalse(PlanLog.lines(r).joinToString(" · ").contains("not booked"))
+    }
+
+    /**
+     * The invariant that replaces "one head line, one list of days": **every row is accounted for
+     * by at least one head line above it**, and a `not booked` row appears exactly where a head
+     * line counts one.
+     */
+    @Test fun `every row under a group is accounted for by a head line above it`() {
+        val r = runSends(
+            listOf(
+                plan(
+                    listOf("2026-10-12" to 0, "2026-10-16" to 0),
+                    listOf(workout("Lower A", listOf(ex("Back Squat", "Barbell", listOf(listOf(225, 5)))))),
+                    id = "train", sentAt = 2000
+                ),
+                cookPlan(listOf(recipe("Beef Chilli")), (12..18).map { meal("2026-10-$it", dinner, 0) })
+            ),
+            listOf(
+                foodDay("2026-10-13", name = "Conditioning",
+                    sets = listOf(set("Deadlift", "Barbell", 315.0, 3))),
+                day("2026-10-12", "Lower A", listOf(set("Back Squat", "Barbell", 225.0, 5)))
+            )
+        )
+        r.groups.forEach { group ->
+            val booked = group.sends.maxOf { it.counts.booked }
+            val counted = group.sends.sumOf { it.counts.booked + it.counts.other }
+            assertTrue("a row under ${group.id} no head line counts", counted >= group.days.size)
+            assertTrue(booked <= group.days.size)
+            assertEquals(
+                "`not booked` and `other day logged` are the same fact",
+                group.days.any { it.state == "notBooked" },
+                group.sends.any { it.counts.other > 0 }
+            )
+            // A head line's range is its own send's, never the group's.
+            assertTrue(group.sends.all { it.head.contains(it.range) })
+        }
+    }
+
+    /**
+     * A client sent one link a week -- every Coach web client, and every Coach Android client who
+     * is only trained or only fed -- reads exactly as they did: one send per group, and [merge] of
+     * one booking is that booking.
+     */
+    @Test fun `a client sent one link a week is one send per group`() {
+        val training = run(
+            listOf("2026-10-12" to 0),
+            listOf(workout("Lower A", listOf(ex("Back Squat", "Barbell", listOf(listOf(225, 5)))))),
+            listOf(day("2026-10-12", "Lower A", listOf(set("Back Squat", "Barbell", 225.0, 5))))
+        )
+        assertEquals(listOf(1), training.groups.map { it.sends.size })
+        assertEquals("Booked 1 day, 12 Oct · logged 1", training.groups[0].sends[0].head)
+        assertEquals(listOf("Mon 12 Oct · Lower A · logged"), training.groups[0].days.map { it.text })
+
+        val meals = runMeals(listOf(recipe("Beef Chilli")), listOf(meal("2026-10-12", dinner, 0, 2.0)))
+        assertEquals(listOf(1), meals.groups.map { it.sends.size })
+        assertEquals("Booked 1 day, 12 Oct · 1 meal booked", meals.groups[0].sends[0].head)
+        assertEquals(listOf("Mon 12 Oct · 1 meal booked"), meals.groups[0].days.map { it.text })
+
+        val one = PlanLog.Booking("2026-10-12", "Lower A", true, emptyList(), emptyList())
+        assertEquals(one, PlanLog.merge(listOf(one)))
+    }
+
+    /**
+     * Two overlapping sends are still two records in the by-lift view, and the day they share is
+     * one entry under each lift rather than two.
+     */
+    @Test fun `the by-lift view reads the shared day once`() {
+        val r = twoSends(sharedTuesday())
+        assertEquals(listOf("Bench Press (Barbell)"), r.byLift.map { it.title })
+        assertEquals(listOf("13 Oct"), r.byLift[0].entries.map { it.whenText })
+    }
+
     /* ---------------- the line discipline ---------------- */
 
     /* The spirit of PerLimbSetsTest's own wording checks and Coach web's twin: the card counts,
@@ -989,6 +1329,36 @@ class PlanLogTest {
         "failed", "poor", "behind", "compliance", "adherence", "streak", "%"
     )
 
+    /**
+     * Two sends read as one list of days, exercising every shape merging can make: a day booked by
+     * both, a day booked to eat and trained anyway, a day one send covers and the other does not,
+     * and an edited re-send pooled under one row.
+     */
+    private fun mergedFixture(): PlanLog.Result = runSends(
+        listOf(
+            plan(
+                listOf("2026-10-12" to 0, "2026-10-16" to 0),
+                listOf(workout("Lower A", listOf(ex("Back Squat", "Barbell",
+                    listOf(listOf(225, 5), listOf(225, 5)))))),
+                id = "train", sentAt = 3000
+            ),
+            plan(
+                listOf("2026-10-12" to 0),
+                listOf(workout("Lower A", listOf(ex("Back Squat", "Barbell", listOf(listOf(225, 5)))))),
+                id = "train-before-the-edit", sentAt = 2000
+            ),
+            cookPlan(listOf(recipe("Beef Chilli")), (12..18).map { meal("2026-10-$it", dinner, 0) })
+        ),
+        listOf(
+            foodDay(
+                "2026-10-12", listOf(food("Beef Chilli", dinner)), name = "Lower A",
+                sets = listOf(set("Back Squat", "Barbell", 225.0, 5))
+            ),
+            foodDay("2026-10-14", name = "Conditioning",
+                sets = listOf(set("Deadlift", "Barbell", 315.0, 3)))
+        )
+    )
+
     @Test fun `nothing in this card tells a coach what to do`() {
         // Every state the card has: a logged day, a day with nothing logged, a day outside the
         // window the client sent, a day logged and not booked; and a matched lift, a substituted
@@ -996,8 +1366,17 @@ class PlanLogTest {
         // for. The fixture exercises all of them.
         val training = PlanLog.lines(fromFixture())
         val meals = PlanLog.lines(mealFixture())
+        // And the shape neither fixture has: two sends read as one list of days, where a row can
+        // carry a training verdict and a meal clause at once. Every clause in it is one of the
+        // above, which is the point -- but a merged row is a sentence the fixtures never produce,
+        // so it is read here rather than assumed to be safe.
+        val merged = PlanLog.lines(mergedFixture())
         assertTrue("the meal fixture should exercise every meal state", meals.size > 15)
-        val every = (training + meals).joinToString(" · ").lowercase(Locale.US)
+        assertTrue(
+            "the merged fixture should produce a row carrying both halves",
+            merged.any { it.contains("not booked") && it.contains("meal booked") }
+        )
+        val every = (training + meals + merged).joinToString(" · ").lowercase(Locale.US)
         assertTrue("the fixture should exercise the whole card", every.length > 200)
         forbidden.forEach { word ->
             assertFalse("\"$word\" reached a screen: $every", every.contains(word))
@@ -1051,7 +1430,7 @@ class PlanLogTest {
         // booked, and no figure beside it claiming how many of them were eaten, because there is no
         // such figure.
         val meals = mealFixture()
-        assertEquals(6, meals.groups[0].counts.meals)
+        assertEquals(6, meals.groups[0].sends[0].counts.meals)
         walk(meals, "meals")
     }
 
@@ -1109,6 +1488,19 @@ class PlanLogTest {
         assertTrue("the day's own food count sits above the rows", body.contains("day.foodContext"))
         assertTrue("what was booked", body.contains("meal.title"))
         assertTrue("what the log holds at that meal", body.contains("meal.logged"))
+    }
+
+    /**
+     * **Every send's head line, not just the first.** A group is the sends a coach reads together,
+     * and a card that drew `sends.first()` would leave the other send's days under a head line
+     * that does not account for them -- the quiet lie the grouping exists to avoid.
+     */
+    @Test fun `the card draws a head line for every send in a group`() {
+        val source = java.io.File("src/main/java/com/dugcanlift/coach/ui/ClientScreen.kt").readText()
+        assertTrue("the card must draw a head line per send", source.contains("group.sends.forEach"))
+        listOf("group.sends.first()", "group.sends[0]").forEach {
+            assertFalse("$it draws one send's head line over every send's days", source.contains(it))
+        }
     }
 
     @Test fun `the card carries the note about what a meal row does not claim`() {

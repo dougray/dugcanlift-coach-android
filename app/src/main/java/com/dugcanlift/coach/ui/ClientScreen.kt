@@ -683,7 +683,19 @@ private fun BookedDay(day: PlanLog.DayRow) {
 private fun BookedGroupCard(group: PlanLog.Group) {
     Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), border = dclCardBorder()) {
         Column(Modifier.padding(16.dp)) {
-            Text(text = group.head, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            // One head line per send. Two sends are two records -- see PlanLog.Group -- so a week
+            // a coach booked to train in one link and to eat in another says both, above the one
+            // list of days they made between them. **A screen that draws only the first leaves
+            // rows under a head line that does not account for them**, which is the quiet lie the
+            // grouping exists to avoid.
+            group.sends.forEachIndexed { index, send ->
+                if (index > 0) Spacer(Modifier.height(3.dp))
+                Text(
+                    text = send.head,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+            }
             Spacer(Modifier.height(8.dp))
             group.days.forEach { BookedDay(it) }
         }
