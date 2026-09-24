@@ -476,33 +476,51 @@ private fun ClientDetailContent(
         }
 
         if (booked.groups.isNotEmpty()) {
+            // By lift is about lifts. A send that booked only meals has none, so the chip would
+            // open an empty card -- one mode is no choice, so no chips.
+            val byLiftMode = bookedByLift && booked.byLift.isNotEmpty()
             item {
                 Column(wide) {
                     SectionTitle("Booked")
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        FilterChip(
-                            selected = !bookedByLift,
-                            onClick = { bookedByLift = false },
-                            label = { Text("By day") }
-                        )
-                        FilterChip(
-                            selected = bookedByLift,
-                            onClick = { bookedByLift = true },
-                            label = { Text("By lift") }
-                        )
+                    if (booked.byLift.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            FilterChip(
+                                selected = !byLiftMode,
+                                onClick = { bookedByLift = false },
+                                label = { Text("By day") }
+                            )
+                            FilterChip(
+                                selected = byLiftMode,
+                                onClick = { bookedByLift = true },
+                                label = { Text("By lift") }
+                            )
+                        }
                     }
                 }
             }
-            if (bookedByLift) {
+            if (byLiftMode) {
                 items(booked.byLift, key = { "lift-${it.key}" }) { lift ->
                     Column(wide) { BookedLiftCard(lift) }
                 }
             } else {
                 items(booked.groups, key = { "sent-${it.id}" }) { group ->
                     Column(wide) { BookedGroupCard(group) }
+                }
+            }
+            // What a meal row does not claim, once, under the card that has one.
+            booked.mealFooter?.let { note ->
+                item {
+                    Column(wide) {
+                        Text(
+                            text = note,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = DclMuted,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                    }
                 }
             }
             // Permanently, whatever is above it: Coach knows what it handed to a chooser and
@@ -587,9 +605,45 @@ private fun BookedExercise(ex: PlanLog.ExerciseLines, heading: String) {
     }
 }
 
+/**
+ * The meals a day booked, and what the log holds at each slot.
+ *
+ * Two separate statements, never one: the bold row is Coach's own record of what it booked, the
+ * muted row under it is what the client's log holds at that meal, and nothing anywhere says they
+ * are the same dish. The context line above them all is what stops "Nothing logged at lunch" being
+ * read as "they ate nothing" -- see `PlanLog.MEAL_NOTE`, which sits under the card saying so in
+ * words.
+ */
+@Composable
+private fun BookedMeals(day: PlanLog.DayRow) {
+    if (day.meals.isEmpty()) return
+    Column(Modifier.padding(top = 8.dp)) {
+        Text(
+            text = "Meals",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold
+        )
+        day.foodContext?.let {
+            Text(text = it, style = MaterialTheme.typography.bodyMedium, color = DclMuted)
+        }
+        day.meals.forEach { meal ->
+            Column(Modifier.padding(top = 6.dp)) {
+                Text(
+                    text = meal.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                meal.logged?.let {
+                    Text(text = it, style = MaterialTheme.typography.bodyMedium, color = DclMuted)
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun BookedDay(day: PlanLog.DayRow) {
-    val hasDetail = day.exercises.isNotEmpty() || day.alsoLogged.isNotEmpty()
+    val hasDetail = day.exercises.isNotEmpty() || day.alsoLogged.isNotEmpty() || day.meals.isNotEmpty()
     var expanded by rememberSaveable(day.key) { mutableStateOf(false) }
     Column(
         Modifier.fillMaxWidth()
@@ -620,6 +674,7 @@ private fun BookedDay(day: PlanLog.DayRow) {
                     Text(text = it.text, style = MaterialTheme.typography.bodyMedium)
                 }
             }
+            BookedMeals(day)
         }
     }
 }
