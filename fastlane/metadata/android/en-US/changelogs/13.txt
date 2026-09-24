@@ -1,0 +1,3 @@
+The Booked card now covers meals as well as training: the meals you booked for a day, and the foods your client logged at each meal, named as they wrote them.
+
+It does not claim a logged dish is the one you booked — there is nothing tying the two together, so it says what the log holds and leaves the rest to you. A day your client sent as totals only gets no meal verdict at all.
