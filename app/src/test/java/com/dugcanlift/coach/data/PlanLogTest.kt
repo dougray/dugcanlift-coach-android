@@ -145,11 +145,11 @@ class PlanLogTest {
                 counts.getInt("notLogged"), counts.getInt("outside"), counts.getInt("other"),
                 counts.getInt("meals")
             ),
-            result.groups[0].counts
+            result.groups[0].sends[0].counts
         )
         val states = expected.getJSONArray("dayStates").let { a -> (0 until a.length()).map { a.getString(it) } }
         assertEquals(states, result.groups[0].days.map { it.state })
-        assertEquals("12–17 Oct", result.groups[0].range)
+        assertEquals("12–17 Oct", result.groups[0].sends[0].range)
     }
 
     @Test fun `the covered window comes off the link the client sent`() {
@@ -171,7 +171,7 @@ class PlanLogTest {
             listOf(day("2026-10-12", "Lower A", listOf(set("Back Squat", "Barbell", 225.0, 5))))
         )
         assertEquals("Mon 12 Oct · Lower A · logged", day(r, 0).text)
-        assertEquals(PlanLog.Counts(1, 1, 1, 0, 0, 0, 0), r.groups[0].counts)
+        assertEquals(PlanLog.Counts(1, 1, 1, 0, 0, 0, 0), r.groups[0].sends[0].counts)
     }
 
     @Test fun `a booked day with nothing logged reads not logged, never missed`() {
@@ -181,7 +181,7 @@ class PlanLogTest {
             emptyList()
         )
         assertEquals("Mon 12 Oct · Lower A · not logged", day(r, 0).text)
-        assertEquals("Booked 1 day, 12 Oct · logged 0", r.groups[0].head)
+        assertEquals("Booked 1 day, 12 Oct · logged 0", r.groups[0].sends[0].head)
     }
 
     @Test fun `a booked day outside the window the client sent is never called not logged`() {
@@ -192,7 +192,7 @@ class PlanLogTest {
             coverage = "2026-09-01" to "2026-10-05"
         )
         assertEquals("Mon 12 Oct · Lower A · outside the log they sent", day(r, 0).text)
-        assertEquals("Booked 1 day, 12 Oct · no log covering them", r.groups[0].head)
+        assertEquals("Booked 1 day, 12 Oct · no log covering them", r.groups[0].sends[0].head)
         assertFalse(PlanLog.lines(r).joinToString(" ").contains("not logged"))
     }
 
@@ -220,8 +220,8 @@ class PlanLogTest {
             ),
             r.groups[0].days.map { it.text }
         )
-        assertEquals(1, r.groups[0].counts.other)
-        assertTrue(r.groups[0].head.endsWith("1 other day logged"))
+        assertEquals(1, r.groups[0].sends[0].counts.other)
+        assertTrue(r.groups[0].sends[0].head.endsWith("1 other day logged"))
     }
 
     @Test fun `a substitution shows as one pair on name alone, labelled`() {
@@ -301,8 +301,8 @@ class PlanLogTest {
             unit = "lb",
             today = "2026-10-20"
         )
-        assertEquals(listOf("new", "old"), r.groups.map { it.id })
-        assertEquals(listOf("12 Oct", "5 Oct"), r.groups.map { it.range })
+        assertEquals(listOf("new", "old"), r.groups.flatMap { g -> g.sends.map { it.id } })
+        assertEquals(listOf("12 Oct", "5 Oct"), r.groups.flatMap { g -> g.sends.map { it.range } })
     }
 
     @Test fun `a plan booking nothing in the last eight weeks is not a group at all`() {
@@ -671,7 +671,7 @@ class PlanLogTest {
     @Test fun `a plan that books meals and no training is a card, not a skipped group`() {
         val r = runMeals(listOf(recipe("Beef Chilli")), listOf(meal("2026-10-12", dinner, 0, 2.0)))
         assertEquals("the training-only card skipped this entirely", 1, r.groups.size)
-        assertEquals("Booked 1 day, 12 Oct · 1 meal booked", r.groups[0].head)
+        assertEquals("Booked 1 day, 12 Oct · 1 meal booked", r.groups[0].sends[0].head)
         assertEquals("Mon 12 Oct · 1 meal booked", day(r, 0).text)
         assertEquals("meals", day(r, 0).state)
     }
@@ -682,7 +682,7 @@ class PlanLogTest {
         val r = runMeals(listOf(recipe("Beef Chilli")), listOf(meal("2026-10-12", dinner, 0)))
         val every = PlanLog.lines(r).joinToString(" · ")
         assertFalse(every, every.contains("not logged"))
-        assertEquals(PlanLog.Counts(1, 0, 0, 0, 0, 0, 1), r.groups[0].counts)
+        assertEquals(PlanLog.Counts(1, 0, 0, 0, 0, 0, 1), r.groups[0].sends[0].counts)
     }
 
     @Test fun `a booked meal names the slot, the dish and the servings, and no macros`() {
@@ -799,7 +799,7 @@ class PlanLogTest {
         assertEquals("Mon 12 Oct · 1 meal booked · outside the log they sent", day(r, 0).text)
         assertNull(day(r, 0).meals[0].logged)
         assertNull(day(r, 0).foodContext)
-        assertEquals("Booked 1 day, 12 Oct · 1 meal booked · no log covering them", r.groups[0].head)
+        assertEquals("Booked 1 day, 12 Oct · 1 meal booked · no log covering them", r.groups[0].sends[0].head)
     }
 
     @Test fun `a client whose log predates the send gets no verdict on any meal of it`() {
@@ -857,9 +857,9 @@ class PlanLogTest {
         // training at all, so the figure names what it counts.
         assertEquals(
             "Booked 2 days, 12–13 Oct · 3 meals booked · 1 training day, 1 logged",
-            r.groups[0].head
+            r.groups[0].sends[0].head
         )
-        assertEquals(PlanLog.Counts(2, 1, 1, 0, 0, 0, 3), r.groups[0].counts)
+        assertEquals(PlanLog.Counts(2, 1, 1, 0, 0, 0, 3), r.groups[0].sends[0].counts)
     }
 
     @Test fun `a training-only send reads exactly as it did before meals existed`() {
@@ -868,7 +868,7 @@ class PlanLogTest {
             listOf(workout("Lower A", listOf(ex("Back Squat", "Barbell", listOf(listOf(225, 5)))))),
             listOf(day("2026-10-12", "Lower A", listOf(set("Back Squat", "Barbell", 225.0, 5))))
         )
-        assertEquals("Booked 1 day, 12 Oct · logged 1", r.groups[0].head)
+        assertEquals("Booked 1 day, 12 Oct · logged 1", r.groups[0].sends[0].head)
         assertEquals(emptyList<PlanLog.MealBooking>(), day(r, 0).meals)
         assertNull(day(r, 0).foodContext)
         assertNull("and no note about meals under a card with none", r.mealFooter)
@@ -888,7 +888,7 @@ class PlanLogTest {
             listOf("Mon 12 Oct · 1 meal booked", "Wed 14 Oct · 1 meal booked"),
             r.groups[0].days.map { it.text }
         )
-        assertEquals(0, r.groups[0].counts.other)
+        assertEquals(0, r.groups[0].sends[0].counts.other)
         assertFalse(PlanLog.lines(r).joinToString(" ").contains("not booked"))
     }
 
@@ -905,7 +905,7 @@ class PlanLogTest {
             coverage = "2026-10-01" to "2026-10-31", unit = "lb", today = "2026-10-20"
         )
         assertEquals("Tue 13 Oct · Conditioning · not booked", r.groups[0].days[1].text)
-        assertEquals(1, r.groups[0].counts.other)
+        assertEquals(1, r.groups[0].sends[0].counts.other)
     }
 
     @Test fun `by lift stays about lifts, and a meals-only plan has none`() {
@@ -1051,7 +1051,7 @@ class PlanLogTest {
         // booked, and no figure beside it claiming how many of them were eaten, because there is no
         // such figure.
         val meals = mealFixture()
-        assertEquals(6, meals.groups[0].counts.meals)
+        assertEquals(6, meals.groups[0].sends[0].counts.meals)
         walk(meals, "meals")
     }
 
