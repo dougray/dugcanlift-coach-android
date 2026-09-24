@@ -141,8 +141,9 @@ class PlanLogTest {
         val counts = expected.getJSONObject("counts")
         assertEquals(
             PlanLog.Counts(
-                counts.getInt("booked"), counts.getInt("logged"), counts.getInt("notLogged"),
-                counts.getInt("outside"), counts.getInt("other")
+                counts.getInt("booked"), counts.getInt("training"), counts.getInt("logged"),
+                counts.getInt("notLogged"), counts.getInt("outside"), counts.getInt("other"),
+                counts.getInt("meals")
             ),
             result.groups[0].counts
         )
@@ -170,7 +171,7 @@ class PlanLogTest {
             listOf(day("2026-10-12", "Lower A", listOf(set("Back Squat", "Barbell", 225.0, 5))))
         )
         assertEquals("Mon 12 Oct · Lower A · logged", day(r, 0).text)
-        assertEquals(PlanLog.Counts(1, 1, 0, 0, 0), r.groups[0].counts)
+        assertEquals(PlanLog.Counts(1, 1, 1, 0, 0, 0, 0), r.groups[0].counts)
     }
 
     @Test fun `a booked day with nothing logged reads not logged, never missed`() {
@@ -314,7 +315,9 @@ class PlanLogTest {
         assertEquals(emptyList<String>(), PlanLog.lines(r))
     }
 
-    @Test fun `a plan sent with no training at all books nothing`() {
+    @Test fun `a meal booked against a recipe the payload does not carry books nothing`() {
+        // `m.x` indexes `r`, exactly as `k.x` indexes `w`. A booking that indexes nothing is
+        // skipped rather than drawn as a dish with no name.
         val payload = JSONObject().put("v", 1).put("t", "plan").put("l", "c")
             .put("r", JSONArray())
             .put("m", JSONArray().put(JSONObject().put("d", "2026-10-12").put("s", 2).put("x", 0).put("q", 1)))
@@ -326,7 +329,7 @@ class PlanLogTest {
             unit = "lb",
             today = "2026-10-20"
         )
-        assertEquals("meals are not compared", emptyList<PlanLog.Group>(), r.groups)
+        assertEquals(emptyList<PlanLog.Group>(), r.groups)
     }
 
     @Test fun `no plan was ever sent, so no card and no explanation on screen`() {
@@ -587,6 +590,396 @@ class PlanLogTest {
         )
     }
 
+    /* ---------------- meals ----------------
+     *
+     * A booked meal is a recipe in a slot on a day. What comes back is a list of food entries --
+     * free text, barcode scans, a recipe logged as a meal -- named out of the client's own food
+     * dictionary, with no id joining them to anything, and itemised only if the client chose to
+     * itemise.
+     *
+     * So Coach says what it booked and what the log holds at that slot, and never that the two are
+     * the same dish. The tests that matter most here are the negative ones: nothing this card
+     * produces may tell a coach their client ate something they did not.
+     */
+
+    private fun recipe(name: String): JSONObject = JSONObject()
+        .put("n", name).put("s", 4)
+        .put("u", JSONArray(listOf(400, 30, 40, 12, 6)))
+        .put("i", JSONArray()).put("t", JSONArray())
+
+    private fun meal(date: String, slot: Int, x: Int, servings: Double = 1.0): JSONObject =
+        JSONObject().put("d", date).put("s", slot).put("x", x).put("q", servings)
+
+    private val breakfast = 0
+    private val lunch = 1
+    private val dinner = 2
+    private val snack = 3
+
+    private fun foodPlan(
+        recipes: List<JSONObject>,
+        meals: List<JSONObject>,
+        workouts: List<JSONObject> = emptyList(),
+        bookings: List<Pair<String, Int>> = emptyList()
+    ): SentPlan {
+        val payload = JSONObject()
+            .put("v", 1).put("t", "plan").put("l", "c").put("n", "")
+            .put("r", JSONArray(recipes)).put("m", JSONArray(meals))
+            .put("w", JSONArray(workouts))
+            .put("k", JSONArray(bookings.map { (d, x) -> JSONObject().put("d", d).put("x", x) }))
+        return SentPlan("p1", "c", 1000, "h", payload.toString())
+    }
+
+    /**
+     * A day's food as the importer stores it: macros already multiplied by servings, and [slot] the
+     * wire's own meal index -- 0 breakfast through 3 snack. A slot outside that range is an entry
+     * tied to no meal, which is what Coach web's importer writes as an empty word.
+     */
+    private fun food(name: String, slot: Int = 9) =
+        ClientFoodEntry(name, 1.0, 400.0, 30.0, 12.0, 40.0, 6.0, slot)
+
+    private fun foodDay(
+        key: String,
+        foods: List<ClientFoodEntry> = emptyList(),
+        totals: Boolean = false,
+        zeroTotals: Boolean = false,
+        sets: List<ExerciseSet> = emptyList(),
+        name: String? = null
+    ) = TrainingDay(
+        dayKey = key, sessionName = name, focus = null, bodyweightLb = null, steps = null,
+        foodCalories = if (totals) 2100.0 else if (zeroTotals) 0.0 else null,
+        foodProteinG = if (totals) 160.0 else if (zeroTotals) 0.0 else null,
+        foodFatG = if (totals) 70.0 else if (zeroTotals) 0.0 else null,
+        foodCarbsG = if (totals) 210.0 else if (zeroTotals) 0.0 else null,
+        foodFiberG = if (totals) 28.0 else if (zeroTotals) 0.0 else null,
+        sets = sets, foodEntries = foods
+    )
+
+    private fun runMeals(
+        recipes: List<JSONObject>,
+        meals: List<JSONObject>,
+        days: List<TrainingDay> = emptyList(),
+        coverage: Pair<String, String>? = "2026-10-01" to "2026-10-31"
+    ) = PlanLog.compare(
+        clientId = "c",
+        sentPlans = listOf(foodPlan(recipes, meals)),
+        days = days.associateBy { it.dayKey },
+        coverage = coverage,
+        unit = "lb",
+        today = "2026-10-20"
+    )
+
+    @Test fun `a plan that books meals and no training is a card, not a skipped group`() {
+        val r = runMeals(listOf(recipe("Beef Chilli")), listOf(meal("2026-10-12", dinner, 0, 2.0)))
+        assertEquals("the training-only card skipped this entirely", 1, r.groups.size)
+        assertEquals("Booked 1 day, 12 Oct · 1 meal booked", r.groups[0].head)
+        assertEquals("Mon 12 Oct · 1 meal booked", day(r, 0).text)
+        assertEquals("meals", day(r, 0).state)
+    }
+
+    @Test fun `a meals-only day is never called not logged`() {
+        // There is no training booked to be logged or not. Saying "not logged" against one would be
+        // Coach inventing a booking to hold against a client.
+        val r = runMeals(listOf(recipe("Beef Chilli")), listOf(meal("2026-10-12", dinner, 0)))
+        val every = PlanLog.lines(r).joinToString(" · ")
+        assertFalse(every, every.contains("not logged"))
+        assertEquals(PlanLog.Counts(1, 0, 0, 0, 0, 0, 1), r.groups[0].counts)
+    }
+
+    @Test fun `a booked meal names the slot, the dish and the servings, and no macros`() {
+        val r = runMeals(listOf(recipe("Beef Chilli")), listOf(meal("2026-10-12", dinner, 0, 2.0)))
+        assertEquals("Dinner · Beef Chilli · 2 servings", day(r, 0).meals[0].title)
+        // The recipe's own figures are in the payload and deliberately not on the card: a planned
+        // calorie beside a logged one is a coach's target measured against, which is the line this
+        // card does not cross.
+        val every = PlanLog.lines(r).joinToString(" · ")
+        listOf("400", "30", "kcal", "protein").forEach { token ->
+            assertFalse("$token reached the card", every.contains(token))
+        }
+    }
+
+    @Test fun `one serving is one serving, and two dishes at one slot are two rows`() {
+        val r = runMeals(
+            listOf(recipe("Overnight Oats"), recipe("Protein Shake")),
+            listOf(meal("2026-10-12", breakfast, 0), meal("2026-10-12", breakfast, 1, 1.0))
+        )
+        assertEquals(
+            listOf("Breakfast · Overnight Oats · 1 serving", "Breakfast · Protein Shake · 1 serving"),
+            day(r, 0).meals.map { it.title }
+        )
+    }
+
+    @Test fun `half a serving is half a serving, never rounded into a dish nobody booked`() {
+        val r = runMeals(listOf(recipe("Beef Chilli")), listOf(meal("2026-10-12", dinner, 0, 1.5)))
+        assertEquals("Dinner · Beef Chilli · 1.5 servings", day(r, 0).meals[0].title)
+    }
+
+    @Test fun `meals read in the order a day is eaten, not the order they were booked`() {
+        val r = runMeals(
+            listOf(recipe("Chilli"), recipe("Oats"), recipe("Bar")),
+            listOf(meal("2026-10-12", snack, 2), meal("2026-10-12", dinner, 0), meal("2026-10-12", breakfast, 1))
+        )
+        assertEquals(listOf("Breakfast", "Dinner", "Snack"), day(r, 0).meals.map { it.slotLabel })
+    }
+
+    /* ---------------- what the log can be asked ---------------- */
+
+    @Test fun `an itemised slot says what the log holds there, and never that it is the dish`() {
+        val r = runMeals(
+            listOf(recipe("Beef Chilli")), listOf(meal("2026-10-12", dinner, 0, 2.0)),
+            listOf(foodDay("2026-10-12", listOf(
+                food("Porridge", breakfast), food("Beef Chilli", dinner), food("Greek yoghurt", dinner)
+            )))
+        )
+        assertEquals("3 foods logged that day", day(r, 0).foodContext)
+        assertEquals("Logged at dinner · Beef Chilli · Greek yoghurt", day(r, 0).meals[0].logged)
+        // The two facts are printed one above the other. Nothing anywhere claims the logged Beef
+        // Chilli is the booked one -- the coach makes that join, from the same two facts Coach has.
+        val every = PlanLog.lines(r).joinToString(" · ").lowercase(Locale.US)
+        listOf("ate", "as booked", "as planned", "matched", "they had").forEach { claim ->
+            assertFalse("\"$claim\" claims a match: $every", every.contains(claim))
+        }
+    }
+
+    @Test fun `a booked meal with nothing at that slot says so about the slot, not the client`() {
+        val r = runMeals(
+            listOf(recipe("Chicken & Rice")), listOf(meal("2026-10-12", lunch, 0)),
+            listOf(foodDay("2026-10-12", listOf(food("Porridge", breakfast), food("Steak", dinner))))
+        )
+        assertEquals("Nothing logged at lunch", day(r, 0).meals[0].logged)
+        // And the day's own count sits above it, so "nothing at lunch" cannot be read as "they ate
+        // nothing".
+        assertEquals("2 foods logged that day", day(r, 0).foodContext)
+    }
+
+    @Test fun `a day with meals booked and no food at all logged says exactly that`() {
+        val r = runMeals(
+            listOf(recipe("Beef Chilli")), listOf(meal("2026-10-12", dinner, 0)),
+            listOf(foodDay("2026-10-12"))
+        )
+        assertEquals("No food logged that day", day(r, 0).foodContext)
+        assertNull("nothing to say per slot", day(r, 0).meals[0].logged)
+    }
+
+    @Test fun `a day opened and left empty logged no food, and is not a slot verdict`() {
+        // SHARE-FORMAT: `ft: [0,0,0,0,0]` is a day opened and nothing logged.
+        val r = runMeals(
+            listOf(recipe("Beef Chilli")), listOf(meal("2026-10-12", dinner, 0)),
+            listOf(foodDay("2026-10-12", zeroTotals = true))
+        )
+        assertEquals("No food logged that day", day(r, 0).foodContext)
+        assertNull(day(r, 0).meals[0].logged)
+    }
+
+    @Test fun `a client who sent totals and not items gets no slot verdict at all`() {
+        // Itemisation is a choice the client makes per send. Calling a booked dinner "nothing
+        // logged at dinner" here would contradict that choice with a fact Coach does not have.
+        val r = runMeals(
+            listOf(recipe("Beef Chilli")), listOf(meal("2026-10-12", dinner, 0)),
+            listOf(foodDay("2026-10-12", totals = true))
+        )
+        assertEquals("Food logged that day, not itemised", day(r, 0).foodContext)
+        assertNull(day(r, 0).meals[0].logged)
+        assertFalse(PlanLog.lines(r).joinToString(" ").contains("Nothing logged"))
+    }
+
+    @Test fun `foods the client tied to no meal are counted, so a quiet slot is not a verdict`() {
+        val r = runMeals(
+            listOf(recipe("Chicken & Rice")), listOf(meal("2026-10-12", lunch, 0)),
+            listOf(foodDay("2026-10-12", listOf(food("Flapjack"), food("Coffee"), food("Steak", dinner))))
+        )
+        assertEquals("3 foods logged that day · 2 not tied to a meal", day(r, 0).foodContext)
+        assertEquals("Nothing logged at lunch", day(r, 0).meals[0].logged)
+    }
+
+    @Test fun `a booked meal outside the log the client sent is never a slot verdict`() {
+        val r = runMeals(
+            listOf(recipe("Beef Chilli")), listOf(meal("2026-10-12", dinner, 0)),
+            coverage = "2026-09-01" to "2026-10-05"
+        )
+        assertEquals("Mon 12 Oct · 1 meal booked · outside the log they sent", day(r, 0).text)
+        assertNull(day(r, 0).meals[0].logged)
+        assertNull(day(r, 0).foodContext)
+        assertEquals("Booked 1 day, 12 Oct · 1 meal booked · no log covering them", r.groups[0].head)
+    }
+
+    @Test fun `a client whose log predates the send gets no verdict on any meal of it`() {
+        val r = runMeals(
+            listOf(recipe("Beef Chilli"), recipe("Oats")),
+            listOf(meal("2026-10-12", dinner, 0), meal("2026-10-13", breakfast, 1)),
+            coverage = "2026-08-01" to "2026-09-30"
+        )
+        assertEquals(
+            listOf(
+                "Mon 12 Oct · 1 meal booked · outside the log they sent",
+                "Tue 13 Oct · 1 meal booked · outside the log they sent"
+            ),
+            r.groups[0].days.map { it.text }
+        )
+        val every = PlanLog.lines(r).joinToString(" · ")
+        assertFalse(every.contains("Nothing logged"))
+        assertFalse(every.contains("not logged"))
+    }
+
+    @Test fun `a client's own food name is printed as they wrote it, percent sign and all`() {
+        // The line discipline is about Coach's sentences, not about the client's data: "2% milk" is
+        // what they logged and what Coach prints. Never rewritten, never trimmed to fit a rule
+        // about the app's own words.
+        val r = runMeals(
+            listOf(recipe("Porridge")), listOf(meal("2026-10-12", breakfast, 0)),
+            listOf(foodDay("2026-10-12", listOf(food("2% milk", breakfast))))
+        )
+        assertEquals("Logged at breakfast · 2% milk", day(r, 0).meals[0].logged)
+    }
+
+    /* ---------------- meals beside training ---------------- */
+
+    @Test fun `a day that books both says the training verdict and the meal count`() {
+        val r = PlanLog.compare(
+            clientId = "c",
+            sentPlans = listOf(foodPlan(
+                listOf(recipe("Beef Chilli"), recipe("Oats")),
+                listOf(meal("2026-10-12", dinner, 0, 2.0), meal("2026-10-13", breakfast, 1),
+                       meal("2026-10-13", dinner, 0)),
+                listOf(workout("Lower A", listOf(ex("Back Squat", "Barbell", listOf(listOf(225, 5)))))),
+                listOf("2026-10-12" to 0)
+            )),
+            days = mapOf("2026-10-12" to foodDay(
+                "2026-10-12", listOf(food("Beef Chilli", dinner)),
+                sets = listOf(set("Back Squat", "Barbell", 225.0, 5)), name = "Lower A"
+            )),
+            coverage = "2026-10-01" to "2026-10-31", unit = "lb", today = "2026-10-20"
+        )
+        assertEquals(
+            listOf("Mon 12 Oct · Lower A · logged · 1 meal booked", "Tue 13 Oct · 2 meals booked"),
+            r.groups[0].days.map { it.text }
+        )
+        // "logged 2" under "Booked 5 days" would read as two of five when three of them booked no
+        // training at all, so the figure names what it counts.
+        assertEquals(
+            "Booked 2 days, 12–13 Oct · 3 meals booked · 1 training day, 1 logged",
+            r.groups[0].head
+        )
+        assertEquals(PlanLog.Counts(2, 1, 1, 0, 0, 0, 3), r.groups[0].counts)
+    }
+
+    @Test fun `a training-only send reads exactly as it did before meals existed`() {
+        val r = run(
+            listOf("2026-10-12" to 0),
+            listOf(workout("Lower A", listOf(ex("Back Squat", "Barbell", listOf(listOf(225, 5)))))),
+            listOf(day("2026-10-12", "Lower A", listOf(set("Back Squat", "Barbell", 225.0, 5))))
+        )
+        assertEquals("Booked 1 day, 12 Oct · logged 1", r.groups[0].head)
+        assertEquals(emptyList<PlanLog.MealBooking>(), day(r, 0).meals)
+        assertNull(day(r, 0).foodContext)
+        assertNull("and no note about meals under a card with none", r.mealFooter)
+    }
+
+    @Test fun `a food plan does not hold up the training the coach never booked`() {
+        // `not booked` exists so a session lifted the day after the one it was booked for sits
+        // beside that booking. A send with no training booked none for it to sit beside, and
+        // listing a client's own sessions under a meal plan would be Coach holding up work nobody
+        // set out to book.
+        val r = runMeals(
+            listOf(recipe("Beef Chilli")),
+            listOf(meal("2026-10-12", dinner, 0), meal("2026-10-14", dinner, 0)),
+            listOf(day("2026-10-13", "Conditioning", listOf(set("Kettlebell Swing", "Kettlebell", 53.0, 20))))
+        )
+        assertEquals(
+            listOf("Mon 12 Oct · 1 meal booked", "Wed 14 Oct · 1 meal booked"),
+            r.groups[0].days.map { it.text }
+        )
+        assertEquals(0, r.groups[0].counts.other)
+        assertFalse(PlanLog.lines(r).joinToString(" ").contains("not booked"))
+    }
+
+    @Test fun `a send that books both still shows a session it did not book`() {
+        val r = PlanLog.compare(
+            clientId = "c",
+            sentPlans = listOf(foodPlan(
+                listOf(recipe("Beef Chilli")), listOf(meal("2026-10-12", dinner, 0)),
+                listOf(workout("Lower A", listOf(ex("Back Squat", "Barbell", listOf(listOf(225, 5)))))),
+                listOf("2026-10-12" to 0, "2026-10-14" to 0)
+            )),
+            days = mapOf("2026-10-13" to day("2026-10-13", "Conditioning",
+                listOf(set("Kettlebell Swing", "Kettlebell", 53.0, 20)))),
+            coverage = "2026-10-01" to "2026-10-31", unit = "lb", today = "2026-10-20"
+        )
+        assertEquals("Tue 13 Oct · Conditioning · not booked", r.groups[0].days[1].text)
+        assertEquals(1, r.groups[0].counts.other)
+    }
+
+    @Test fun `by lift stays about lifts, and a meals-only plan has none`() {
+        val r = runMeals(listOf(recipe("Beef Chilli")), listOf(meal("2026-10-12", dinner, 0)))
+        assertEquals(emptyList<PlanLog.LiftRows>(), r.byLift)
+        assertFalse(PlanLog.lines(r).contains("By lift"))
+    }
+
+    /* ---------------- a plan with nothing booked into a day ---------------- */
+
+    @Test fun `a library send -- recipes with nothing booked -- is not a card`() {
+        val r = runMeals(listOf(recipe("Beef Chilli"), recipe("Oats")), emptyList())
+        assertEquals(emptyList<PlanLog.Group>(), r.groups)
+        assertEquals(emptyList<String>(), PlanLog.lines(r))
+    }
+
+    @Test fun `a picks-only plan is still nothing to show`() {
+        val payload = JSONObject().put("v", 1).put("t", "plan").put("l", "c")
+            .put("rf", JSONArray(listOf("wendys-large-chili", "snack-beef-jerky")))
+        val r = PlanLog.compare(
+            clientId = "c",
+            sentPlans = listOf(SentPlan("p", "c", 1, "h", payload.toString())),
+            days = mapOf("2026-10-12" to foodDay("2026-10-12", listOf(food("Wendy's chilli", lunch)))),
+            coverage = "2026-10-01" to "2026-10-31", unit = "lb", today = "2026-10-20"
+        )
+        assertEquals(emptyList<PlanLog.Group>(), r.groups)
+        assertNull(r.mealFooter)
+    }
+
+    @Test fun `the note about what a meal row does not claim is shown once, under a card that has one`() {
+        val r = runMeals(
+            listOf(recipe("Beef Chilli")), listOf(meal("2026-10-12", dinner, 0)),
+            listOf(foodDay("2026-10-12", listOf(food("Beef Chilli", dinner))))
+        )
+        assertEquals(PlanLog.MEAL_NOTE, r.mealFooter)
+        val out = PlanLog.lines(r)
+        assertEquals(1, out.count { it == PlanLog.MEAL_NOTE })
+        assertEquals("above the permanent footer", PlanLog.MEAL_NOTE, out[out.size - 2])
+        assertEquals(PlanLog.FOOTER, out.last())
+    }
+
+    /**
+     * Every meal state the card has, in one send: a slot the log holds something at, a slot it
+     * holds nothing at, a day with no food at all, a day whose client sent totals and not items, a
+     * day outside the window they sent, an entry tied to no meal, and a meal day beside a training
+     * one.
+     *
+     * The food names here are plain on purpose. A client's own "2% milk" is printed as they wrote
+     * it and would fail the forbidden list -- the discipline is about the sentences Coach writes,
+     * not about the client's data, and the test above pins the passthrough.
+     */
+    private fun mealFixture(): PlanLog.Result = PlanLog.compare(
+        clientId = "c",
+        sentPlans = listOf(foodPlan(
+            listOf(recipe("Beef Chilli"), recipe("Overnight Oats"), recipe("Chicken & Rice")),
+            listOf(
+                meal("2026-10-12", dinner, 0, 2.0), meal("2026-10-12", breakfast, 1),
+                meal("2026-10-13", lunch, 2), meal("2026-10-14", dinner, 0),
+                meal("2026-10-15", lunch, 2), meal("2026-10-19", dinner, 0)
+            ),
+            listOf(workout("Lower A", listOf(ex("Back Squat", "Barbell", listOf(listOf(225, 5)))))),
+            listOf("2026-10-12" to 0)
+        )),
+        days = listOf(
+            foodDay("2026-10-12", listOf(food("Beef Chilli", dinner), food("Greek yoghurt", dinner),
+                                         food("Porridge", breakfast)),
+                    sets = listOf(set("Back Squat", "Barbell", 225.0, 5)), name = "Lower A"),
+            foodDay("2026-10-13", listOf(food("Steak", dinner), food("Flapjack"))),
+            foodDay("2026-10-14"),
+            foodDay("2026-10-15", totals = true)
+        ).associateBy { it.dayKey },
+        coverage = "2026-10-01" to "2026-10-16", unit = "lb", today = "2026-10-20"
+    )
+
     /* ---------------- the line discipline ---------------- */
 
     /* The spirit of PerLimbSetsTest's own wording checks and Coach web's twin: the card counts,
@@ -601,11 +994,28 @@ class PlanLogTest {
         // window the client sent, a day logged and not booked; and a matched lift, a substituted
         // one, one short on a side, one short on sets, one not logged at all and one nobody asked
         // for. The fixture exercises all of them.
-        val every = PlanLog.lines(fromFixture()).joinToString(" · ").lowercase(Locale.US)
+        val training = PlanLog.lines(fromFixture())
+        val meals = PlanLog.lines(mealFixture())
+        assertTrue("the meal fixture should exercise every meal state", meals.size > 15)
+        val every = (training + meals).joinToString(" · ").lowercase(Locale.US)
         assertTrue("the fixture should exercise the whole card", every.length > 200)
         forbidden.forEach { word ->
             assertFalse("\"$word\" reached a screen: $every", every.contains(word))
         }
+    }
+
+    @Test fun `no meal sentence claims a client ate anything`() {
+        // The whole reason the booked and the logged sides of a meal are two separate statements.
+        // Coach can see a dish it booked and a list of foods stamped with a slot; it cannot see
+        // that they are the same dinner, and a wrong claim here tells a coach their client ate
+        // something they did not.
+        val every = PlanLog.lines(mealFixture()).joinToString(" · ").lowercase(Locale.US)
+        listOf("ate", "eaten", "as booked", "as planned", "matched", "they had",
+               "on plan", "off plan", "followed", "complied").forEach { claim ->
+            assertFalse("\"$claim\" claims a meal was eaten: $every", every.contains(claim))
+        }
+        // And the one sentence that says what the rows do not claim is there.
+        assertTrue(every.contains(PlanLog.MEAL_NOTE.lowercase(Locale.US)))
     }
 
     private val banned = Regex(
@@ -619,12 +1029,12 @@ class PlanLogTest {
         // Counts hang off a day or a group of days, and there is nothing at the top of the result
         // to aggregate: no roster figure, no all-time total, no trend across weeks.
         assertEquals(
-            listOf("byLift", "footer", "groups"),
+            listOf("byLift", "footer", "groups", "mealFooter"),
             PlanLog.Result::class.java.declaredFields.map { it.name }.filterNot { it.startsWith("$") }.sorted()
         )
         assertEquals(
-            "a group counts days and nothing else",
-            listOf("booked", "logged", "notLogged", "other", "outside"),
+            "a group counts the days and the meals it booked, and nothing else",
+            listOf("booked", "logged", "meals", "notLogged", "other", "outside", "training"),
             PlanLog.Counts::class.java.declaredFields.map { it.name }.filterNot { it.startsWith("$") }.sorted()
         )
 
@@ -636,6 +1046,13 @@ class PlanLogTest {
             emptyList<String>(),
             PlanLog::class.java.methods.map { it.name }.filter { banned.containsMatchIn(it) }
         )
+
+        // Meals are counted the same way and scored no more than training is: a number of meals
+        // booked, and no figure beside it claiming how many of them were eaten, because there is no
+        // such figure.
+        val meals = mealFixture()
+        assertEquals(6, meals.groups[0].counts.meals)
+        walk(meals, "meals")
     }
 
     /**
@@ -678,6 +1095,27 @@ class PlanLogTest {
                 )
             }
         }
+    }
+
+    @Test fun `the card draws both halves of a meal row, and the context above them`() {
+        // The same guard Coach web puts on its own view, for the half of the card where getting it
+        // wrong is worse: a view that drew the booked dish and dropped the line saying what the log
+        // holds at that meal would read as a claim the dish was eaten, which is the one thing this
+        // feature refuses to say.
+        val source = java.io.File("src/main/java/com/dugcanlift/coach/ui/ClientScreen.kt").readText()
+        val start = source.indexOf("private fun BookedMeals(")
+        assertTrue("BookedMeals moved; re-point this test", start > 0)
+        val body = source.substring(start, source.indexOf("\nprivate fun ", start + 1).takeIf { it > start } ?: source.length)
+        assertTrue("the day's own food count sits above the rows", body.contains("day.foodContext"))
+        assertTrue("what was booked", body.contains("meal.title"))
+        assertTrue("what the log holds at that meal", body.contains("meal.logged"))
+    }
+
+    @Test fun `the card carries the note about what a meal row does not claim`() {
+        val source = java.io.File("src/main/java/com/dugcanlift/coach/ui/ClientScreen.kt").readText()
+        assertTrue("MEAL_NOTE must reach the screen", source.contains("booked.mealFooter"))
+        assertTrue("and so must the permanent one", source.contains("booked.footer"))
+        assertTrue("and the meal rows must be drawn", source.contains("BookedMeals(day)"))
     }
 
     @Test fun `a lift with nothing logged prints no asked rows on the day view`() {
