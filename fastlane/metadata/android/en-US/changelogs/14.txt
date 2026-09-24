@@ -1,0 +1,3 @@
+A day on the Booked card is now one row, whether you booked training for it, meals, or both — so a Tuesday your client was asked to lift and eat reads as one day instead of two.
+
+Fixed: a session your client did on a day you had booked meals for could disappear from the card entirely.
