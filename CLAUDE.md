@@ -382,7 +382,8 @@ the system chooser as a plain-text `ACTION_SEND`, the mechanism Cook's Send alre
   meal a client has, from either screen, in one link; Coach iOS sends the week on screen, training
   from Train and food from Cook. Android follows iOS: each screen sends what it shows, the coach
   can see the whole of it before they send it, and Cook's Send is left exactly as it was rather
-  than gaining a silent second payload.
+  than gaining a silent second payload. Both Sends *file* what they sent, though -- see "What you
+  booked, and what they logged".
 - **Only the routines that week books are inlined**, and a booking whose routine is gone is
   dropped, never pointed at whichever template happens to sit at that index -- `x` indexes into
   `w`. The day says "Removed workout" (iOS's name) and the note counts them, Coach web's warning in
@@ -486,8 +487,35 @@ source of the roster.
   booked day with nothing logged plus a session of its own, sitting next to each
   other where a coach can read what happened. **Strict date** -- a session counts
   on the day it was booked and no other (Doug, 2026-09-23).
-- **Training only.** A payload's `r`/`m`/`rf` are stored with it and compared by
-  nothing. Food is where this tips into nagging fastest.
+- **Training is compared; meals are not matched.** A booked meal is a recipe in
+  a slot; what comes back is a day's food entries, named out of the client's own
+  dictionary with no id joining the two. So Coach states the booked meal and
+  names, under it, the foods the client stamped with that slot -- as they wrote
+  them -- and asserts nothing about whether they are the same dish. A name match
+  would be right most nights and, the nights it was wrong, would tell a coach
+  their client ate something they did not. The permanent line says so: **"A meal
+  row says what the log holds at that meal. Whether it was this dish, only they
+  know."** Never `not logged` against a meal, never `not booked` under a food
+  plan, never the recipe's macros beside logged ones, and no figure anywhere for
+  meals eaten. `rf` is still stored and compared by nothing.
+- **A totals-only day gets no slot verdict at all.** Itemisation is the client's
+  own per-send choice (SHARE-FORMAT's `f` is optional), so "Nothing logged at
+  dinner" there would contradict that choice with a fact Coach does not have.
+  The three states are `Food logged that day, not itemised`, `No food logged
+  that day` (a day opened and left empty, `ft: [0,0,0,0,0]`, included) and
+  `3 foods logged that day · 1 not tied to a meal`. That count sits **above**
+  the meal rows so `Nothing logged at lunch` cannot read as "they ate nothing".
+- **A day that books only meals is a day, and gets no training verdict.**
+  `r`/`m` and `w`/`k` are independent, so `Mon 12 Oct · 1 meal booked` is a
+  whole row; `not logged` against a day nobody was asked to train would be Coach
+  inventing a booking. For the same reason a send that booked no training lists
+  no `not booked` sessions. The head names what `logged` counts when both are
+  there: `Booked 2 days, 12–13 Oct · 3 meals booked · 1 training day, 1 logged`.
+  **A training-only send reads exactly as it did before meals existed**, which
+  the shared fixture pins.
+- **Nothing in the meals half carries a weight.** The pounds-on-the-wire care
+  the training rows take has no second place to go wrong here: servings are a
+  count in no unit, and macros are the one thing deliberately never shown.
 - **`SentPlan` is the record that makes it possible** (`data/SentPlan.kt`,
   `data/SentPlanRepository.kt`): one row per send, the plan payload **as
   encoded** with a canonical SHA-256 over its sorted-key form. The payload, not
@@ -498,13 +526,18 @@ source of the roster.
   Storage is `sent-plans.json`, with `RoadPickRepository`'s
   unreadable-is-not-empty care: every write is a read-modify-write that would
   otherwise save an empty read over the real file.
-- **Train's Send files one, and Cook's does not.** Each screen sends what it
-  shows (see "Sending a week from Train"), and Cook's Send carries no `w` or
-  `k` -- a recorded food plan would book nothing and would only eat into the
-  26-row cap. If meals are ever compared, Cook's Send joins this then.
-  `TrainPlanEncoder.payload` exists so the link and the record are one encode:
-  `encode` still returns the fragment, and the note under the button re-encodes
-  on every change, which is why recording is a separate call at the tap.
+- **Both Sends file one.** Train's has since the card shipped; Cook's joined it
+  when meals were compared, which is exactly the condition the note here used to
+  state -- until then a food plan booked nothing anything read, so a row would
+  only have eaten into the 26-row cap. **Without it the meals half of this card
+  could never populate on Android**, because Train's payload carries no `r` or
+  `m` at all. The cap stays 26: the card looks back eight weeks, and a coach
+  sending both screens weekly files 16 rows in that window. A coach sending far
+  more often now loses older sends sooner, which costs nothing the card reads.
+  `TrainPlanEncoder.payload` and `CookPlanEncoder.payload` exist so the link and
+  the record are one encode: `encode` still returns the fragment, and the note
+  under the button re-encodes on every change, which is why recording is a
+  separate call at the tap.
 - **Recorded when the chooser opens**, not when a client receives anything: the
   chooser and a mail app are both past where this app can see. The card says so
   in a permanent footer -- "This is what you shared. Whether it arrived, and
