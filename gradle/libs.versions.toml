@@ -12,7 +12,7 @@ json = "20260814"
 robolectric = "4.17"
 androidxTestCore = "1.7.0"
 kotlinxCoroutinesTest = "1.11.0"
-navigationCompose = "2.10.1"
+navigationCompose = "2.10.2"
 # Already resolved transitively through material3; named here because MainActivity uses it directly.
 window = "1.5.0"
 
