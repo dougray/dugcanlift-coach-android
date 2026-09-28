@@ -43,6 +43,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import com.dugcanlift.coach.data.Client
 import com.dugcanlift.coach.data.ClientRepository
 import com.dugcanlift.coach.data.ExerciseSet
@@ -579,6 +583,23 @@ private fun ClientDetailContent(
  * nobody logged is a person's week, not a number on a dial.
  */
 
+/* One block of the card, drawn as it always was and **said as one sentence**.
+ *
+ * Compose gives every `Text` its own accessibility node, so the seven lines of a lift arrive as
+ * seven stops with the word that named the numbers two swipes behind them.
+ * `clearAndSetSemantics` rather than `semantics(mergeDescendants = true)`: it leaves the subtree
+ * with exactly one source of text, so there is no question of whether the drawn lines are still
+ * announced beneath the sentence. Only ever used on a block of plain `Text`s -- it would clear an
+ * action too, and a block that holds one says so where it is applied. The sentence is [PlanLog]'s;
+ * this only decides that the block is one thing.
+ */
+private fun Modifier.saidAs(sentence: String): Modifier =
+    clearAndSetSemantics { contentDescription = sentence }
+
+/** A glyph drawn as an affordance is not a word. `▸` announced is junk; the state it stands for
+ *  is on the row itself, as `stateDescription`. */
+private fun Modifier.drawnOnly(): Modifier = clearAndSetSemantics { }
+
 @Composable
 private fun BookedSetRow(row: PlanLog.SetRow) {
     Row(modifier = Modifier.padding(vertical = 2.dp)) {
@@ -595,7 +616,7 @@ private fun BookedSetRow(row: PlanLog.SetRow) {
 
 @Composable
 private fun BookedExercise(ex: PlanLog.ExerciseLines, heading: String) {
-    Column(Modifier.padding(vertical = 4.dp)) {
+    Column(Modifier.padding(vertical = 4.dp).saidAs(ex.spoken)) {
         Text(text = heading, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
         ex.sideLine?.let { Text(text = it, style = MaterialTheme.typography.bodyMedium, color = DclMuted) }
         ex.countLine?.let { Text(text = it, style = MaterialTheme.typography.bodyMedium, color = DclMuted) }
@@ -624,17 +645,30 @@ private fun BookedMeals(day: PlanLog.DayRow) {
             fontWeight = FontWeight.Bold
         )
         day.foodContext?.let {
-            Text(text = it, style = MaterialTheme.typography.bodyMedium, color = DclMuted)
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodyMedium,
+                color = DclMuted,
+                modifier = Modifier.saidAs(day.spokenFoodContext.orEmpty())
+            )
         }
         day.meals.forEach { meal ->
+            // The booked row and the logged row stay two announcements, as they are two
+            // statements: one node joining them would claim the join this card exists to refuse.
             Column(Modifier.padding(top = 6.dp)) {
                 Text(
                     text = meal.title,
                     style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.saidAs(meal.spokenTitle)
                 )
                 meal.logged?.let {
-                    Text(text = it, style = MaterialTheme.typography.bodyMedium, color = DclMuted)
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = DclMuted,
+                        modifier = Modifier.saidAs(meal.spokenLogged.orEmpty())
+                    )
                 }
             }
         }
@@ -645,19 +679,42 @@ private fun BookedMeals(day: PlanLog.DayRow) {
 private fun BookedDay(day: PlanLog.DayRow) {
     val hasDetail = day.exercises.isNotEmpty() || day.alsoLogged.isNotEmpty() || day.meals.isNotEmpty()
     var expanded by rememberSaveable(day.key) { mutableStateOf(false) }
-    Column(
-        Modifier.fillMaxWidth()
-            .then(if (hasDetail) Modifier.clickable { expanded = !expanded } else Modifier)
-            .padding(vertical = 6.dp)
-    ) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+        Row(
+            Modifier.fillMaxWidth()
+                // The row is one thing to a reader: its four clauses as one sentence, and the
+                // open/closed state it drew with a glyph said as a state rather than a character.
+                //
+                // **The two `Text`s carry no semantics of their own** (`drawnOnly`), so this
+                // subtree has exactly one source of text however Compose splits it into nodes.
+                // Measured on the emulator: a `clickable` emits a node of its own around the row,
+                // and leaving the drawn text in place beneath it left a reader hearing the `·`
+                // line after the sentence.
+                .then(
+                    if (hasDetail) Modifier.clickable(
+                        onClickLabel = if (expanded) "Close this day" else "Open this day"
+                    ) { expanded = !expanded } else Modifier
+                )
+                .semantics(mergeDescendants = true) {
+                    contentDescription = day.spoken
+                    if (hasDetail) {
+                        stateDescription = if (expanded) "Expanded" else "Collapsed"
+                    }
+                },
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
             // The same weight and the same colour in all four states.
-            Text(text = day.text, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                text = day.text,
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.drawnOnly()
+            )
             if (hasDetail) {
                 Text(
                     text = if (expanded) "▾" else "▸",
                     style = MaterialTheme.typography.bodyLarge,
-                    color = DclMuted
+                    color = DclMuted,
+                    modifier = Modifier.drawnOnly()
                 )
             }
         }
@@ -671,7 +728,11 @@ private fun BookedDay(day: PlanLog.DayRow) {
                     modifier = Modifier.padding(top = 8.dp)
                 )
                 day.alsoLogged.forEach {
-                    Text(text = it.text, style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        text = it.text,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.saidAs(it.spoken)
+                    )
                 }
             }
             BookedMeals(day)
@@ -693,7 +754,8 @@ private fun BookedGroupCard(group: PlanLog.Group) {
                 Text(
                     text = send.head,
                     style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.saidAs(send.spokenHead)
                 )
             }
             Spacer(Modifier.height(8.dp))
@@ -708,7 +770,9 @@ private fun BookedLiftCard(lift: PlanLog.LiftRows) {
         Column(Modifier.padding(16.dp)) {
             Text(text = lift.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             lift.entries.forEach { entry ->
-                Column(Modifier.padding(top = 8.dp)) {
+                Column(Modifier.padding(top = 8.dp).saidAs(
+                    listOf(entry.spokenWhen, entry.exercise.spoken).joinToString(". ")
+                )) {
                     Text(text = entry.whenText, style = MaterialTheme.typography.bodyMedium, color = DclMuted)
                     // A day with nothing logged against this lift says so in the rule's own words.
                     if (entry.exercise.state != "logged") {
