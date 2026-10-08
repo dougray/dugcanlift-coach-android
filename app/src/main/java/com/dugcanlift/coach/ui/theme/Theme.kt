@@ -2,8 +2,12 @@ package com.dugcanlift.coach.ui.theme
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ButtonColors
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.TextFieldColors
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -51,9 +55,40 @@ private fun scheme(dark: Boolean): ColorScheme {
         surfaceContainer = surface, surfaceContainerHigh = surface,
         surfaceContainerHighest = surface,
         outline = rule, outlineVariant = rule,
-        error = accent, onError = onAccent
+        // Its own hue, not the brand rust, so a problem does not read as a heading -- and the rust
+        // was 3.1:1 as text on the dark surface. dugcanlift-lift's error colours.
+        error = Color(if (dark) DclError.DARK else DclError.LIGHT),
+        onError = if (dark) bg else onAccent
     )
 }
+
+/**
+ * Colours the kit's DclPalette does not carry yet, kept here until it does (the same values as
+ * dugcanlift-lift). Ratios are WCAG 2 contrast against SURFACE (#242220 dark, #FFFCF7 light) and
+ * BG (#1C1B19 / #F4EFE7).
+ */
+private object DclError {
+    /** Raspberry, 7.3:1 on surface, 8.0:1 on bg. */
+    const val DARK = 0xFFFF8FA3L
+    /** Crimson, 7.6:1 on surface, 6.8:1 on bg. */
+    const val LIGHT = 0xFFA3123FL
+}
+
+/*
+ * Material draws TextButton and OutlinedButton labels, and a focused text field's label, in
+ * `colorScheme.primary` -- the brand rust fill, 3.1:1 as text on the dark surface. These give
+ * that text the readable rust ([DclAccentText]) and leave every other colour at Material's
+ * default, so `primary` stays the fill (filled buttons, checkboxes, tab indicators, cursors).
+ */
+
+@Composable
+fun dclTextButtonColors(): ButtonColors = ButtonDefaults.textButtonColors(contentColor = DclAccentText)
+
+@Composable
+fun dclOutlinedButtonColors(): ButtonColors = ButtonDefaults.outlinedButtonColors(contentColor = DclAccentText)
+
+@Composable
+fun dclTextFieldColors(): TextFieldColors = OutlinedTextFieldDefaults.colors(focusedLabelColor = DclAccentText)
 
 /** Whether the app is currently drawing dark, after the person's choice. */
 val LocalDclDark = staticCompositionLocalOf { true }

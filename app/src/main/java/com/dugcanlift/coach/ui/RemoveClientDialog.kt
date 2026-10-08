@@ -18,6 +18,7 @@ import com.dugcanlift.coach.data.RemovalOutcome
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.dugcanlift.coach.ui.theme.dclTextButtonColors
 
 /**
  * "Remove <name>?" -- names the client and says what goes before anything does, then removes them
@@ -55,7 +56,7 @@ fun RemoveClientDialog(
             onDismissRequest = onDismiss,
             title = { Text("Client not found") },
             text = { Text("This client is no longer on this device.") },
-            confirmButton = { TextButton(onClick = onDismiss) { Text("OK") } }
+            confirmButton = { TextButton(onClick = onDismiss, colors = dclTextButtonColors()) { Text("OK") } }
         )
         return
     }
@@ -84,9 +85,10 @@ fun RemoveClientDialog(
                         // Main.immediate, so on a device this stays the inline call it already was.
                         withContext(Dispatchers.Main.immediate) { onDone(outcome) }
                     }
-                }
+                },
+                colors = dclTextButtonColors()
             ) { Text("Remove") }
         },
-        dismissButton = { TextButton(enabled = !working, onClick = onDismiss) { Text("Keep") } }
+        dismissButton = { TextButton(enabled = !working, onClick = onDismiss, colors = dclTextButtonColors()) { Text("Keep") } }
     )
 }

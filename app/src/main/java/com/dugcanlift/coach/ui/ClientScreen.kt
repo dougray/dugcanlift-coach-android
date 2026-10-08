@@ -70,9 +70,12 @@ import com.dugcanlift.coach.ui.charts.LineSeries
 import com.dugcanlift.coach.ui.charts.MultiLineChart
 import com.dugcanlift.coach.ui.charts.RouteCanvas
 import com.dugcanlift.coach.ui.theme.DclAccent
+import com.dugcanlift.coach.ui.theme.DclAccentText
 import com.dugcanlift.coach.ui.theme.DclAccent2
 import com.dugcanlift.coach.ui.theme.DclMuted
 import com.dugcanlift.coach.ui.theme.dclCardBorder
+import com.dugcanlift.coach.ui.theme.dclOutlinedButtonColors
+import com.dugcanlift.coach.ui.theme.dclTextButtonColors
 import com.dugcanlift.kit.OutdoorShare
 import com.dugcanlift.kit.DayKey
 import kotlinx.coroutines.Dispatchers
@@ -128,7 +131,7 @@ fun ClientScreen(clientId: String, repo: ClientRepository, onBack: () -> Unit,
                 // Cook is reached from a client rather than from the roster: a
                 // week is planned for someone, and the recipe library is shared
                 // across clients but the week is never.
-                actions = { TextButton(onClick = onCook) { Text("Cook") } }
+                actions = { TextButton(onClick = onCook, colors = dclTextButtonColors()) { Text("Cook") } }
             )
         }
     ) { padding ->
@@ -166,7 +169,7 @@ fun ClientScreen(clientId: String, repo: ClientRepository, onBack: () -> Unit,
         AlertDialog(
             onDismissRequest = { removalError = null },
             text = { Text(message) },
-            confirmButton = { TextButton(onClick = { removalError = null }) { Text("OK") } }
+            confirmButton = { TextButton(onClick = { removalError = null }, colors = dclTextButtonColors()) { Text("OK") } }
         )
     }
 }
@@ -372,15 +375,17 @@ private fun ClientDetailContent(
         // Left, right and the unmarked sets as separate lines, never merged -- averaging them hides
         // the one thing they are here to show. Coach web's seriesColour: the unmarked line is muted
         // when it sits beside a limb and the ordinary accent when it is the only line there is.
+        // The legend names each line in its own colour, so the rust here is the readable one
+        // (dugcanlift-lift's charts do the same).
         MultiLineChart(
             series = lift.series.map { line ->
                 LineSeries(
                     label = if (lift.sided) sideSeriesLabel(line.side) else "e1RM",
                     points = line.points,
                     color = when (line.side) {
-                        SetSide.LEFT -> DclAccent
+                        SetSide.LEFT -> DclAccentText
                         SetSide.RIGHT -> DclAccent2
-                        null -> if (lift.sided) DclMuted else DclAccent
+                        null -> if (lift.sided) DclMuted else DclAccentText
                     }
                 )
             },
@@ -580,7 +585,8 @@ private fun ClientDetailContent(
             Column(wide) {
                 OutlinedButton(
                     onClick = onRemove,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 24.dp)
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 24.dp),
+                    colors = dclOutlinedButtonColors()
                 ) { Text("Remove this client") }
             }
         }

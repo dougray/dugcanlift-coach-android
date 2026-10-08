@@ -19,6 +19,12 @@ val DclSurface: Color @Composable @ReadOnlyComposable get() = pick(DclPalette.SU
 val DclText: Color @Composable @ReadOnlyComposable get() = pick(DclPalette.TEXT, DclPalette.TEXT_LIGHT, LocalDclDark.current)
 val DclMuted: Color @Composable @ReadOnlyComposable get() = pick(DclPalette.MUTED, DclPalette.MUTED_LIGHT, LocalDclDark.current)
 val DclAccent: Color @Composable @ReadOnlyComposable get() = pick(DclPalette.ACCENT, DclPalette.ACCENT_LIGHT, LocalDclDark.current)
+/**
+ * The brand rust for text and tints: the kit's ACCENT_TEXT. Dark ACCENT (#C1442C) is 3.1:1 on the
+ * dark surface; this is #E0674D, 4.69:1 on SURFACE and 5.09:1 on BG. Light equals ACCENT_LIGHT
+ * (5.75:1 / 5.14:1). [DclAccent] stays the fill: bars, lines, the selected row's tint.
+ */
+val DclAccentText: Color @Composable @ReadOnlyComposable get() = pick(DclPalette.ACCENT_TEXT, DclPalette.ACCENT_TEXT_LIGHT, LocalDclDark.current)
 val DclAccent2: Color @Composable @ReadOnlyComposable get() = pick(DclPalette.ACCENT2, DclPalette.ACCENT2_LIGHT, LocalDclDark.current)
 val DclRule: Color @Composable @ReadOnlyComposable get() = pick(DclPalette.RULE, DclPalette.RULE_LIGHT, LocalDclDark.current)
 val DclOnAccent: Color @Composable @ReadOnlyComposable get() = pick(DclPalette.ON_ACCENT, DclPalette.ON_ACCENT_LIGHT, LocalDclDark.current)

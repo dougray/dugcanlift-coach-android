@@ -5,6 +5,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.window.DialogProperties
+import com.dugcanlift.coach.ui.theme.dclTextButtonColors
 
 /**
  * The editors (recipe, routine) are long forms in a dialog. A tap beside one
@@ -19,7 +20,7 @@ internal fun DiscardChangesDialog(what: String, onKeepEditing: () -> Unit, onDis
         onDismissRequest = onKeepEditing,
         title = { Text("Discard changes to $what?") },
         text = { Text("What you typed here has not been saved.") },
-        confirmButton = { TextButton(onClick = onDiscard) { Text("Discard") } },
-        dismissButton = { TextButton(onClick = onKeepEditing) { Text("Keep Editing") } }
+        confirmButton = { TextButton(onClick = onDiscard, colors = dclTextButtonColors()) { Text("Discard") } },
+        dismissButton = { TextButton(onClick = onKeepEditing, colors = dclTextButtonColors()) { Text("Keep Editing") } }
     )
 }

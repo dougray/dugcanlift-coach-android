@@ -9,7 +9,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import com.dugcanlift.coach.ui.adaptive.AdaptiveLayout
 import com.dugcanlift.coach.ui.adaptive.GridRow
 import com.dugcanlift.coach.ui.adaptive.rowMajor
+import com.dugcanlift.coach.ui.theme.DclAccentText
 import com.dugcanlift.coach.ui.theme.dclCardBorder
+import com.dugcanlift.coach.ui.theme.dclOutlinedButtonColors
+import com.dugcanlift.coach.ui.theme.dclTextButtonColors
+import com.dugcanlift.coach.ui.theme.dclTextFieldColors
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -162,7 +166,9 @@ fun TrainScreen(
             // and a tab announces itself as selected to TalkBack.
             PrimaryTabRow(
                 selectedTabIndex = section.ordinal,
-                containerColor = MaterialTheme.colorScheme.background
+                containerColor = MaterialTheme.colorScheme.background,
+                // The labels are text: the readable rust. The indicator keeps the brand fill.
+                contentColor = DclAccentText
             ) {
                 TrainSection.entries.forEach { entry ->
                     Tab(
@@ -294,9 +300,9 @@ fun TrainScreen(
             confirmButton = {
                 TextButton(onClick = {
                     train.deleteRoutine(routine.id); confirmingDelete = null; revision++
-                }) { Text("Delete") }
+                }, colors = dclTextButtonColors()) { Text("Delete") }
             },
-            dismissButton = { TextButton(onClick = { confirmingDelete = null }) { Text("Keep") } }
+            dismissButton = { TextButton(onClick = { confirmingDelete = null }, colors = dclTextButtonColors()) { Text("Keep") } }
         )
     }
 }
@@ -340,8 +346,8 @@ private fun RoutineList(
                 }
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { onEdit(routine) }) { Text("Edit") }
-                    TextButton(onClick = { onDelete(routine) }) { Text("Delete") }
+                    OutlinedButton(onClick = { onEdit(routine) }, colors = dclOutlinedButtonColors()) { Text("Edit") }
+                    TextButton(onClick = { onDelete(routine) }, colors = dclTextButtonColors()) { Text("Delete") }
                 }
             }
         }
@@ -427,14 +433,14 @@ private fun ScheduleList(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        TextButton(onClick = { onWeek(week.advanced(-1)) }) { Text("‹ Earlier") }
+        TextButton(onClick = { onWeek(week.advanced(-1)) }, colors = dclTextButtonColors()) { Text("‹ Earlier") }
         Text(
             week.label(),
             style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.weight(1f),
             textAlign = TextAlign.Center
         )
-        TextButton(onClick = { onWeek(week.advanced(1)) }) { Text("Later ›") }
+        TextButton(onClick = { onWeek(week.advanced(1)) }, colors = dclTextButtonColors()) { Text("Later ›") }
     }
     Spacer(Modifier.height(8.dp))
 
@@ -485,7 +491,7 @@ private fun ScheduleList(
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )
-                        TextButton(onClick = { onRemove(session) }) { Text("Remove") }
+                        TextButton(onClick = { onRemove(session) }, colors = dclTextButtonColors()) { Text("Remove") }
                     }
                 }
                 Spacer(Modifier.height(4.dp))
@@ -511,7 +517,7 @@ private fun ScheduleList(
 private fun BookMenu(routines: List<Routine>, onBook: (Routine) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
-        OutlinedButton(onClick = { open = true }) { Text("Book") }
+        OutlinedButton(onClick = { open = true }, colors = dclOutlinedButtonColors()) { Text("Book") }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             routines.forEach { routine ->
                 DropdownMenuItem(
@@ -581,12 +587,13 @@ private fun RoutineEditor(routine: Routine, onCancel: () -> Unit, onSave: (Routi
             // an AlertDialog's own content does not scroll for you.
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 OutlinedTextField(value = name, onValueChange = { name = it },
-                                  label = { Text("Name") }, singleLine = true)
+                                  label = { Text("Name") }, singleLine = true, colors = dclTextFieldColors())
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = lines, onValueChange = { lines = it },
                     label = { Text("One exercise per line, weights in kg") },
-                    supportingText = { Text("Bench | Barbell | 3 x 8 @ 60 kg  (or @ 135 lb)") }
+                    supportingText = { Text("Bench | Barbell | 3 x 8 @ 60 kg  (or @ 135 lb)") },
+                    colors = dclTextFieldColors()
                 )
                 edited.forEachIndexed { index, exercise ->
                     Spacer(Modifier.height(12.dp))
@@ -622,10 +629,11 @@ private fun RoutineEditor(routine: Routine, onCancel: () -> Unit, onSave: (Routi
                     // Through RoutineEditing, not straight from the box: an
                     // unchanged line keeps its ramp and its note.
                     onSave(routine.copy(name = name.trim(), exercises = edited))
-                }
+                },
+                colors = dclTextButtonColors()
             ) { Text("Save") }
         },
-        dismissButton = { TextButton(onClick = requestCancel) { Text("Cancel") } }
+        dismissButton = { TextButton(onClick = requestCancel, colors = dclTextButtonColors()) { Text("Cancel") } }
     )
 }
 
@@ -661,7 +669,7 @@ private fun ExerciseSidesEditor(
                 }
             )
             if (!shown && exercise.sets.isNotEmpty()) {
-                TextButton(onClick = onAsk) { Text("Set a side") }
+                TextButton(onClick = onAsk, colors = dclTextButtonColors()) { Text("Set a side") }
             }
         }
         if (shown) {
@@ -821,7 +829,8 @@ private fun ExerciseLibraryPicker(onPick: (LibraryExercise) -> Unit) {
         onValueChange = { query = it },
         label = { Text("Find an exercise") },
         singleLine = true,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth(),
+        colors = dclTextFieldColors()
     )
 
     Spacer(Modifier.height(8.dp))
