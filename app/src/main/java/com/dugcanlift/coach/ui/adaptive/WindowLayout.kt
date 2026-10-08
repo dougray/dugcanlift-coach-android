@@ -103,8 +103,12 @@ object AdaptiveLayout {
     /** Roster, Train, Cook and Connect: a bottom bar on a phone, a navigation rail from medium up. */
     fun usesNavigationRail(width: WindowWidth): Boolean = width != WindowWidth.COMPACT
 
-    /** Pushed screens keep their Back button only where there is no rail to leave them by. */
-    fun showsBackOnTopLevelScreens(width: WindowWidth): Boolean = width == WindowWidth.COMPACT
+    /**
+     * A phone gets a Material NavigationBar carrying the rail's four destinations, so the top-level
+     * screens are peers at every width and none of them needs a Back button. It used to be a
+     * bottom bar of three text buttons on the roster only, with Train, Cook and Connect pushed.
+     */
+    fun usesNavigationBar(width: WindowWidth): Boolean = width == WindowWidth.COMPACT
 
     /** The roster becomes list + detail only when expanded; medium is too narrow for two panes. */
     fun rosterIsTwoPane(width: WindowWidth): Boolean = width == WindowWidth.EXPANDED

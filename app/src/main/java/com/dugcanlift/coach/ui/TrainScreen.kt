@@ -1,5 +1,7 @@
 package com.dugcanlift.coach.ui
 
+import com.dugcanlift.coach.ui.adaptive.BackArrowButton
+
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -26,6 +28,8 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.Tab
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedButton
@@ -34,6 +38,7 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -69,6 +74,7 @@ import com.dugcanlift.coach.data.searchExerciseLibrary
 import com.dugcanlift.coach.data.titleCaseAscii
 import com.dugcanlift.coach.data.ClientRepository
 import com.dugcanlift.coach.data.PlanWeek
+import com.dugcanlift.coach.data.LB_PER_KG
 import com.dugcanlift.coach.data.PrescribedSet
 import com.dugcanlift.coach.data.Routine
 import com.dugcanlift.coach.data.SentPlanRepository
@@ -133,7 +139,7 @@ fun TrainScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Train") },
-                navigationIcon = { if (showBack) TextButton(onClick = onBack) { Text("Back") } }
+                navigationIcon = { if (showBack) BackArrowButton(onClick = onBack) }
             )
         }
     ) { padding ->
@@ -152,12 +158,17 @@ fun TrainScreen(
                 return@Column
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Tabs, not filter chips: these switch between views rather than filter one list,
+            // and a tab announces itself as selected to TalkBack.
+            PrimaryTabRow(
+                selectedTabIndex = section.ordinal,
+                containerColor = MaterialTheme.colorScheme.background
+            ) {
                 TrainSection.entries.forEach { entry ->
-                    FilterChip(
+                    Tab(
                         selected = section == entry,
                         onClick = { section = entry },
-                        label = { Text(entry.label) }
+                        text = { Text(entry.label, maxLines = 1) }
                     )
                 }
             }
@@ -546,8 +557,24 @@ private fun RoutineEditor(routine: Routine, onCancel: () -> Unit, onSave: (Routi
         sidesText = RoutineEditing.encode(sides + (key to change(base)))
     }
 
+    // Against the routine itself, not a first-composition snapshot, so an edit
+    // still counts after a rotation.
+    val changed = name != routine.name ||
+        lines != routine.exercises.joinToString("\n", transform = RoutineEditing::renderLine) ||
+        sidesText != RoutineEditing.encode(RoutineEditing.initial(routine))
+    var confirmingDiscard by rememberSaveable(routine.id) { mutableStateOf(false) }
+    val requestCancel = { if (changed) confirmingDiscard = true else onCancel() }
+    if (confirmingDiscard) {
+        DiscardChangesDialog(
+            what = routine.name.ifBlank { "this routine" },
+            onKeepEditing = { confirmingDiscard = false },
+            onDiscard = { confirmingDiscard = false; onCancel() }
+        )
+    }
+
     AlertDialog(
-        onDismissRequest = onCancel,
+        onDismissRequest = requestCancel,
+        properties = EditorDialogProperties,
         title = { Text(if (routine.name.isBlank()) "New routine" else "Edit routine") },
         text = {
             // Scrolls: the picker below can add forty rows to this dialog, and
@@ -558,8 +585,8 @@ private fun RoutineEditor(routine: Routine, onCancel: () -> Unit, onSave: (Routi
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = lines, onValueChange = { lines = it },
-                    label = { Text("One exercise per line") },
-                    supportingText = { Text("Bench | Barbell | 3 x 8 @ 60") }
+                    label = { Text("One exercise per line, weights in kg") },
+                    supportingText = { Text("Bench | Barbell | 3 x 8 @ 60 kg  (or @ 135 lb)") }
                 )
                 edited.forEachIndexed { index, exercise ->
                     Spacer(Modifier.height(12.dp))
@@ -598,7 +625,7 @@ private fun RoutineEditor(routine: Routine, onCancel: () -> Unit, onSave: (Routi
                 }
             ) { Text("Save") }
         },
-        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } }
+        dismissButton = { TextButton(onClick = requestCancel) { Text("Cancel") } }
     )
 }
 
@@ -618,7 +645,7 @@ private fun ExerciseSidesEditor(
     Column(Modifier.fillMaxWidth()) {
         Text(exercise.displayName, style = MaterialTheme.typography.titleSmall)
         Text(
-            PrescriptionSides.summary(exercise),
+            PrescriptionSides.summary(exercise) + weightUnitSuffix(exercise.sets),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -647,7 +674,7 @@ private fun ExerciseSidesEditor(
                     exercise.sets.forEachIndexed { i, set ->
                         val label: @Composable (Modifier) -> Unit = { modifier ->
                             Text(
-                                "${i + 1}.  ${PrescriptionSides.setText(set)}",
+                                "${i + 1}.  ${PrescriptionSides.setText(set)}${weightUnitSuffix(listOf(set))}",
                                 style = MaterialTheme.typography.bodyMedium,
                                 modifier = modifier
                             )
@@ -669,6 +696,14 @@ private fun ExerciseSidesEditor(
         }
     }
 }
+
+/**
+ * " (kg)" after a prescription that carries a weight. [PrescriptionSides]'
+ * text is shared with Coach web's port and pinned by tests, so the unit is
+ * said here, where the coach reads it.
+ */
+internal fun weightUnitSuffix(sets: List<PrescribedSet>): String =
+    if (sets.any { it.targetWeightKg != null }) " (kg)" else ""
 
 /** Both / L / R for one set, the chosen segment filled. */
 @Composable
@@ -721,10 +756,12 @@ internal fun parseExercises(text: String): List<RoutineExercise> =
         val equipment = parts.getOrNull(1).orEmpty()
         val scheme = parts.getOrNull(2).orEmpty()
 
-        // "3 x 8 @ 60" -- sets, reps, kilograms. A line with no scheme is an
-        // exercise with no prescribed sets, which is a legitimate thing to
-        // write down and not an error.
-        val load = scheme.substringAfter("@", "").trim().toDoubleOrNull()
+        // "3 x 8 @ 60 kg" -- sets, reps, load. A load with no unit is
+        // kilograms, as stored; "@ 135 lb" is converted, so a coach who thinks
+        // in pounds can say so rather than prescribe 2.2x the weight. A line
+        // with no scheme is an exercise with no prescribed sets, which is a
+        // legitimate thing to write down and not an error.
+        val load = parseLoadKg(scheme.substringAfter("@", ""))
         val counts = scheme.substringBefore("@").split("x", "X")
             .mapNotNull { it.trim().toIntOrNull() }
         val setCount = counts.getOrNull(0) ?: 0
@@ -735,6 +772,17 @@ internal fun parseExercises(text: String): List<RoutineExercise> =
             sets = List(setCount) { PrescribedSet(targetWeightKg = load, targetReps = reps) }
         )
     }
+
+/**
+ * "60", "60 kg", "60kg", "135 lb", "135 lbs" -> kilograms. Bare numbers are
+ * kilograms; anything else after the number is not a load.
+ */
+internal fun parseLoadKg(text: String): Double? {
+    val match = Regex("""^\s*([0-9]+(?:[.,][0-9]+)?)\s*(kg|kgs|lb|lbs)?\s*$""", RegexOption.IGNORE_CASE)
+        .matchEntire(text) ?: return null
+    val number = match.groupValues[1].replace(',', '.').toDoubleOrNull() ?: return null
+    return if (match.groupValues[2].lowercase().startsWith("lb")) number / LB_PER_KG else number
+}
 
 /**
  * Search over the bundled 873, appending a correctly-spelled `name | equipment`
@@ -813,7 +861,7 @@ private fun ExerciseLibraryPicker(onPick: (LibraryExercise) -> Unit) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onPick(hit) }
+                            .clickable(role = Role.Button, onClickLabel = "Add to the routine") { onPick(hit) }
                             .padding(vertical = 6.dp)
                     ) {
                         Text(hit.name, style = MaterialTheme.typography.bodyMedium)

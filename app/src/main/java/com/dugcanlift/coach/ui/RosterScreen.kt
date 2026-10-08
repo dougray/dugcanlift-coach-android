@@ -51,6 +51,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.dugcanlift.coach.data.Client
 import com.dugcanlift.coach.data.ClientRepository
@@ -323,8 +325,11 @@ private fun RosterRowItem(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .then(if (selected) Modifier.background(MaterialTheme.colorScheme.surface) else Modifier)
+                // A tonal rust fill, as Coach iOS marks the open client (`accentMuted`): `surface`
+                // on `background` was about 1.1:1, so the open client could not be picked out.
+                .then(if (selected) Modifier.background(DclAccent.copy(alpha = 0.18f)) else Modifier)
                 .combinedClickable(onClick = onClick, onLongClick = onLongClick, onLongClickLabel = "Client actions")
+                .semantics { this.selected = selected }
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
             Text(text = row.client.name, style = MaterialTheme.typography.titleMedium)

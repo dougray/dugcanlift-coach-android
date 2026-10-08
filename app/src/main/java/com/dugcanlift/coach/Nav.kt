@@ -16,7 +16,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.dugcanlift.coach.ui.adaptive.AdaptiveLayout
+import com.dugcanlift.coach.ui.adaptive.CoachNavigationBar
 import com.dugcanlift.coach.ui.adaptive.CoachNavigationRail
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
 import com.dugcanlift.coach.ui.adaptive.LocalWindowWidth
 import com.dugcanlift.coach.ui.adaptive.RosterReconcile
 import com.dugcanlift.coach.ui.adaptive.TopLevel
@@ -74,9 +78,9 @@ object Routes {
  *   this pops back to the roster first so the import's snackbar feedback is always visible.
  * @param onImportHandled called once [RosterScreen] has submitted the pending import above.
  *
- * Layout follows [LocalWindowWidth] (see `ui/adaptive/WindowLayout.kt`). Compact is the phone app
- * as it always was: a bottom bar on the roster and Back on every pushed screen. From medium up a
- * [CoachNavigationRail] leads to the four top-level screens, and at expanded the roster shows the
+ * Layout follows [LocalWindowWidth] (see `ui/adaptive/WindowLayout.kt`). Compact gets a
+ * [CoachNavigationBar] and from medium up a [CoachNavigationRail]: the same four top-level screens
+ * as peers either way, reached through [openTopLevel] so they never stack, and at expanded the roster shows the
  * selected client beside the list instead of pushing `client/{id}`.
  *
  * [selectedClientId] is "the client currently open", in either form, and survives recreation.
@@ -94,7 +98,7 @@ fun CoachNavHost(
     val width = LocalWindowWidth.current
     val useRail = AdaptiveLayout.usesNavigationRail(width)
     val twoPane = AdaptiveLayout.rosterIsTwoPane(width)
-    val showBack = AdaptiveLayout.showsBackOnTopLevelScreens(width)
+    val useBar = AdaptiveLayout.usesNavigationBar(width)
 
     var selectedClientId by rememberSaveable { mutableStateOf<String?>(null) }
     // What a removal on the phone's client screen says once the roster is showing again.
@@ -155,25 +159,28 @@ fun CoachNavHost(
         }
     }
 
+    val current = when (route) {
+        Routes.TRAIN -> TopLevel.TRAIN
+        Routes.COOK -> TopLevel.COOK
+        Routes.CONNECT -> TopLevel.CONNECT
+        else -> TopLevel.ROSTER
+    }
+
     Row(modifier = modifier) {
         if (useRail) {
-            CoachNavigationRail(
-                current = when (route) {
-                    Routes.TRAIN -> TopLevel.TRAIN
-                    Routes.COOK -> TopLevel.COOK
-                    Routes.CONNECT -> TopLevel.CONNECT
-                    else -> TopLevel.ROSTER
-                },
-                onSelect = ::openTopLevel
-            )
+            CoachNavigationRail(current = current, onSelect = ::openTopLevel)
         }
+      Column(Modifier.weight(1f).fillMaxHeight()) {
         NavHost(
             navController = navController,
             startDestination = Routes.ROSTER,
-            // The rail has taken the start inset (a cutout in landscape); the screens beside it
-            // must not pad for it a second time.
-            modifier = Modifier.weight(1f).fillMaxHeight().then(
+            // The rail has taken the start inset (a cutout in landscape), and on a phone the bar
+            // below takes the bottom one; the screens must not pad for either a second time.
+            modifier = Modifier.weight(1f).fillMaxWidth().then(
                 if (useRail) Modifier.consumeWindowInsets(WindowInsets.safeDrawing.only(WindowInsetsSides.Start))
+                else Modifier
+            ).then(
+                if (useBar) Modifier.consumeWindowInsets(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom))
                 else Modifier
             )
         ) {
@@ -185,12 +192,13 @@ fun CoachNavHost(
                         if (!twoPane) navController.navigate(Routes.client(clientId))
                     },
                     onImport = { /* import itself is handled inside RosterScreen; this hook is for callers that need to react to a raw import too */ },
-                    onConnect = { navController.navigate(Routes.CONNECT) },
-                    onCook = { navController.navigate(Routes.COOK) },
-                    onTrain = { navController.navigate(Routes.TRAIN) },
+                    onConnect = { openTopLevel(TopLevel.CONNECT) },
+                    onCook = { openTopLevel(TopLevel.COOK) },
+                    onTrain = { openTopLevel(TopLevel.TRAIN) },
                     pendingImportFragment = pendingImportFragment,
                     onImportHandled = onImportHandled,
-                    showBottomBar = !useRail,
+                    // The NavigationBar (phone) or the rail carries Train, Cook and Connect now.
+                    showBottomBar = false,
                     twoPane = twoPane,
                     selectedClientId = selectedClientId,
                     notice = rosterNotice,
@@ -220,7 +228,7 @@ fun CoachNavHost(
                         selectedClientId = null
                         navController.popBackStack()
                     },
-                    onCook = { navController.navigate(Routes.COOK) },
+                    onCook = { openTopLevel(TopLevel.COOK) },
                     onRemoved = { outcome ->
                         selectedClientId = null
                         rosterNotice = outcome.message
@@ -229,14 +237,18 @@ fun CoachNavHost(
                 )
             }
             composable(Routes.COOK) {
-                CookScreen(repo = repo, onBack = { navController.popBackStack() }, showBack = showBack)
+                CookScreen(repo = repo, onBack = { navController.popBackStack() }, showBack = false)
             }
             composable(Routes.TRAIN) {
-                TrainScreen(repo = repo, onBack = { navController.popBackStack() }, showBack = showBack)
+                TrainScreen(repo = repo, onBack = { navController.popBackStack() }, showBack = false)
             }
             composable(Routes.CONNECT) {
-                ConnectScreen(repo = repo, onBack = { navController.popBackStack() }, showBack = showBack)
+                ConnectScreen(repo = repo, onBack = { navController.popBackStack() }, showBack = false)
             }
         }
+        if (useBar) {
+            CoachNavigationBar(current = current, onSelect = ::openTopLevel)
+        }
+      }
     }
 }

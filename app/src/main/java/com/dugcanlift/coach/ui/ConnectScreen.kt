@@ -1,5 +1,7 @@
 package com.dugcanlift.coach.ui
 
+import com.dugcanlift.coach.ui.adaptive.BackArrowButton
+
 import com.dugcanlift.coach.data.AppAppearance
 import com.dugcanlift.coach.data.AppearanceStore
 import androidx.compose.runtime.collectAsState
@@ -13,6 +15,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -69,6 +72,22 @@ internal fun inviteText(coachName: String, coachEmail: String): String {
         "\"Send to Coach\" with this email address: $email"
 }
 
+/**
+ * What a restore will replace, counted, so a mis-picked file is caught before it lands rather
+ * than explained after.
+ */
+internal fun restoreWarning(clients: Int, recipes: Int, routines: Int): String {
+    fun n(count: Int, one: String, many: String) = "$count ${if (count == 1) one else many}"
+    val what = listOf(
+        n(clients, "client", "clients"),
+        n(recipes, "recipe", "recipes"),
+        n(routines, "routine", "routines")
+    )
+    return "Restoring replaces your ${what[0]}, ${what[1]} and ${what[2]}, with their plans " +
+        "and bookings, with what is in the backup. This can't be undone, so save a backup of " +
+        "this device first if you might want it back."
+}
+
 /** Where this device's own copy of the opaque library (recipes/meals/routines/sessions) from the
  * most recent restore is kept, so a later Save Backup can carry it back out untouched -- otherwise
  * the round trip promised by `BackupCodec` would only hold within a single restore-then-export
@@ -121,13 +140,46 @@ fun ConnectScreen(repo: ClientRepository, onBack: () -> Unit, showBack: Boolean 
         scope.launch { show(backups.restore { context.contentResolver.openInputStream(uri) }) }
     }
 
+    // Restore replaces the roster, recipes, plans and routines wholesale, so it asks first and
+    // says what goes -- the counted confirmation Remove client already has.
+    var confirmingRestore by rememberSaveable { mutableStateOf(false) }
+    if (confirmingRestore) {
+        val counts = remember {
+            Triple(
+                repo.all().size,
+                runCatching { CookRepository(context.filesDir).load().recipes.size }.getOrDefault(0),
+                runCatching { TrainRepository(context.filesDir).load().routines.size }.getOrDefault(0)
+            )
+        }
+        AlertDialog(
+            onDismissRequest = { confirmingRestore = false },
+            title = { Text("Replace everything on this device?") },
+            text = { Text(restoreWarning(counts.first, counts.second, counts.third)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmingRestore = false
+                    restoreBackupLauncher.launch(arrayOf("application/json"))
+                }) { Text("Choose Backup") }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        confirmingRestore = false
+                        createBackupLauncher.launch(BACKUP_FILENAME)
+                    }) { Text("Save Backup First") }
+                    TextButton(onClick = { confirmingRestore = false }) { Text("Cancel") }
+                }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             // Back as the other pushed screens (Cook, Train, a client) have it. Without it the
             // only way off Connect was the system back gesture.
             TopAppBar(
                 title = { Text("Connect") },
-                navigationIcon = { if (showBack) TextButton(onClick = onBack) { Text("Back") } }
+                navigationIcon = { if (showBack) BackArrowButton(onClick = onBack) }
             )
         }
     ) { padding ->
@@ -213,7 +265,7 @@ fun ConnectScreen(repo: ClientRepository, onBack: () -> Unit, showBack: Boolean 
             }
             Spacer(modifier = Modifier.height(8.dp))
             OutlinedButton(
-                onClick = { restoreBackupLauncher.launch(arrayOf("application/json")) },
+                onClick = { confirmingRestore = true },
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Restore from Backup")

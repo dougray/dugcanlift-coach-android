@@ -23,15 +23,15 @@ class WindowLayoutTest {
         assertEquals(WindowWidth.EXPANDED, WindowWidth.fromDp(1280f))
     }
 
-    @Test fun `a phone keeps its bottom bar and back buttons, and never splits the roster`() {
+    @Test fun `a phone gets a navigation bar rather than the rail, and never splits the roster`() {
         assertFalse(AdaptiveLayout.usesNavigationRail(WindowWidth.COMPACT))
-        assertTrue(AdaptiveLayout.showsBackOnTopLevelScreens(WindowWidth.COMPACT))
+        assertTrue(AdaptiveLayout.usesNavigationBar(WindowWidth.COMPACT))
         assertFalse(AdaptiveLayout.rosterIsTwoPane(WindowWidth.COMPACT))
     }
 
     @Test fun `medium gets the rail but a single roster pane`() {
         assertTrue(AdaptiveLayout.usesNavigationRail(WindowWidth.MEDIUM))
-        assertFalse(AdaptiveLayout.showsBackOnTopLevelScreens(WindowWidth.MEDIUM))
+        assertFalse(AdaptiveLayout.usesNavigationBar(WindowWidth.MEDIUM))
         assertFalse(AdaptiveLayout.rosterIsTwoPane(WindowWidth.MEDIUM))
     }
 

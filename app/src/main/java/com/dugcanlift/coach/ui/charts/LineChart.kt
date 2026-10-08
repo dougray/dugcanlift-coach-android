@@ -1,6 +1,8 @@
 package com.dugcanlift.coach.ui.charts
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -62,13 +64,33 @@ internal fun yAxisBounds(values: List<Double>, goal: Double? = null): ClosedFloa
  * week with nothing logged should simply be left out of [points] by the caller rather than
  * passed as a zero -- omitting a point leaves a gap instead of implying "logged zero".
  */
+/**
+ * What a chart says to TalkBack: the Canvas draws nothing a screen reader can read, so each chart
+ * carries its story as one sentence built from the data it already has. "Bodyweight, 12 points,
+ * from 182 on 2026-07-01 to 176 on 2026-09-20. High 183, low 175."
+ */
+internal fun chartSummary(title: String, points: List<Pair<String, Double>>, unit: String = ""): String {
+    if (points.isEmpty()) return "$title, nothing logged yet."
+    fun v(x: Double) = (Math.round(x * 10) / 10.0).let { if (it == Math.floor(it)) it.toLong().toString() else it.toString() } +
+        (if (unit.isBlank()) "" else " $unit")
+    val first = points.first()
+    val last = points.last()
+    if (points.size == 1) return "$title, one point: ${v(first.second)} on ${first.first}."
+    val high = points.maxOf { it.second }
+    val low = points.minOf { it.second }
+    return "$title, ${points.size} points, from ${v(first.second)} on ${first.first} to " +
+        "${v(last.second)} on ${last.first}. High ${v(high)}, low ${v(low)}."
+}
+
 @Composable
 fun LineChart(
     points: List<Pair<String, Double>>,
     modifier: Modifier = Modifier,
     lineColor: Color = DclAccent,
     goal: Double? = null,
-    height: Dp = 160.dp
+    height: Dp = 160.dp,
+    /** Spoken in place of the drawing; see [chartSummary]. */
+    description: String = chartSummary("Chart", points)
 ) {
     val gridColor = MaterialTheme.colorScheme.outline
     // Captured here because the Canvas lambda below is not composition, and the
@@ -96,6 +118,7 @@ fun LineChart(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(height)
+                .semantics { contentDescription = description }
         ) {
             val w = size.width
             val h = size.height
@@ -192,7 +215,9 @@ fun MultiLineChart(
     series: List<LineSeries>,
     modifier: Modifier = Modifier,
     legend: Boolean = true,
-    height: Dp = 160.dp
+    height: Dp = 160.dp,
+    /** Spoken in place of the drawing; defaults to one [chartSummary] per drawn line. */
+    description: String? = null
 ) {
     val gridColor = MaterialTheme.colorScheme.outline
     // Coach web's own filter: a series with a single point is not a trend, and a legend entry for
@@ -226,7 +251,8 @@ fun MultiLineChart(
             }
         }
 
-        Canvas(modifier = Modifier.fillMaxWidth().height(height)) {
+        val spoken = description ?: drawn.joinToString(" ") { chartSummary(it.label, it.points) }
+        Canvas(modifier = Modifier.fillMaxWidth().height(height).semantics { contentDescription = spoken }) {
             val w = size.width
             val h = size.height
             val span = top - bottom
