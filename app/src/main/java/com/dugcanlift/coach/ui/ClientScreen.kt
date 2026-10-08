@@ -1,5 +1,7 @@
 package com.dugcanlift.coach.ui
 
+import com.dugcanlift.coach.ui.adaptive.BackArrowButton
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.widthIn
@@ -63,6 +65,7 @@ import com.dugcanlift.coach.data.TrainingDay
 import com.dugcanlift.coach.data.WeekStats
 import com.dugcanlift.coach.ui.charts.BarChart
 import com.dugcanlift.coach.ui.charts.LineChart
+import com.dugcanlift.coach.ui.charts.chartSummary
 import com.dugcanlift.coach.ui.charts.LineSeries
 import com.dugcanlift.coach.ui.charts.MultiLineChart
 import com.dugcanlift.coach.ui.charts.RouteCanvas
@@ -121,7 +124,7 @@ fun ClientScreen(clientId: String, repo: ClientRepository, onBack: () -> Unit,
             TopAppBar(
                 title = { Text(client?.name ?: clientId) },
                 // No Back in the roster's detail pane: the list is right there beside it.
-                navigationIcon = { if (showBack) TextButton(onClick = onBack) { Text("Back") } },
+                navigationIcon = { if (showBack) BackArrowButton(onClick = onBack) },
                 // Cook is reached from a client rather than from the roster: a
                 // week is planned for someone, and the recipe library is shared
                 // across clients but the week is never.
@@ -303,6 +306,7 @@ private fun ClientDetailContent(
             BarChart(
                 values = volumeBars,
                 barColor = DclAccent,
+                description = chartSummary("Training volume by week", volumeBars),
                 modifier = Modifier.width(weeklyChartWidth).padding(horizontal = 16.dp)
             )
         }
@@ -323,6 +327,8 @@ private fun ClientDetailContent(
                 points = fuelPoints,
                 lineColor = DclAccent,
                 goal = goalCalories,
+                description = chartSummary("Calories by week", fuelPoints, "kcal") +
+                    (goalCalories?.let { " Goal ${Math.round(it)} kcal." } ?: ""),
                 modifier = Modifier.width(weeklyChartWidth).padding(horizontal = 16.dp)
             )
         }
@@ -340,6 +346,7 @@ private fun ClientDetailContent(
         LineChart(
             points = bodyweightPoints,
             lineColor = DclAccent,
+            description = chartSummary("Bodyweight", bodyweightPoints, unit),
             modifier = Modifier.padding(horizontal = 16.dp)
         )
     }
@@ -378,6 +385,12 @@ private fun ClientDetailContent(
                 )
             },
             legend = lift.sided,
+            description = lift.series.filter { it.points.size >= 2 }.joinToString(" ") { line ->
+                chartSummary(
+                    "${liftDisplayName(lift.key)} e1RM" + (if (lift.sided) ", ${sideSeriesLabel(line.side)}" else ""),
+                    line.points, unit
+                )
+            }.ifBlank { null },
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
         )
         lift.imbalance?.let { lines ->

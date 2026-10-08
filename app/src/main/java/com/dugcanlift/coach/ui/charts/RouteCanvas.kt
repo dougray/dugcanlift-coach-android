@@ -1,6 +1,8 @@
 package com.dugcanlift.coach.ui.charts
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -43,6 +45,8 @@ fun RouteCanvas(points: List<Pair<Double, Double>>, modifier: Modifier = Modifie
         modifier = modifier
             .fillMaxWidth()
             .aspectRatio(aspectRatio)
+            // The distance and time are read from the text under it; this says what the shape is.
+            .semantics { contentDescription = "Map of the route" }
             .clip(RoundedCornerShape(12.dp))
             .background(DclBg)
     ) {

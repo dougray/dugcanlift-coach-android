@@ -1,6 +1,12 @@
 package com.dugcanlift.coach.ui
 
+import com.dugcanlift.coach.ui.adaptive.BackArrowButton
+
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -14,6 +20,12 @@ import com.dugcanlift.coach.ui.theme.dclCardBorder
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.text.KeyboardOptions
@@ -29,6 +41,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.Tab
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -57,6 +71,8 @@ import com.dugcanlift.coach.data.Client
 import com.dugcanlift.coach.data.ClientRepository
 import com.dugcanlift.coach.data.CoachShoppingList
 import com.dugcanlift.coach.data.CookPlanEncoder
+import com.dugcanlift.coach.data.CookPlanWeek
+import com.dugcanlift.coach.data.PlanWeek
 import com.dugcanlift.coach.data.CookRepository
 import com.dugcanlift.coach.data.PlanEnvelope
 import com.dugcanlift.coach.data.PlannedMeal
@@ -126,6 +142,9 @@ fun CookScreen(
     // Shopping -- which reads the same client's week. Coach iOS's CookView
     // owns it at this level for exactly the same reason.
     var planClientId by rememberSaveable { mutableStateOf(clients.firstOrNull()?.id) }
+    // The week on screen, held here for the same reason as the client: Plan and
+    // Shopping read the same week. Saved as its first day, as Train holds it.
+    var weekStart by rememberSaveable { mutableStateOf(com.dugcanlift.kit.DayKey.today()) }
     // The recipe open in the editor, saved as its id so an activity recreation (a theme or
     // density change) reopens it. An id the library does not hold is a new, unsaved recipe.
     // Its own revision, not the library's: a tick should not re-read the whole
@@ -160,7 +179,7 @@ fun CookScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Cook") },
-                navigationIcon = { if (showBack) TextButton(onClick = onBack) { Text("Back") } }
+                navigationIcon = { if (showBack) BackArrowButton(onClick = onBack) }
             )
         }
     ) { padding ->
@@ -182,12 +201,17 @@ fun CookScreen(
                 return@Column
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Tabs, not filter chips: these switch between views rather than filter one list,
+            // and a tab announces itself as selected to TalkBack.
+            PrimaryTabRow(
+                selectedTabIndex = section.ordinal,
+                containerColor = MaterialTheme.colorScheme.background
+            ) {
                 CookSection.entries.forEach { entry ->
-                    FilterChip(
+                    Tab(
                         selected = section == entry,
                         onClick = { section = entry },
-                        label = { Text(entry.label) }
+                        text = { Text(entry.label, maxLines = 1) }
                     )
                 }
             }
@@ -196,7 +220,10 @@ fun CookScreen(
             val recipesById = library.recipes.associateBy { it.id }
             val clientId = planClientId
             val clientName = clients.firstOrNull { it.id == clientId }?.name
-            val weekMeals = clientId?.let { library.meals.forClient(it) } ?: emptyList()
+            val week = PlanWeek(weekStart)
+            // Only the shown week: what the Send carries and what the shopping
+            // list adds up, as Coach iOS scopes both.
+            val weekMeals = clientId?.let { CookPlanWeek.inWeek(library.meals.forClient(it), week) } ?: emptyList()
             val clientPicks = storedPicks.forClient(clientId)
 
             when (section) {
@@ -218,18 +245,14 @@ fun CookScreen(
                     canPlan = clientId != null && library.recipes.isNotEmpty(),
                     roadPickCount = clientPicks.size,
                     dayColumns = AdaptiveLayout.planDayColumns(available),
-                    buttonColumns = AdaptiveLayout.cardColumns(available),
-                    onAdd = { recipe ->
-                        cook.upsertMeal(
-                            PlannedMeal(
-                                recipeId = recipe.id,
-                                clientId = clientId,
-                                dayKey = com.dugcanlift.kit.DayKey.today(),
-                                recipeName = recipe.name,
-                                snapshotNutrition = recipe.nutritionPerServing,
-                                snapshotNutritionUnknownKeys = recipe.nutritionUnknownKeys
-                            )
-                        )
+                    week = week,
+                    onWeek = { weekStart = it.startDayKey },
+                    onBook = { recipe, day, slot ->
+                        cook.upsertMeal(CookPlanWeek.book(recipe, clientId ?: return@PlanList, day, slot))
+                        revision++
+                    },
+                    onServings = { meal, servings ->
+                        cook.upsertMeal(meal.copy(servings = servings))
                         revision++
                     },
                     recipes = library.recipes,
@@ -283,6 +306,7 @@ fun CookScreen(
                 )
 
                 CookSection.SHOPPING -> ShoppingList(
+                    caption = clientName?.let { "For $it, ${week.label().replaceFirstChar { c -> c.lowercase() }}." },
                     lines = CoachShoppingList.build(weekMeals, recipesById),
                     columns = AdaptiveLayout.shoppingColumns(available)
                 )
@@ -430,6 +454,7 @@ private fun PlanList(
     selectedClientId: String?,
     onPickClient: (String) -> Unit,
     clientName: String?,
+    /** This client's meals in [week], and only those. */
     meals: List<PlannedMeal>,
     recipesById: Map<String, Recipe>,
     recipes: List<Recipe>,
@@ -437,8 +462,10 @@ private fun PlanList(
     /** How many road picks this client has. They travel in the same link. */
     roadPickCount: Int,
     dayColumns: Int,
-    buttonColumns: Int,
-    onAdd: (Recipe) -> Unit,
+    week: PlanWeek,
+    onWeek: (PlanWeek) -> Unit,
+    onBook: (Recipe, String, String) -> Unit,
+    onServings: (PlannedMeal, Double) -> Unit,
     onRemove: (PlannedMeal) -> Unit,
     onSend: () -> Unit
 ) {
@@ -474,6 +501,23 @@ private fun PlanList(
         return
     }
 
+    // ‹ This week ›, Train's control, so a coach learns it once.
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        TextButton(onClick = { onWeek(week.advanced(-1)) }) { Text("‹ Earlier") }
+        Text(
+            week.label(),
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.weight(1f),
+            textAlign = TextAlign.Center
+        )
+        TextButton(onClick = { onWeek(week.advanced(1)) }) { Text("Later ›") }
+    }
+    Spacer(Modifier.height(8.dp))
+
     // Road picks travel in the same link, so a coach whose only answer this
     // week is "these are fine on the road" still has something to send.
     if (meals.isNotEmpty() || roadPickCount > 0) {
@@ -494,83 +538,111 @@ private fun PlanList(
         Spacer(Modifier.height(12.dp))
     }
 
-    val mealCard: @Composable (PlannedMeal) -> Unit = { meal ->
-        Card(Modifier.fillMaxWidth(), border = dclCardBorder()) {
+    if (recipes.isEmpty()) {
+        Text(
+            if (roadPickCount > 0)
+                "No recipes yet — a week is built from them. The road picks you marked " +
+                    "still go in the link."
+            else "Write a recipe first — a week is built from them.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Spacer(Modifier.height(12.dp))
+    }
+
+    // One card a day, each with the four meal slots: Coach iOS's day x slot
+    // grid, laid out a day at a time on a phone and side by side where there is room.
+    val dayCard: @Composable (String, Modifier) -> Unit = { day, modifier ->
+        Card(modifier.fillMaxWidth(), border = dclCardBorder()) {
             Column(Modifier.padding(12.dp)) {
-                Text(
-                    meal.recipeName.ifBlank { recipesById[meal.recipeId]?.name ?: "Deleted recipe" },
-                    style = MaterialTheme.typography.titleSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    "${meal.dayKey} · ${meal.meal} · ${meal.servings.trimZeros()} serving(s)",
-                    style = MaterialTheme.typography.bodySmall
-                )
-                TextButton(onClick = { onRemove(meal) }) { Text("Remove") }
+                Text(formatShortDay(day), style = MaterialTheme.typography.titleSmall)
+                Text(day, style = MaterialTheme.typography.bodySmall)
+                CookPlanWeek.SLOTS.forEach { slot ->
+                    HorizontalDivider(Modifier.padding(vertical = 6.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            CookPlanWeek.slotLabel(slot),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (canPlan) {
+                            AddMealMenu(
+                                recipes = recipes,
+                                description = "Add ${CookPlanWeek.slotLabel(slot).lowercase()} on ${formatShortDay(day)}",
+                                onBook = { onBook(it, day, slot) }
+                            )
+                        }
+                    }
+                    CookPlanWeek.at(meals, day, slot).forEach { meal ->
+                        val name = meal.recipeName.ifBlank { recipesById[meal.recipeId]?.name ?: "Deleted recipe" }
+                        Text(
+                            name,
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            ServingsMenu(meal = meal, recipeName = name, onServings = { onServings(meal, it) })
+                            Spacer(Modifier.weight(1f))
+                            TextButton(
+                                onClick = { onRemove(meal) },
+                                modifier = Modifier.semantics { contentDescription = "Remove $name" }
+                            ) { Text("Remove") }
+                        }
+                    }
+                }
             }
         }
     }
 
-    // The week as days side by side when there is room; a phone keeps its single list.
-    val days = remember(meals) { meals.groupBy { it.dayKey }.toSortedMap().toList() }
-
+    val days = week.days
     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (dayColumns == 1) {
-            items(meals, key = { it.id }) { meal -> mealCard(meal) }
+            items(days, key = { it }) { day -> dayCard(day, Modifier) }
         } else {
-            items(rowMajor(days, dayColumns), key = { row -> "days-${row.first().first}" }) { row ->
-                GridRow(row, dayColumns) { (dayKey, dayMeals) ->
-                    Card(Modifier.fillMaxWidth().fillMaxHeight(), border = dclCardBorder()) {
-                        Column(Modifier.padding(12.dp)) {
-                            Text(formatShortDay(dayKey), style = MaterialTheme.typography.titleSmall)
-                            Text(dayKey, style = MaterialTheme.typography.bodySmall)
-                            dayMeals.forEach { meal ->
-                                HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                                Text(
-                                    meal.recipeName.ifBlank { recipesById[meal.recipeId]?.name ?: "Deleted recipe" },
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    "${meal.meal} · ${meal.servings.trimZeros()} serving(s)",
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                                TextButton(onClick = { onRemove(meal) }) { Text("Remove") }
-                            }
-                        }
-                    }
-                }
+            items(rowMajor(days, dayColumns), key = { row -> "days-${row.first()}" }) { row ->
+                GridRow(row, dayColumns) { day -> dayCard(day, Modifier.fillMaxHeight()) }
             }
         }
+    }
+}
 
-        if (canPlan) {
-            item { HorizontalDivider() }
-            item { Text("Add to the week", style = MaterialTheme.typography.titleSmall) }
-            if (buttonColumns == 1) {
-                items(recipes, key = { "add-${it.id}" }) { recipe ->
-                    OutlinedButton(onClick = { onAdd(recipe) }, modifier = Modifier.fillMaxWidth()) {
-                        Text(recipe.name.ifBlank { "Untitled" })
-                    }
-                }
-            } else {
-                items(rowMajor(recipes, buttonColumns), key = { row -> "add-${row.first().id}" }) { row ->
-                    GridRow(row, buttonColumns) { recipe ->
-                        OutlinedButton(onClick = { onAdd(recipe) }, modifier = Modifier.fillMaxWidth()) {
-                            Text(recipe.name.ifBlank { "Untitled" }, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                    }
-                }
+/** "Add" on one meal slot, and the recipes it can add, as one menu -- Train's Book. */
+@Composable
+private fun AddMealMenu(recipes: List<Recipe>, description: String, onBook: (Recipe) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        TextButton(
+            onClick = { open = true },
+            modifier = Modifier.semantics { contentDescription = description }
+        ) { Text("Add") }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            recipes.forEach { recipe ->
+                DropdownMenuItem(
+                    text = { Text(recipe.name.ifBlank { "Untitled" }) },
+                    onClick = { open = false; onBook(recipe) }
+                )
             }
-        } else if (recipes.isEmpty()) {
-            item {
-                Text(
-                    if (roadPickCount > 0)
-                        "No recipes yet — a week is built from them. The road picks you marked " +
-                            "still go in the link."
-                    else "Write a recipe first — a week is built from them.",
-                    style = MaterialTheme.typography.bodyMedium
+        }
+    }
+}
+
+/** A planned meal's servings, as Coach iOS's servings menu. */
+@Composable
+private fun ServingsMenu(meal: PlannedMeal, recipeName: String, onServings: (Double) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(
+            onClick = { open = true },
+            modifier = Modifier.semantics {
+                contentDescription = "$recipeName, ${CookPlanWeek.servingsLabel(meal.servings)}. Change servings"
+            }
+        ) { Text(CookPlanWeek.servingsLabel(meal.servings)) }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            CookPlanWeek.SERVING_OPTIONS.forEach { count ->
+                DropdownMenuItem(
+                    text = { Text(CookPlanWeek.servingsLabel(count)) },
+                    onClick = { open = false; onServings(count) }
                 )
             }
         }
@@ -732,7 +804,15 @@ private fun androidx.compose.foundation.lazy.LazyListScope.roadPlace(
         Card(Modifier.fillMaxWidth(), border = dclCardBorder()) {
             Column(Modifier.padding(12.dp)) {
                 Row(
-                    Modifier.fillMaxWidth().clickable { open[placeId] = !isOpen },
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .clickable(role = Role.Button, onClickLabel = if (isOpen) "Collapse" else "Expand") {
+                            open[placeId] = !isOpen
+                        }
+                        .semantics(mergeDescendants = true) {
+                            stateDescription = if (isOpen) "Expanded" else "Collapsed"
+                        },
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -780,11 +860,12 @@ private fun RoadPickRow(
     showCategory: Boolean,
     onToggle: (Boolean) -> Unit
 ) {
+    // One TalkBack stop for the row, read as a checkbox, rather than the row and its box apart.
     Row(
-        Modifier.fillMaxWidth().clickable { onToggle(!checked) },
+        Modifier.fillMaxWidth().toggleable(value = checked, role = Role.Checkbox, onValueChange = onToggle),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Checkbox(checked = checked, onCheckedChange = onToggle)
+        Checkbox(checked = checked, onCheckedChange = null)
         Column(Modifier.weight(1f).padding(vertical = 4.dp)) {
             Text(item.name, style = MaterialTheme.typography.bodyMedium)
             // Blank stays blank: an item with no figure says so rather than showing 0.
@@ -801,9 +882,19 @@ private fun RoadPickRow(
 }
 
 @Composable
-private fun ShoppingList(lines: List<com.dugcanlift.coach.data.ShoppingLine>, columns: Int = 1) {
+private fun ShoppingList(
+    lines: List<com.dugcanlift.coach.data.ShoppingLine>,
+    columns: Int = 1,
+    /** Whose week this adds up, so a list read from Shopping is never a mystery week. */
+    caption: String? = null
+) {
+    caption?.let {
+        Text(it, style = MaterialTheme.typography.bodySmall,
+             color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(8.dp))
+    }
     if (lines.isEmpty()) {
-        Text("Nothing planned yet, so there is nothing to buy.",
+        Text("Nothing planned for this week yet, so there is nothing to buy.",
              style = MaterialTheme.typography.bodyMedium)
         return
     }
@@ -886,8 +977,38 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
     var pasteText by rememberSaveable(recipe.id) { mutableStateOf("") }
     var splitAdvice by remember(recipe.id) { mutableStateOf<String?>(null) }
 
+    // Compared with what the recipe itself says rather than with a snapshot
+    // taken on first composition, so an edit survives a rotation still counted
+    // as an edit.
+    val changed = name != recipe.name ||
+        servings != recipe.servings.trimZeros() ||
+        ingredients != recipe.rawIngredients.joinToString("\n") ||
+        steps != recipe.steps.joinToString("\n") ||
+        calories != macroFieldText(macros) { it.calories } ||
+        protein != macroFieldText(macros) { it.proteinG } ||
+        carbs != macroFieldText(macros) { it.carbsG } ||
+        fat != macroFieldText(macros) { it.fatG } ||
+        fiber != macroFieldText(macros) { it.fiberG } ||
+        saturatedFat != (macros?.saturatedFatG?.trimZeros() ?: "") ||
+        sugar != (macros?.sugarG?.trimZeros() ?: "") ||
+        sodium != (macros?.sodiumMg?.trimZeros() ?: "") ||
+        enteredWeightGrams(totalWeight, weightUnit) != recipe.totalWeightGrams?.let { g ->
+            enteredWeightGrams(roundOne(weightUnit.fromGrams(g)).trimZeros(), weightUnit)
+        } ||
+        pasteText.isNotBlank()
+    var confirmingDiscard by rememberSaveable(recipe.id) { mutableStateOf(false) }
+    val requestCancel = { if (changed) confirmingDiscard = true else onCancel() }
+    if (confirmingDiscard) {
+        DiscardChangesDialog(
+            what = recipe.name.ifBlank { "this recipe" },
+            onKeepEditing = { confirmingDiscard = false },
+            onDiscard = { confirmingDiscard = false; onCancel() }
+        )
+    }
+
     AlertDialog(
-        onDismissRequest = onCancel,
+        onDismissRequest = requestCancel,
+        properties = EditorDialogProperties,
         title = { Text(if (recipe.name.isBlank()) "New recipe" else "Edit recipe") },
         text = {
             // Scrolls. It did not, which was harmless with four fields and
@@ -1052,7 +1173,7 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
                 }
             ) { Text("Save") }
         },
-        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } }
+        dismissButton = { TextButton(onClick = requestCancel) { Text("Cancel") } }
     )
 }
 

@@ -77,4 +77,24 @@ class TrainScreenParsingTest {
         assertEquals("Barbell", ex.equipment)
         assertEquals(60.0, ex.sets.first().targetWeightKg!!, 0.001)
     }
+
+    @Test fun `a load can say its unit, and pounds are converted`() {
+        assertEquals(60.0, parseExercises("Bench | Barbell | 3 x 8 @ 60 kg").single().sets.first().targetWeightKg!!, 0.001)
+        assertEquals(60.0, parseExercises("Bench | Barbell | 3 x 8 @ 60kg").single().sets.first().targetWeightKg!!, 0.001)
+        val lb = parseExercises("Bench | Barbell | 3 x 8 @ 135 lb").single().sets.first().targetWeightKg!!
+        assertEquals(135.0, lb * LB_PER_KG, 0.001)
+        assertEquals(3, parseExercises("Bench | Barbell | 3 x 8 @ 135 lbs").single().sets.size)
+    }
+
+    @Test fun `a load that is not a number and unit is not a load`() {
+        assertNull(parseLoadKg("60 stone"))
+        assertNull(parseLoadKg(""))
+    }
+
+    @Test fun `the editor says the unit wherever a weight is shown`() {
+        val ex = parseExercises("Bench | Barbell | 3 x 8 @ 60").single()
+        assertEquals("Bench | Barbell | 3 x 8 @ 60 kg", com.dugcanlift.coach.data.RoutineEditing.renderLine(ex))
+        assertEquals(" (kg)", weightUnitSuffix(ex.sets))
+        assertEquals("", weightUnitSuffix(parseExercises("Plank | | 3 x 1").single().sets))
+    }
 }

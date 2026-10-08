@@ -29,7 +29,11 @@ object RoutineEditing {
             exercise.sets.size.takeIf { it > 0 }?.toString(),
             first?.targetReps?.toString()
         ).joinToString(" x ")
-        val load = first?.targetWeightKg?.trimZeros()?.let { " @ $it" }.orEmpty()
+        // The unit is written out: an unlabelled number with a safety
+        // consequence read as pounds to a coach who thinks in pounds. Two
+        // decimals, so a load typed in pounds does not reopen as 61.23496 kg;
+        // an untouched line still keeps its exact sets (see apply).
+        val load = first?.targetWeightKg?.let { " @ ${(Math.round(it * 100) / 100.0).trimZeros()} kg" }.orEmpty()
         return listOf(exercise.name, exercise.equipment).filter { it.isNotBlank() }
             .joinToString(" | ") + (if (scheme.isNotBlank()) " | $scheme$load" else "")
     }

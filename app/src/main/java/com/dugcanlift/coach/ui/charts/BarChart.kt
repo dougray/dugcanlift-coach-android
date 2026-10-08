@@ -1,6 +1,8 @@
 package com.dugcanlift.coach.ui.charts
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -27,7 +29,9 @@ fun BarChart(
     values: List<Pair<String, Double>>,
     modifier: Modifier = Modifier,
     barColor: Color = DclAccent,
-    height: Dp = 160.dp
+    height: Dp = 160.dp,
+    /** Spoken in place of the drawing; see [chartSummary]. */
+    description: String = chartSummary("Chart", values)
 ) {
     val gridColor = MaterialTheme.colorScheme.outline
     val maxValue = values.maxOfOrNull { it.second } ?: 0.0
@@ -46,6 +50,7 @@ fun BarChart(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(height)
+                .semantics { contentDescription = description }
         ) {
             val w = size.width
             val h = size.height

@@ -13,6 +13,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
@@ -54,6 +57,36 @@ fun CoachNavigationRail(current: TopLevel?, onSelect: (TopLevel) -> Unit, modifi
                 label = { Text(destination.label) }
             )
         }
+    }
+}
+
+/**
+ * The phone's navigation: the rail's four destinations as a Material NavigationBar, with the same
+ * hand-drawn glyphs and selected state, so the information architecture no longer changes with
+ * window width.
+ */
+@Composable
+fun CoachNavigationBar(current: TopLevel?, onSelect: (TopLevel) -> Unit, modifier: Modifier = Modifier) {
+    NavigationBar(modifier = modifier, containerColor = MaterialTheme.colorScheme.surface) {
+        TopLevel.entries.forEach { destination ->
+            NavigationBarItem(
+                selected = current == destination,
+                onClick = { onSelect(destination) },
+                icon = { Icon(railIcon(destination), contentDescription = null) },
+                label = { Text(destination.label) }
+            )
+        }
+    }
+}
+
+/**
+ * Up, as Android draws it: an arrow in the top bar's navigation slot rather than the word "Back".
+ * Hand-drawn like the rail's glyphs, for the same no-icon-library reason.
+ */
+@Composable
+fun BackArrowButton(onClick: () -> Unit) {
+    IconButton(onClick = onClick) {
+        Icon(BackArrowIcon, contentDescription = "Back")
     }
 }
 
@@ -144,5 +177,14 @@ private val ConnectIcon = icon("Connect") {
         circle(6f, 12f, 2.8f)
         circle(18f, 5.5f, 2.8f)
         circle(18f, 18.5f, 2.8f)
+    }
+}
+
+// Declared after Ink: top-level vals initialise in file order.
+/** A left arrow: a shaft and two strokes for the head. */
+private val BackArrowIcon = icon("Back") {
+    path(stroke = Ink, strokeLineWidth = 2f, strokeLineCap = StrokeCap.Round) {
+        moveTo(20f, 12f); lineTo(4.5f, 12f)
+        moveTo(11f, 5.5f); lineTo(4.5f, 12f); lineTo(11f, 18.5f)
     }
 }
