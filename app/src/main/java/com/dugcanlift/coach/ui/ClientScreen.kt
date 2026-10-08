@@ -71,7 +71,7 @@ import com.dugcanlift.coach.ui.charts.MultiLineChart
 import com.dugcanlift.coach.ui.charts.RouteCanvas
 import com.dugcanlift.coach.ui.theme.DclAccent
 import com.dugcanlift.coach.ui.theme.DclAccentText
-import com.dugcanlift.coach.ui.theme.DclAccent2
+import com.dugcanlift.coach.ui.theme.DclAccent2Text
 import com.dugcanlift.coach.ui.theme.DclMuted
 import com.dugcanlift.coach.ui.theme.dclCardBorder
 import com.dugcanlift.coach.ui.theme.dclOutlinedButtonColors
@@ -375,8 +375,8 @@ private fun ClientDetailContent(
         // Left, right and the unmarked sets as separate lines, never merged -- averaging them hides
         // the one thing they are here to show. Coach web's seriesColour: the unmarked line is muted
         // when it sits beside a limb and the ordinary accent when it is the only line there is.
-        // The legend names each line in its own colour, so the rust here is the readable one
-        // (dugcanlift-lift's charts do the same).
+        // The legend names each line in its own colour, so the rust and the sage here are the
+        // readable ones, ACCENT_TEXT and ACCENT2_TEXT (dugcanlift-lift's charts do the same).
         MultiLineChart(
             series = lift.series.map { line ->
                 LineSeries(
@@ -384,7 +384,7 @@ private fun ClientDetailContent(
                     points = line.points,
                     color = when (line.side) {
                         SetSide.LEFT -> DclAccentText
-                        SetSide.RIGHT -> DclAccent2
+                        SetSide.RIGHT -> DclAccent2Text
                         null -> if (lift.sided) DclMuted else DclAccentText
                     }
                 )
