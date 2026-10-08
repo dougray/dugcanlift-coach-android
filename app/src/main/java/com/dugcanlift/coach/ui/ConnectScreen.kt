@@ -53,6 +53,9 @@ import com.dugcanlift.coach.data.TrainRepository
 import com.dugcanlift.coach.data.ClientRepository
 import java.io.File
 import kotlinx.coroutines.launch
+import com.dugcanlift.coach.ui.theme.dclOutlinedButtonColors
+import com.dugcanlift.coach.ui.theme.dclTextButtonColors
+import com.dugcanlift.coach.ui.theme.dclTextFieldColors
 
 private const val PREFS_NAME = "connect"
 private const val PREF_COACH_NAME = "coachName"
@@ -159,15 +162,15 @@ fun ConnectScreen(repo: ClientRepository, onBack: () -> Unit, showBack: Boolean 
                 TextButton(onClick = {
                     confirmingRestore = false
                     restoreBackupLauncher.launch(arrayOf("application/json"))
-                }) { Text("Choose Backup") }
+                }, colors = dclTextButtonColors()) { Text("Choose Backup") }
             },
             dismissButton = {
                 Row {
                     TextButton(onClick = {
                         confirmingRestore = false
                         createBackupLauncher.launch(BACKUP_FILENAME)
-                    }) { Text("Save Backup First") }
-                    TextButton(onClick = { confirmingRestore = false }) { Text("Cancel") }
+                    }, colors = dclTextButtonColors()) { Text("Save Backup First") }
+                    TextButton(onClick = { confirmingRestore = false }, colors = dclTextButtonColors()) { Text("Cancel") }
                 }
             }
         )
@@ -219,7 +222,8 @@ fun ConnectScreen(repo: ClientRepository, onBack: () -> Unit, showBack: Boolean 
                 onValueChange = ::updateCoachName,
                 label = { Text("Name") },
                 singleLine = true,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = dclTextFieldColors()
             )
             Spacer(modifier = Modifier.height(8.dp))
             OutlinedTextField(
@@ -227,7 +231,8 @@ fun ConnectScreen(repo: ClientRepository, onBack: () -> Unit, showBack: Boolean 
                 onValueChange = ::updateCoachEmail,
                 label = { Text("Email") },
                 singleLine = true,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = dclTextFieldColors()
             )
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -259,14 +264,16 @@ fun ConnectScreen(repo: ClientRepository, onBack: () -> Unit, showBack: Boolean 
             Spacer(modifier = Modifier.height(8.dp))
             OutlinedButton(
                 onClick = { createBackupLauncher.launch(BACKUP_FILENAME) },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = dclOutlinedButtonColors()
             ) {
                 Text("Save Backup")
             }
             Spacer(modifier = Modifier.height(8.dp))
             OutlinedButton(
                 onClick = { confirmingRestore = true },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = dclOutlinedButtonColors()
             ) {
                 Text("Restore from Backup")
             }

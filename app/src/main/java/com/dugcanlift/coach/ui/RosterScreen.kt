@@ -63,7 +63,10 @@ import com.dugcanlift.coach.data.RosterLoader
 import com.dugcanlift.coach.data.RosterRow
 import com.dugcanlift.coach.data.ShareLinkImporter
 import com.dugcanlift.coach.ui.theme.DclAccent
+import com.dugcanlift.coach.ui.theme.DclAccentText
 import com.dugcanlift.coach.ui.theme.DclMuted
+import com.dugcanlift.coach.ui.theme.DclText
+import com.dugcanlift.coach.ui.theme.dclTextButtonColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -182,7 +185,7 @@ fun RosterScreen(
                 TopAppBar(
                     title = { Text("Roster") },
                     actions = {
-                        TextButton(onClick = { showPasteSheet = true }) { Text("Paste a Link") }
+                        TextButton(onClick = { showPasteSheet = true }, colors = dclTextButtonColors()) { Text("Paste a Link") }
                     }
                 )
             },
@@ -204,9 +207,9 @@ fun RosterScreen(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                         horizontalArrangement = Arrangement.End
                     ) {
-                        TextButton(onClick = onTrain) { Text("Train") }
-                        TextButton(onClick = onCook) { Text("Cook") }
-                        TextButton(onClick = onConnect) { Text("Connect") }
+                        TextButton(onClick = onTrain, colors = dclTextButtonColors()) { Text("Train") }
+                        TextButton(onClick = onCook, colors = dclTextButtonColors()) { Text("Cook") }
+                        TextButton(onClick = onConnect, colors = dclTextButtonColors()) { Text("Connect") }
                     }
                 }
             }
@@ -303,7 +306,7 @@ private fun SilenceBanner(names: List<String>, modifier: Modifier = Modifier) {
     Text(
         text = "${names.size} $noun logged nothing in a week: ${names.joinToString(", ")}",
         style = MaterialTheme.typography.bodyMedium,
-        color = DclAccent,
+        color = DclAccentText,
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 12.dp)
@@ -336,7 +339,13 @@ private fun RosterRowItem(
             Text(
                 text = row.label,
                 style = MaterialTheme.typography.bodyMedium,
-                color = if ((row.daysSinceLastLogged ?: Int.MAX_VALUE) >= Roster.SILENCE_THRESHOLD_DAYS) DclAccent else DclMuted
+                // The readable rust, not the fill. On the selected row's tint neither rust nor muted
+                // reaches 4.5:1 (4.4 / 4.0 for the rust), so the open client's label is body text.
+                color = when {
+                    selected -> DclText
+                    (row.daysSinceLastLogged ?: Int.MAX_VALUE) >= Roster.SILENCE_THRESHOLD_DAYS -> DclAccentText
+                    else -> DclMuted
+                }
             )
         }
         DropdownMenu(expanded = menuOpen, onDismissRequest = onDismissMenu) {

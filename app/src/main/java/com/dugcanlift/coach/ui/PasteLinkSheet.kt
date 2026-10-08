@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.dugcanlift.coach.data.fragmentFrom
+import com.dugcanlift.coach.ui.theme.dclTextFieldColors
 
 /**
  * The paste-a-link bottom sheet. Accepts either a full share URL or a bare fragment -- the text
@@ -41,7 +42,8 @@ fun PasteLinkSheet(onSubmit: (String) -> Unit, onDismissRequest: () -> Unit = {}
                 onValueChange = { text = it },
                 label = { Text("Paste the link a client sent you") },
                 singleLine = false,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = dclTextFieldColors()
             )
             Spacer(modifier = Modifier.height(16.dp))
             Button(

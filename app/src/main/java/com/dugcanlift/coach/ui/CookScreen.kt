@@ -16,7 +16,11 @@ import com.dugcanlift.coach.ui.adaptive.AdaptiveLayout
 import com.dugcanlift.coach.ui.adaptive.GridRow
 import com.dugcanlift.coach.ui.adaptive.columnMajor
 import com.dugcanlift.coach.ui.adaptive.rowMajor
+import com.dugcanlift.coach.ui.theme.DclAccentText
 import com.dugcanlift.coach.ui.theme.dclCardBorder
+import com.dugcanlift.coach.ui.theme.dclOutlinedButtonColors
+import com.dugcanlift.coach.ui.theme.dclTextButtonColors
+import com.dugcanlift.coach.ui.theme.dclTextFieldColors
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -205,7 +209,9 @@ fun CookScreen(
             // and a tab announces itself as selected to TalkBack.
             PrimaryTabRow(
                 selectedTabIndex = section.ordinal,
-                containerColor = MaterialTheme.colorScheme.background
+                containerColor = MaterialTheme.colorScheme.background,
+                // The labels are text: the readable rust. The indicator keeps the brand fill.
+                contentColor = DclAccentText
             ) {
                 CookSection.entries.forEach { entry ->
                     Tab(
@@ -362,9 +368,9 @@ fun CookScreen(
                     planClientId?.let { pickStore.setForClient(it, emptyList()) }
                     confirmingClearPicks = false
                     pickRevision++
-                }) { Text("Clear") }
+                }, colors = dclTextButtonColors()) { Text("Clear") }
             },
-            dismissButton = { TextButton(onClick = { confirmingClearPicks = false }) { Text("Keep") } }
+            dismissButton = { TextButton(onClick = { confirmingClearPicks = false }, colors = dclTextButtonColors()) { Text("Keep") } }
         )
     }
 
@@ -386,9 +392,9 @@ fun CookScreen(
                     cook.deleteRecipe(recipe.id)
                     confirmingDelete = null
                     revision++
-                }) { Text("Delete") }
+                }, colors = dclTextButtonColors()) { Text("Delete") }
             },
-            dismissButton = { TextButton(onClick = { confirmingDelete = null }) { Text("Keep") } }
+            dismissButton = { TextButton(onClick = { confirmingDelete = null }, colors = dclTextButtonColors()) { Text("Keep") } }
         )
     }
 }
@@ -425,8 +431,8 @@ private fun RecipeList(
                 )
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { onEdit(recipe) }) { Text("Edit") }
-                    TextButton(onClick = { onDelete(recipe) }) { Text("Delete") }
+                    OutlinedButton(onClick = { onEdit(recipe) }, colors = dclOutlinedButtonColors()) { Text("Edit") }
+                    TextButton(onClick = { onDelete(recipe) }, colors = dclTextButtonColors()) { Text("Delete") }
                 }
             }
         }
@@ -507,14 +513,14 @@ private fun PlanList(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        TextButton(onClick = { onWeek(week.advanced(-1)) }) { Text("‹ Earlier") }
+        TextButton(onClick = { onWeek(week.advanced(-1)) }, colors = dclTextButtonColors()) { Text("‹ Earlier") }
         Text(
             week.label(),
             style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.weight(1f),
             textAlign = TextAlign.Center
         )
-        TextButton(onClick = { onWeek(week.advanced(1)) }) { Text("Later ›") }
+        TextButton(onClick = { onWeek(week.advanced(1)) }, colors = dclTextButtonColors()) { Text("Later ›") }
     }
     Spacer(Modifier.height(8.dp))
 
@@ -586,7 +592,8 @@ private fun PlanList(
                             Spacer(Modifier.weight(1f))
                             TextButton(
                                 onClick = { onRemove(meal) },
-                                modifier = Modifier.semantics { contentDescription = "Remove $name" }
+                                modifier = Modifier.semantics { contentDescription = "Remove $name" },
+                                colors = dclTextButtonColors()
                             ) { Text("Remove") }
                         }
                     }
@@ -614,7 +621,8 @@ private fun AddMealMenu(recipes: List<Recipe>, description: String, onBook: (Rec
     Box {
         TextButton(
             onClick = { open = true },
-            modifier = Modifier.semantics { contentDescription = description }
+            modifier = Modifier.semantics { contentDescription = description },
+            colors = dclTextButtonColors()
         ) { Text("Add") }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             recipes.forEach { recipe ->
@@ -636,7 +644,8 @@ private fun ServingsMenu(meal: PlannedMeal, recipeName: String, onServings: (Dou
             onClick = { open = true },
             modifier = Modifier.semantics {
                 contentDescription = "$recipeName, ${CookPlanWeek.servingsLabel(meal.servings)}. Change servings"
-            }
+            },
+            colors = dclOutlinedButtonColors()
         ) { Text(CookPlanWeek.servingsLabel(meal.servings)) }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             CookPlanWeek.SERVING_OPTIONS.forEach { count ->
@@ -764,7 +773,7 @@ private fun RoadList(
                         )
                     }
                     if (picks.isNotEmpty()) {
-                        TextButton(onClick = onClearAll) { Text("Clear these picks") }
+                        TextButton(onClick = onClearAll, colors = dclTextButtonColors()) { Text("Clear these picks") }
                     }
                 }
             }
@@ -826,12 +835,13 @@ private fun androidx.compose.foundation.lazy.LazyListScope.roadPlace(
 
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { onSetPicks(RoadPicks.toggleAll(picks, items, true)) }) {
+                    OutlinedButton(onClick = { onSetPicks(RoadPicks.toggleAll(picks, items, true)) }, colors = dclOutlinedButtonColors()) {
                         Text("Pick all")
                     }
                     TextButton(
                         enabled = picked > 0,
-                        onClick = { onSetPicks(RoadPicks.toggleAll(picks, items, false)) }
+                        onClick = { onSetPicks(RoadPicks.toggleAll(picks, items, false)) },
+                        colors = dclTextButtonColors()
                     ) { Text("Clear") }
                 }
                 items.forEach { item ->
@@ -1022,12 +1032,13 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
                 // the quantities on save and still refuses to weigh a volume.
                 if (isNew) {
                     if (!pasting) {
-                        TextButton(onClick = { pasting = true }) { Text("Paste a recipe") }
+                        TextButton(onClick = { pasting = true }, colors = dclTextButtonColors()) { Text("Paste a recipe") }
                     } else {
                         OutlinedTextField(
                             value = pasteText,
                             onValueChange = { pasteText = it },
-                            label = { Text("Paste the recipe's text") }
+                            label = { Text("Paste the recipe's text") },
+                            colors = dclTextFieldColors()
                         )
                         Row {
                             TextButton(
@@ -1060,9 +1071,10 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
                                         pasting = false
                                         pasteText = ""
                                     }
-                                }
+                                },
+                                colors = dclTextButtonColors()
                             ) { Text("Read it") }
-                            TextButton(onClick = { pasting = false; pasteText = "" }) { Text("Cancel") }
+                            TextButton(onClick = { pasting = false; pasteText = "" }, colors = dclTextButtonColors()) { Text("Cancel") }
                         }
                     }
                     splitAdvice?.let {
@@ -1072,10 +1084,10 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
                 }
 
                 OutlinedTextField(value = name, onValueChange = { name = it },
-                                  label = { Text("Name") }, singleLine = true)
+                                  label = { Text("Name") }, singleLine = true, colors = dclTextFieldColors())
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(value = servings, onValueChange = { servings = it },
-                                  label = { Text("Serves") }, singleLine = true)
+                                  label = { Text("Serves") }, singleLine = true, colors = dclTextFieldColors())
 
                 Spacer(Modifier.height(12.dp))
                 Text("Total weight of the finished dish", style = MaterialTheme.typography.labelLarge)
@@ -1091,7 +1103,8 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
                                 totalWeight = reweigh(totalWeight, weightUnit, unit)
                                 weightUnit = unit
                                 weightPrefs.edit().putString("recipeWeightUnit", unit.name).apply()
-                            }
+                            },
+                            colors = dclTextButtonColors()
                         ) {
                             Text(if (unit == weightUnit) "\u2713 ${unit.label}" else unit.label)
                         }
@@ -1103,7 +1116,8 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
                     label = { Text("Total weight (${weightUnit.abbreviation})") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = dclTextFieldColors()
                 )
                 perServingWeight(totalWeight, servings, weightUnit)?.let {
                     Text(it, style = MaterialTheme.typography.bodySmall)
@@ -1115,10 +1129,10 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
                 )
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(value = ingredients, onValueChange = { ingredients = it },
-                                  label = { Text("Ingredients, one per line") })
+                                  label = { Text("Ingredients, one per line") }, colors = dclTextFieldColors())
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(value = steps, onValueChange = { steps = it },
-                                  label = { Text("Steps, one per line") })
+                                  label = { Text("Steps, one per line") }, colors = dclTextFieldColors())
 
                 // Macros were missing here entirely. `Recipe.nutritionPerServing`
                 // has always existed, the JSON codec round-trips all five values
@@ -1170,10 +1184,11 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
                             totalWeightGrams = enteredWeightGrams(totalWeight, weightUnit)
                         )
                     )
-                }
+                },
+                colors = dclTextButtonColors()
             ) { Text("Save") }
         },
-        dismissButton = { TextButton(onClick = requestCancel) { Text("Cancel") } }
+        dismissButton = { TextButton(onClick = requestCancel, colors = dclTextButtonColors()) { Text("Cancel") } }
     )
 }
 
@@ -1193,7 +1208,8 @@ private fun MacroField(
         label = { Text("$label ($unit)") },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth(),
+        colors = dclTextFieldColors()
     )
     Spacer(Modifier.height(8.dp))
 }
