@@ -65,7 +65,7 @@ val LocalDclDark = staticCompositionLocalOf { true }
 @Composable
 @ReadOnlyComposable
 fun dclCardBorder(): BorderStroke? =
-    if (LocalDclDark.current) null else BorderStroke(1.dp, Color(DclPalette.RULE_LIGHT))
+    if (LocalDclDark.current) null else BorderStroke(1.dp, Color(DclPalette.CARD_BORDER_LIGHT))
 
 @Composable
 fun CoachTheme(
