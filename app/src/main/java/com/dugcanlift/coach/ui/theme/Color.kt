@@ -26,5 +26,11 @@ val DclAccent: Color @Composable @ReadOnlyComposable get() = pick(DclPalette.ACC
  */
 val DclAccentText: Color @Composable @ReadOnlyComposable get() = pick(DclPalette.ACCENT_TEXT, DclPalette.ACCENT_TEXT_LIGHT, LocalDclDark.current)
 val DclAccent2: Color @Composable @ReadOnlyComposable get() = pick(DclPalette.ACCENT2, DclPalette.ACCENT2_LIGHT, LocalDclDark.current)
+/**
+ * The sage for text: the kit's ACCENT2_TEXT. Dark ACCENT2 (#7C8B7A) is 4.4:1 on the dark surface;
+ * this is #879585, 5.03:1 on SURFACE and 5.46:1 on BG. Light is #56664F (ACCENT2_TEXT_LIGHT),
+ * 6.02:1 / 5.38:1. [DclAccent2] stays the fill: the route's start dot.
+ */
+val DclAccent2Text: Color @Composable @ReadOnlyComposable get() = pick(DclPalette.ACCENT2_TEXT, DclPalette.ACCENT2_TEXT_LIGHT, LocalDclDark.current)
 val DclRule: Color @Composable @ReadOnlyComposable get() = pick(DclPalette.RULE, DclPalette.RULE_LIGHT, LocalDclDark.current)
 val DclOnAccent: Color @Composable @ReadOnlyComposable get() = pick(DclPalette.ON_ACCENT, DclPalette.ON_ACCENT_LIGHT, LocalDclDark.current)
