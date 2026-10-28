@@ -34,8 +34,11 @@ object RoutineEditing {
         // decimals, so a load typed in pounds does not reopen as 61.23496 kg;
         // an untouched line still keeps its exact sets (see apply).
         val load = first?.targetWeightKg?.let { " @ ${(Math.round(it * 100) / 100.0).trimZeros()} kg" }.orEmpty()
-        return listOf(exercise.name, exercise.equipment).filter { it.isNotBlank() }
-            .joinToString(" | ") + (if (scheme.isNotBlank()) " | $scheme$load" else "")
+        if (scheme.isBlank()) return listOf(exercise.name, exercise.equipment).filter { it.isNotBlank() }.joinToString(" | ")
+        // A scheme always goes third, behind an empty equipment slot if need be
+        // (`Pull Up | | 3 x 8`): the parser reads the second part as equipment,
+        // so `Pull Up | 3 x 8` filed the scheme there and a re-save dropped every set.
+        return "${exercise.name} | ${exercise.equipment}".trimEnd() + " | $scheme$load"
     }
 
     /** Each exercise's key: its lift, `name|equipment`, and which occurrence of that lift it is. */
