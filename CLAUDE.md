@@ -370,6 +370,45 @@ are `PrescriptionSides`, a port of Coach web's `coach/prescriptions.js` -- chang
   noise.
 - Tracked and prescribed, never judged: nothing comments on an extra left set.
 
+## Set types: supersets, drop sets, rest-pause
+
+A routine's exercises can be **grouped** (`RoutineExercise.group`: adjacent exercises sharing a
+positive number are done round by round -- two a superset, three or more a circuit) and a set can
+have a **kind** (`PrescribedSet.kind`: `SetKind.DROP`, no rest before it, or `REST_PAUSE`, a short
+pause). PLAN-FORMAT "Set types"; spec `LIFT/docs/superpowers/specs/2026-10-28-set-types-design.md`.
+The rules are `PrescriptionTypes`, a port of Coach web's `coach/prescriptions.js` -- change them
+there first.
+
+- **Adjacency makes a group, not the number.** `PrescriptionTypes.runs` turns stored numbers into the
+  wire's: runs of two or more renumbered 1, 2, 3... in order, everything else null, so a group of
+  one is no group. Storage holds groups that way too: `routineFromJson`, `Routine.toJson` and
+  `RoutineEditing.apply` all regroup, so a line moved away from its partner leaves nothing behind.
+- **The first set of an exercise is always straight** -- there is nothing before it to drop from.
+  It is dropped on read (`routineExerciseFromJson`), on write (`RoutineExercise.toJson`), on the
+  wire (`TrainPlanEncoder.exerciseWire`) and in the editor (`RoutineEditing.apply`).
+- **The editor**: "Superset with next" beside "Each side" on every exercise but the last (joining
+  onto a superset makes a circuit, joining two groups makes one; tapping again splits, keeping the
+  exercises before the split grouped); a "Superset A · A1" / "Circuit A · A1" line over a grouped
+  exercise and "A1 Bench Press" in the routine list; and a Straight / Drop / Rest-pause control on
+  every set but the first, out of sight until a set has a kind or the coach taps "Drop /
+  rest-pause". The box holds none of it, so `RoutineEditing.ExerciseSides` carries `group`,
+  `kinds` and `askedKinds` beside the sides, under the same keys.
+- **The text is Coach web's**: the side, then the kind -- `30 × 12 L drop`, `65 × 4 rest-pause`.
+- **The backup is Coach web's and Coach iOS's spelling**: `group: <positive integer>` on an
+  exercise and `kind: "drop" | "restPause"` on a set, each omitted otherwise, read leniently (a
+  string, fraction, zero or boolean `group` is none; `"straight"` or junk is straight) and not
+  written back when junk.
+- **The wire is `TrainPlanEncoder`**: `g` only on a run of two or more (key order `n q b g s c`);
+  the kind in flags bits 3-4, OR'd with the side (drop 8, rest-pause 16, left drop 10). A straight
+  both-sides set writes no sixth position, so a plan without types is byte for byte what main
+  wrote -- `SetTypesTest` pins that against a frozen copy of the old encoder. **Read the kind only
+  through `PrescriptionTypes.kindFromFlags`, masked.** Checked against
+  `fixtures/web-plan-set-types.txt` (Coach web's own encoder; never regenerate it): Coach Android
+  builds the same templates and must write the same payload, less web's empty `r`/`m`.
+- The kit's `PlanLinkCodec` (LIFT Android's decoder) knows neither `g` nor bits 3-4 and reads the
+  fixture's sides correctly through them -- the "old decoder" check. `PlanLog` (the Booked card)
+  masks sides the same way and counts sets, so a set type changes no count there.
+
 ## Sending a week from Train
 
 Train's Schedule shows one client's week -- seven days from a start the coach moves with
