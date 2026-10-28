@@ -4,6 +4,8 @@ import com.dugcanlift.coach.ui.adaptive.BackArrowButton
 
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.runtime.saveable.rememberSaveable
 import com.dugcanlift.coach.ui.adaptive.AdaptiveLayout
@@ -86,6 +88,8 @@ import com.dugcanlift.coach.data.TrainPlanSend
 import com.dugcanlift.coach.data.PrescriptionSides
 import com.dugcanlift.coach.data.RoutineEditing
 import com.dugcanlift.coach.data.SetSide
+import com.dugcanlift.coach.data.SetKind
+import com.dugcanlift.coach.data.PrescriptionTypes
 import com.dugcanlift.coach.data.RoutineExercise
 import com.dugcanlift.coach.data.ScheduledSession
 import com.dugcanlift.coach.data.TrainRepository
@@ -337,8 +341,13 @@ private fun RoutineList(
                 )
                 if (routine.exercises.isNotEmpty()) {
                     Spacer(Modifier.height(4.dp))
+                    // A superset or circuit member carries its place in it, "A1 Bench Press",
+                    // as Coach web's workout list does.
+                    val groupLabels = PrescriptionTypes.groupLabels(routine.exercises)
                     Text(
-                        routine.exercises.joinToString(", ") { it.displayName },
+                        routine.exercises.withIndex().joinToString(", ") { (i, e) ->
+                            groupLabels[i]?.let { "${it.member} ${e.displayName}" } ?: e.displayName
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
@@ -537,8 +546,15 @@ private fun BookMenu(routines: List<Routine>, onBook: (Routine) -> Unit) {
  * Under the box, each exercise it names gets its sides (PLAN-FORMAT "Sides"):
  * an "Each side" toggle, and a Both / L / R control per set that stays out of
  * sight until the exercise is each side or the coach taps "Set a side" -- so a
- * bench press looks exactly as it always did. The rules are
- * [PrescriptionSides] and [RoutineEditing]; this only draws them.
+ * bench press looks exactly as it always did.
+ *
+ * And its set types (PLAN-FORMAT "Set types"): "Superset with next" beside
+ * "Each side" on every exercise but the last (joining onto a superset makes a
+ * circuit; tapping again splits), a "Superset A · A1" line over a grouped
+ * exercise, and a Straight / Drop / Rest-pause control on every set but the
+ * first, out of sight in the same way until a set has a kind or the coach taps
+ * "Drop / rest-pause". The rules are [PrescriptionSides], [PrescriptionTypes]
+ * and [RoutineEditing]; this only draws them.
  */
 @Composable
 private fun RoutineEditor(routine: Routine, onCancel: () -> Unit, onSave: (Routine) -> Unit) {
@@ -559,9 +575,13 @@ private fun RoutineEditor(routine: Routine, onCancel: () -> Unit, onSave: (Routi
         val key = keys[index]
         val current = RoutineEditing.sidesFor(sides, key, parsed[index], eachSideChoices::get)
         // An exercise that has not been touched yet starts from the sets it has.
-        val base = if (current.sides.isEmpty()) current.copy(sides = edited[index].sets.map { it.side }) else current
+        var base = current
+        if (base.sides.isEmpty()) base = base.copy(sides = edited[index].sets.map { it.side })
+        if (base.kinds.isEmpty()) base = base.copy(kinds = edited[index].sets.map { it.kind })
         sidesText = RoutineEditing.encode(sides + (key to change(base)))
     }
+    val groupLabels = PrescriptionTypes.groupLabels(edited)
+    val wireGroups = edited.map { it.group }
 
     // Against the routine itself, not a first-composition snapshot, so an edit
     // still counts after a rotation.
@@ -605,7 +625,17 @@ private fun RoutineEditor(routine: Routine, onCancel: () -> Unit, onSave: (Routi
                             update(index) { it.copy(eachSide = on) }
                         },
                         onAsk = { update(index) { it.copy(asked = true) } },
-                        onSide = { setIndex, side -> update(index) { RoutineEditing.withSide(it, setIndex, side) } }
+                        onSide = { setIndex, side -> update(index) { RoutineEditing.withSide(it, setIndex, side) } },
+                        groupLabel = groupLabels[index],
+                        // The last exercise has no next to join.
+                        groupedWithNext = if (index + 1 < edited.size) PrescriptionTypes.groupedWithNext(wireGroups, index) else null,
+                        onGroupedWithNext = { on ->
+                            sidesText = RoutineEditing.encode(
+                                RoutineEditing.withGroupedWithNext(sides, parsed, index, on, eachSideChoices::get))
+                        },
+                        askedKinds = sides[keys[index]]?.askedKinds == true,
+                        onAskKinds = { update(index) { it.copy(askedKinds = true) } },
+                        onKind = { setIndex, kind -> update(index) { RoutineEditing.withKind(it, setIndex, kind) } }
                     )
                 }
                 Spacer(Modifier.height(12.dp))
@@ -638,19 +668,33 @@ private fun RoutineEditor(routine: Routine, onCancel: () -> Unit, onSave: (Routi
 }
 
 /**
- * One exercise's sides: its name and what it asks for ("3 × 30 × 8 each side
- * + 1 L"), the "Each side" toggle, and -- once shown -- a row per set reading
- * "30 × 8 L" with its Both / L / R control.
+ * One exercise's sides and set types: its group ("Superset A · A1"), its name
+ * and what it asks for ("3 × 30 × 8 each side + 1 L"), the "Each side" and
+ * "Superset with next" toggles, and -- once shown -- a row per set reading
+ * "30 × 8 L drop" with its Both / L / R and Straight / Drop / Rest-pause
+ * controls.
+ *
+ * [groupedWithNext] is null on the last exercise, which has no next to join.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ExerciseSidesEditor(
     exercise: RoutineExercise,
     asked: Boolean,
     onEachSide: (Boolean) -> Unit,
     onAsk: () -> Unit,
-    onSide: (Int, SetSide?) -> Unit
+    onSide: (Int, SetSide?) -> Unit,
+    groupLabel: PrescriptionTypes.GroupLabel?,
+    groupedWithNext: Boolean?,
+    onGroupedWithNext: (Boolean) -> Unit,
+    askedKinds: Boolean,
+    onAskKinds: () -> Unit,
+    onKind: (Int, SetKind?) -> Unit
 ) {
     Column(Modifier.fillMaxWidth()) {
+        groupLabel?.let {
+            Text(it.text, style = MaterialTheme.typography.labelMedium, color = DclAccentText)
+        }
         Text(exercise.displayName, style = MaterialTheme.typography.titleSmall)
         Text(
             PrescriptionSides.summary(exercise) + weightUnitSuffix(exercise.sets),
@@ -658,7 +702,10 @@ private fun ExerciseSidesEditor(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         val shown = PrescriptionSides.showsSides(exercise, asked)
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // A first set never has a kind, so an exercise of one set has nothing to offer.
+        val kindsShown = exercise.sets.size > 1 && PrescriptionTypes.showsKinds(exercise, askedKinds)
+        // Flows onto a second line at phone width rather than squeezing four controls into one.
+        FlowRow(verticalArrangement = Arrangement.Center, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(
                 selected = exercise.eachSide,
                 onClick = { onEachSide(!exercise.eachSide) },
@@ -668,11 +715,25 @@ private fun ExerciseSidesEditor(
                     else "Sets counted once"
                 }
             )
+            if (groupedWithNext != null) {
+                FilterChip(
+                    selected = groupedWithNext,
+                    onClick = { onGroupedWithNext(!groupedWithNext) },
+                    label = { Text("Superset with next") },
+                    modifier = Modifier.semantics {
+                        stateDescription = if (groupedWithNext) "Done round by round with the next exercise, then the rest"
+                        else "Not grouped with the next exercise"
+                    }
+                )
+            }
             if (!shown && exercise.sets.isNotEmpty()) {
                 TextButton(onClick = onAsk, colors = dclTextButtonColors()) { Text("Set a side") }
             }
+            if (!kindsShown && exercise.sets.size > 1) {
+                TextButton(onClick = onAskKinds, colors = dclTextButtonColors()) { Text("Drop / rest-pause") }
+            }
         }
-        if (shown) {
+        if (shown || kindsShown) {
             // Beside the set where there is room; on a line of its own under it
             // at phone width, where a column beside it squeezed "14 × 8" onto
             // three lines -- Coach web's rule for the same control.
@@ -687,16 +748,26 @@ private fun ExerciseSidesEditor(
                                 modifier = modifier
                             )
                         }
-                        val control: @Composable () -> Unit = { SideControl(i, set.side) { onSide(i, it) } }
-                        if (beside) {
+                        // The first set has no kind control: there is no set before it
+                        // to drop from or pause after.
+                        val hasKind = kindsShown && i > 0
+                        val control: @Composable () -> Unit = {
+                            if (shown) SideControl(i, set.side) { onSide(i, it) }
+                        }
+                        if (beside && !hasKind) {
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                                 label(Modifier.weight(1f))
                                 control()
                             }
                         } else {
+                            // Two controls never fit beside a set's numbers; both go under it.
                             Spacer(Modifier.height(4.dp))
                             label(Modifier)
                             control()
+                            if (hasKind) {
+                                if (shown) Spacer(Modifier.height(4.dp))
+                                KindControl(i, set.kind) { onKind(i, it) }
+                            }
                         }
                     }
                 }
@@ -726,6 +797,29 @@ private fun SideControl(setIndex: Int, current: SetSide?, onChoose: (SetSide?) -
                 icon = {},
                 modifier = Modifier.semantics {
                     contentDescription = "Set ${setIndex + 1}, " + (side?.label ?: "both sides")
+                }
+            ) { Text(label, maxLines = 1) }
+        }
+    }
+}
+
+/** Straight / Drop / Rest-pause for one set after the first, the chosen segment filled. */
+@Composable
+private fun KindControl(setIndex: Int, current: SetKind?, onChoose: (SetKind?) -> Unit) {
+    SingleChoiceSegmentedButtonRow {
+        val choices = listOf<Pair<SetKind?, String>>(null to "Straight") + SetKind.entries.map { it to it.displayName }
+        choices.forEachIndexed { c, (kind, label) ->
+            SegmentedButton(
+                selected = current == kind,
+                onClick = { onChoose(kind) },
+                shape = SegmentedButtonDefaults.itemShape(index = c, count = choices.size),
+                icon = {},
+                modifier = Modifier.semantics {
+                    contentDescription = "Set ${setIndex + 1}, " + when (kind) {
+                        null -> "straight set"
+                        SetKind.DROP -> "drop set: no rest before it"
+                        SetKind.REST_PAUSE -> "rest-pause: a short pause before it"
+                    }
                 }
             ) { Text(label, maxLines = 1) }
         }

@@ -131,9 +131,18 @@ object PrescriptionSides {
         return bits.joinToString(" · ").ifEmpty { "as written" }
     }
 
-    /** The same, with the side it names: "30 × 8 L". Nothing added for both. */
+    /** " drop", " rest-pause", or nothing for a straight set (PLAN-FORMAT "Set types"). */
+    private fun kindSuffix(set: PrescribedSet): String = set.kind?.let { " ${it.label}" } ?: ""
+
+    /**
+     * The same, with the side it names and then its kind: "30 × 8 L", "50 × 10 drop",
+     * "30 × 12 L drop". Nothing added for both, or straight.
+     */
     fun setText(set: PrescribedSet): String =
-        prescriptionText(set) + (set.side?.let { " ${it.short}" } ?: "")
+        prescriptionText(set) + (set.side?.let { " ${it.short}" } ?: "") + kindSuffix(set)
+
+    /** A set's numbers and its kind, without its side -- the each-side line's unit, where the side is said once for the exercise. */
+    private fun plainSetText(set: PrescribedSet): String = prescriptionText(set) + kindSuffix(set)
 
     /** Sets compare on what they prescribe, not on keys a newer writer added. */
     private fun same(a: PrescribedSet, b: PrescribedSet) = a.copy(unknownKeys = null) == b.copy(unknownKeys = null)
@@ -154,22 +163,23 @@ object PrescriptionSides {
         val plain = sets.filter { it.side == null }
         if (!exercise.eachSide || plain.isEmpty()) return listText(sets, ::setText)
 
-        val plainText = listText(plain, ::prescriptionText)
-        val sameText = if (plain.all { same(it, plain[0]) }) prescriptionText(plain[0]) else null
+        val plainText = listText(plain, ::plainSetText)
+        val sameText = if (plain.all { same(it, plain[0]) }) plainSetText(plain[0]) else null
 
         // The named extras, grouped by what they say, in the order they appear.
-        data class Group(val side: SetSide, val text: String, var count: Int)
+        data class Group(val side: SetSide, val text: String, val kind: String, var count: Int)
         val groups = mutableListOf<Group>()
         sets.forEach { s ->
             val side = s.side ?: return@forEach
             val text = prescriptionText(s)
-            groups.firstOrNull { it.side == side && it.text == text }?.let { it.count++ }
-                ?: groups.add(Group(side, text, 1))
+            val kind = kindSuffix(s)
+            groups.firstOrNull { it.side == side && it.text == text && it.kind == kind }?.let { it.count++ }
+                ?: groups.add(Group(side, text, kind, 1))
         }
         val extras = groups.joinToString("") { g ->
-            // "+ 1 L" when the extra is the same set; its numbers when it is not.
-            if (g.text == sameText) " + ${g.count} ${g.side.short}"
-            else " + " + (if (g.count > 1) "${g.count} × " else "") + "${g.text} ${g.side.short}"
+            // "+ 1 L" when the extra is the same set, kind and all; its numbers when it is not.
+            if (g.text + g.kind == sameText) " + ${g.count} ${g.side.short}"
+            else " + " + (if (g.count > 1) "${g.count} × " else "") + "${g.text} ${g.side.short}${g.kind}"
         }
         return "$plainText each side$extras"
     }
