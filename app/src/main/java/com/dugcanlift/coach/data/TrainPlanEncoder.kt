@@ -18,7 +18,7 @@ import kotlin.math.round
  */
 object TrainPlanEncoder {
 
-    /** Bits 1-2 of SHARE-FORMAT's flags byte. Bit 0 (warmup) is always 0 in a plan. */
+    /** Bits 1-2 of SHARE-FORMAT's flags byte, the side. Bit 0 (warmup) is always 0 in a plan. */
     private const val SIDE_SHIFT = 1
 
     private fun sideBits(side: SetSide): Int = when (side) {
@@ -34,14 +34,20 @@ object TrainPlanEncoder {
      */
     internal fun kgToLb(kg: Double): Double = round(kg * LB_PER_KG * 1_000_000.0) / 1_000_000.0
 
+    /** Bits 3-4: the set's kind, OR'd with the side's bits -- a left-side drop set is 10. */
+    private fun kindBits(kind: SetKind): Int = kind.bits shl PrescriptionTypes.KIND_SHIFT
+
     /**
      * `[weightLb, reps, rpe, durationSec, distanceMeters, flags]`.
      *
-     * A both-sides set is the five-field tuple it has always been, trailing
-     * nulls trimmed, with no sixth position at all. A set that names a side
-     * keeps every position up to its flags: only trailing nulls are ever
-     * trimmed, or a left-side conditioning piece `[null, null, null, 600, 1600, 2]`
-     * would slide its distance into the weight slot.
+     * A straight both-sides set is the five-field tuple it has always been, trailing nulls
+     * trimmed, with no sixth position at all. A set that names a side or a kind keeps every
+     * position up to its flags: only trailing nulls are ever trimmed, or a left-side conditioning
+     * piece `[null, null, null, 600, 1600, 2]` would slide its distance into the weight slot. The
+     * side is bits 1-2 and the kind bits 3-4, OR'd together.
+     *
+     * This writes what the set says. That an exercise's first set is never a drop or rest-pause is
+     * the exercise's rule, applied in [exerciseWire].
      */
     fun setTuple(set: PrescribedSet): JSONArray {
         val values = mutableListOf<Any?>(
@@ -51,30 +57,47 @@ object TrainPlanEncoder {
             set.targetDurationSec,
             set.targetDistanceMeters
         )
-        val side = set.side
-        if (side != null) values += sideBits(side)
+        val flags = (set.side?.let(::sideBits) ?: 0) or (set.kind?.let(::kindBits) ?: 0)
+        if (flags != 0) values += flags
         else while (values.isNotEmpty() && values.last() == null) values.removeAt(values.lastIndex)
         return JSONArray().also { array -> values.forEach { array.put(it ?: JSONObject.NULL) } }
     }
 
     /**
-     * One exercise: `n`, `q` when there is equipment, `b: 1` only when each
-     * side (never `0`), `s`, and `c` when there is a note -- inserted in that
-     * order, which Android's org.json keeps. An exercise with no side anywhere
-     * is the object it would always have been.
+     * One exercise: `n`, `q` when there is equipment, `b: 1` only when each side (never `0`), `g`
+     * when [group] is given, `s`, and `c` when there is a note -- inserted in that order, `n q b g
+     * s c`, which Android's org.json keeps. An exercise with no side and no type anywhere is the
+     * object it would always have been.
+     *
+     * A group is a fact about neighbours, so [group] is the wire's number from [workoutWire]; an
+     * exercise encoded on its own carries none, whatever it stores. The first set's kind is
+     * dropped here: there is nothing before it to drop from or pause after.
      */
-    fun exerciseWire(exercise: RoutineExercise): JSONObject {
+    fun exerciseWire(exercise: RoutineExercise, group: Int? = null): JSONObject {
         val o = JSONObject().put("n", exercise.name)
         if (exercise.equipment.isNotBlank()) o.put("q", exercise.equipment)
         if (exercise.eachSide) o.put("b", 1)
-        o.put("s", JSONArray().also { array -> exercise.sets.forEach { array.put(setTuple(it)) } })
+        if (group != null) o.put("g", group)
+        o.put("s", JSONArray().also { array ->
+            PrescriptionTypes.withoutFirstKind(exercise.sets).forEach { array.put(setTuple(it)) }
+        })
         exercise.note?.takeIf { it.isNotBlank() }?.let { o.put("c", it) }
         return o
     }
 
-    fun workoutWire(routine: Routine): JSONObject = JSONObject()
-        .put("n", routine.name)
-        .put("e", JSONArray().also { array -> routine.exercises.forEach { array.put(exerciseWire(it)) } })
+    /**
+     * A workout. `g` is written on exercises in a run of two or more adjacent exercises sharing a
+     * stored group, renumbered 1, 2, 3... in order of appearance, and on no others -- so a plan
+     * without groups is unchanged to the byte.
+     */
+    fun workoutWire(routine: Routine): JSONObject {
+        val groups = PrescriptionTypes.wireGroups(routine.exercises)
+        return JSONObject()
+            .put("n", routine.name)
+            .put("e", JSONArray().also { array ->
+                routine.exercises.forEachIndexed { i, e -> array.put(exerciseWire(e, groups[i])) }
+            })
+    }
 
     /**
      * A client's booked training as a plan fragment: `w` the templates, `k` the

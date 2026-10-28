@@ -50,7 +50,13 @@ data class PrescribedSet(
      * 2) -- the asymmetric case: an extra set on the left, rehab side only. Null
      * is both, which is what every set written before this means.
      */
-    val side: SetSide? = null
+    val side: SetSide? = null,
+    /**
+     * A drop set or rest-pause (PLAN-FORMAT "Set types"). Null is straight, which is what every
+     * set written before this means. Never held on an exercise's first set, which has no set
+     * before it to follow -- [RoutineExercise.toJson] and the wire both drop one.
+     */
+    val kind: SetKind? = null
 ) {
     val targetWeightLb: Double? get() = targetWeightKg?.let { it * LB_PER_KG }
 }
@@ -65,7 +71,13 @@ data class RoutineExercise(
      * Every prescribed set is done on both sides (PLAN-FORMAT "Sides" rule 1):
      * "3 x 8, each side" stays three [sets], and the client's LIFT expects six.
      */
-    val eachSide: Boolean = false
+    val eachSide: Boolean = false,
+    /**
+     * The superset or circuit this exercise is in (PLAN-FORMAT "Set types"): adjacent exercises
+     * sharing a positive number are done round by round. Null is not grouped. Stored as the wire
+     * would number it -- see [PrescriptionTypes.regroup] -- so a group of one is never kept.
+     */
+    val group: Int? = null
 ) {
     val displayName: String get() = if (equipment.isBlank()) name else "$name ($equipment)"
 }
@@ -98,9 +110,9 @@ data class ScheduledSession(
 
 private val SET_KEYS = setOf(
     "targetWeightKg", "weightLb", "targetReps", "reps", "targetRPE", "rpe",
-    "targetDurationSec", "durationSec", "targetDistanceMeters", "distanceM", "side"
+    "targetDurationSec", "durationSec", "targetDistanceMeters", "distanceM", "side", "kind"
 )
-private val EXERCISE_KEYS = setOf("name", "equipment", "note", "sets", "eachSide")
+private val EXERCISE_KEYS = setOf("name", "equipment", "note", "sets", "eachSide", "group")
 private val ROUTINE_KEYS = setOf("id", "name", "exercises")
 private val SESSION_KEYS = setOf("id", "clientID", "clientId", "dayKey", "date", "routineID", "routineId", "workoutId")
 
@@ -140,7 +152,10 @@ fun prescribedSetFromJson(o: JSONObject): PrescribedSet = PrescribedSet(
     // BACKUP-FORMAT's spelling, the one Coach web and Coach iOS write. Absent,
     // "both", or a string this build does not know all read as both rather
     // than failing the import -- and are not written back.
-    side = SetSide.fromWire(o.optStringOrNull("side"))
+    side = SetSide.fromWire(o.optStringOrNull("side")),
+    // `"drop"` or `"restPause"`, case aside; `"straight"`, junk or nothing is straight, and is
+    // not written back. Whether this is a first set is the exercise's business.
+    kind = SetKind.fromWire(o.opt("kind") as? String)
 )
 
 /**
@@ -157,6 +172,7 @@ fun PrescribedSet.toJson(): JSONObject {
     targetDurationSec?.let { o.put("targetDurationSec", it) }
     targetDistanceMeters?.let { o.put("targetDistanceMeters", it) }
     side?.let { o.put("side", it.wire) }
+    kind?.let { o.put("kind", it.wire) }
     return o
 }
 
@@ -169,13 +185,21 @@ fun routineExerciseFromJson(o: JSONObject): RoutineExercise = RoutineExercise(
     name = o.optStringOrNull("name").orEmpty(),
     equipment = o.optStringOrNull("equipment").orEmpty(),
     note = o.optStringOrNull("note"),
-    sets = o.optJSONArray("sets").mapObjects(::prescribedSetFromJson),
+    // A kind on a first set has nothing to follow, and reads as straight.
+    sets = PrescriptionTypes.withoutFirstKind(o.optJSONArray("sets").mapObjects(::prescribedSetFromJson)),
     unknownKeys = o.extras(EXERCISE_KEYS),
     // Only `true` is each side; `false`, a string, or nothing is not.
-    eachSide = o.opt("eachSide") == true
+    eachSide = o.opt("eachSide") == true,
+    // Only a positive integer is a group; `0`, a fraction, a string or nothing is not. Whether it
+    // has a neighbour to be grouped with is the routine's business (routineFromJson).
+    group = PrescriptionTypes.groupOf(o.opt("group"))
 )
 
-/** `eachSide: true` only when it is, never `false`: an exercise without it writes what it always did. */
+/**
+ * `eachSide: true` only when it is, never `false`; `group` only when grouped; a first set never
+ * with a kind. An exercise without any of them writes what it always did. A group of one is the
+ * routine's to remove ([Routine.toJson]), because only the routine can see the neighbours.
+ */
 fun RoutineExercise.toJson(): JSONObject {
     val o = JSONObject()
     unknownKeys?.mergeInto(o)
@@ -183,14 +207,17 @@ fun RoutineExercise.toJson(): JSONObject {
     o.put("equipment", equipment)
     note?.let { o.put("note", it) }
     if (eachSide) o.put("eachSide", true)
-    o.put("sets", JSONArray(sets.map { it.toJson() }))
+    PrescriptionTypes.groupOf(group)?.let { o.put("group", it) }
+    o.put("sets", JSONArray(PrescriptionTypes.withoutFirstKind(sets).map { it.toJson() }))
     return o
 }
 
 fun routineFromJson(o: JSONObject): Routine = Routine(
     id = o.optStringOrNull("id") ?: UUID.randomUUID().toString(),
     name = o.optStringOrNull("name").orEmpty(),
-    exercises = o.optJSONArray("exercises").mapObjects(::routineExerciseFromJson),
+    // Groups as the wire would number them: a group of one is not kept, so a file another app
+    // wrote with a lone `group` restores as an ordinary exercise.
+    exercises = PrescriptionTypes.regroup(o.optJSONArray("exercises").mapObjects(::routineExerciseFromJson)),
     unknownKeys = o.extras(ROUTINE_KEYS)
 )
 
@@ -199,7 +226,7 @@ fun Routine.toJson(): JSONObject {
     unknownKeys?.mergeInto(o)
     o.put("id", id)
     o.put("name", name)
-    o.put("exercises", JSONArray(exercises.map { it.toJson() }))
+    o.put("exercises", JSONArray(PrescriptionTypes.regroup(exercises).map { it.toJson() }))
     return o
 }
 
