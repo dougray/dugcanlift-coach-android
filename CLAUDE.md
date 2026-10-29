@@ -447,6 +447,25 @@ wording and all; the rules are `data/RecipeCatalog.kt`, the screen
   has no field for it, so a CC BY-SA recipe sent to a client arrives uncredited.
   That is an open wire-format question; do not patch it here.
 
+## Recipes sent from the browser
+
+The "Send to Coach" bookmarklet reads a recipe page's schema.org JSON-LD in the
+browser and opens `dugcanliftcoach://recipe#r1…` -- the scheme Coach iPhone
+owns -- carrying the page address and the raw blocks. **The contract is the
+kit's `dugcanlift-kit/bookmarklet/README.md`**, its "Rules every build follows"
+binding: review then save, never fetch. `data/RecipeLink.kt` is a port of the
+kit's `recipe-link.mjs`, refusal for refusal, checked against its fixture pair
+(`fixtures/recipe-link.txt`, `recipe-link-expected.json` -- never regenerate
+them); the blocks go to the kit's `RecipeJsonLd` and open Cook's own recipe
+editor, filled (`RecipeLinkImport`). Nothing saves until Save; a page with no
+yield leaves Serves blank and Save waits for it. The page address is the
+recipe's `sourceUrl`. `inboundLink` is the one place a log link and a recipe
+link are told apart (a log fragment starts `1z`/`1u`, a recipe one `r1`). Cook
+offers the bookmarklet as "Send recipes from your browser":
+`assets/bookmarklets.json` and `bookmarklets.sha256` are the kit's bytes,
+copied together and pinned by `BookmarkletsTest`. The wording is shared with
+every build; change it everywhere or nowhere.
+
 ## Sending a week from Train
 
 Train's Schedule shows one client's week -- seven days from a start the coach moves with

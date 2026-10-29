@@ -82,6 +82,12 @@ import com.dugcanlift.coach.data.PlanEnvelope
 import com.dugcanlift.coach.data.PlannedMeal
 import com.dugcanlift.coach.data.Recipe
 import com.dugcanlift.coach.data.RecipeCatalog
+import com.dugcanlift.coach.data.RecipeLinkImport
+import com.dugcanlift.coach.data.RecipeLinkReview
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.runtime.toMutableStateList
 import com.dugcanlift.coach.data.RoadFoodChain
 import com.dugcanlift.coach.data.RoadFoodData
 import com.dugcanlift.coach.data.RoadFoodItem
@@ -124,7 +130,9 @@ fun CookScreen(
     repo: ClientRepository,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
-    showBack: Boolean = true
+    showBack: Boolean = true,
+    pendingRecipeLink: String? = null,
+    onRecipeLinkHandled: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val cook = remember { CookRepository(context.filesDir) }
@@ -177,6 +185,21 @@ fun CookScreen(
     var editingId by rememberSaveable { mutableStateOf<String?>(null) }
     val editing = editingId?.let { id -> library.recipes.firstOrNull { it.id == id } ?: Recipe(id = id, name = "") }
     var confirmingDelete by remember { mutableStateOf<Recipe?>(null) }
+
+    // "Send to Coach" links waiting for review, oldest first, each with the id its recipe will
+    // be saved under. Saved with the screen, so a recreation keeps the review open. One at a
+    // time: a link arriving mid-review waits behind it rather than replacing the coach's edits.
+    val reviewQueue = rememberSaveable(saver = PendingReviewSaver) { mutableStateListOf<PendingReview>() }
+    LaunchedEffect(pendingRecipeLink) {
+        val link = pendingRecipeLink ?: return@LaunchedEffect
+        if (reviewQueue.none { it.link == link }) {
+            reviewQueue.add(PendingReview(java.util.UUID.randomUUID().toString(), link))
+        }
+        section = CookSection.RECIPES
+        onRecipeLinkHandled()
+    }
+    val reviewing = reviewQueue.firstOrNull()
+    val review = remember(reviewing) { reviewing?.let { RecipeLinkImport.read(it.link, it.id) } }
 
     Scaffold(
         modifier = modifier,
@@ -352,6 +375,34 @@ fun CookScreen(
         )
     }
 
+    // A recipe sent from the browser, opened in the same editor and saved by its Save only.
+    // It waits while another recipe is open, and while the library cannot be read (the screen
+    // says so, and a save would refuse).
+    if (editing == null && !library.isUnreadable) {
+        when (review) {
+            is RecipeLinkReview.Ready -> RecipeEditor(
+                recipe = review.recipe,
+                fromLink = true,
+                servingsStated = review.servingsStated,
+                onCancel = { reviewQueue.removeAt(0) },
+                onSave = {
+                    cook.upsertRecipe(it)
+                    reviewQueue.removeAt(0)
+                    revision++
+                    scope.launch { snackbar.showSnackbar("Saved ${it.name}.") }
+                }
+            )
+            is RecipeLinkReview.Refused -> AlertDialog(
+                onDismissRequest = { reviewQueue.removeAt(0) },
+                text = { Text(review.message) },
+                confirmButton = {
+                    TextButton(onClick = { reviewQueue.removeAt(0) }, colors = dclTextButtonColors()) { Text("OK") }
+                }
+            )
+            null -> Unit
+        }
+    }
+
     if (confirmingClearPicks) {
         val name = clients.firstOrNull { it.id == planClientId }?.name ?: "this client"
         AlertDialog(
@@ -466,6 +517,28 @@ internal fun recipeCardLine(recipe: Recipe): String =
  *  macros are an estimate ([RecipeNutrition.estimated]). Only beside macros:
  *  an estimate of nothing says nothing. */
 internal const val ESTIMATED_SUFFIX = " \u00B7 estimated"
+
+/**
+ * The note over a recipe sent from the browser, in the wording every build
+ * shares: where it came from, by site, and -- when the page gave no yield --
+ * that the coach sets one. The address is the page's own, kept as the recipe's
+ * `sourceUrl`; it is never fetched.
+ */
+internal fun linkReviewNote(recipe: Recipe, servingsStated: Boolean): String {
+    val url = recipe.unknownKeys?.optString("sourceUrl").orEmpty()
+    val site = runCatching { java.net.URI(url).host }.getOrNull()?.removePrefix("www.")
+        ?.takeIf { it.isNotBlank() } ?: url
+    val note = "From $site. Check it, then Save."
+    return if (servingsStated) note else "$note $NO_YIELD_NOTE"
+}
+
+/** Added to [linkReviewNote] when the page published no yield. Shared wording. */
+internal const val NO_YIELD_NOTE = "The page did not say how many this serves; set it before saving."
+
+/** Under the Paste a recipe box, in the shared wording: a website goes through the bookmark. */
+internal const val PASTE_WEBSITE_NOTE = "A recipe website's address will not work here. " +
+    "Use Send recipes from your browser for a website instead."
+
 
 /** Coach iOS's `RecipeEditorView` line under the macros, word for word. */
 internal const val ESTIMATED_NOTE = "Estimated from an import \u2014 check these before sending."
@@ -980,10 +1053,32 @@ internal fun shoppingLineText(line: com.dugcanlift.coach.data.ShoppingLine): Str
     return "${line.name} — $suffix"
 }
 
+/** A "Send to Coach" link waiting in [CookScreen]'s review queue. */
+private data class PendingReview(val id: String, val link: String)
+
+private val PendingReviewSaver = listSaver<SnapshotStateList<PendingReview>, String>(
+    save = { queue -> queue.flatMap { listOf(it.id, it.link) } },
+    restore = { flat -> flat.chunked(2).map { PendingReview(it[0], it[1]) }.toMutableStateList() }
+)
+
+/**
+ * [fromLink] opens [recipe] as a review of a page sent from the browser: titled
+ * so, closed only by Save or by a Cancel that asks first, since nothing of it
+ * is stored yet. With [servingsStated] false the page published no yield, so
+ * Serves starts blank and Save waits for the coach's count -- never a guessed
+ * one, which every macro would be divided by.
+ */
 @Composable
-private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) -> Unit) {
+private fun RecipeEditor(
+    recipe: Recipe,
+    onCancel: () -> Unit,
+    onSave: (Recipe) -> Unit,
+    fromLink: Boolean = false,
+    servingsStated: Boolean = true
+) {
     var name by rememberSaveable(recipe.id) { mutableStateOf(recipe.name) }
-    var servings by rememberSaveable(recipe.id) { mutableStateOf(recipe.servings.trimZeros()) }
+    val startingServings = if (fromLink && !servingsStated) "" else recipe.servings.trimZeros()
+    var servings by rememberSaveable(recipe.id) { mutableStateOf(startingServings) }
     // One line per ingredient, exactly as typed. The parser reads these for the
     // shopping list, but what the coach wrote is what is stored -- a re-save
     // must never launder "a pinch" into nothing.
@@ -1024,8 +1119,10 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
     // Compared with what the recipe itself says rather than with a snapshot
     // taken on first composition, so an edit survives a rotation still counted
     // as an edit.
-    val changed = name != recipe.name ||
-        servings != recipe.servings.trimZeros() ||
+    // A recipe from a link is all unsaved, typed or not.
+    val changed = fromLink ||
+        name != recipe.name ||
+        servings != startingServings ||
         ingredients != recipe.rawIngredients.joinToString("\n") ||
         steps != recipe.steps.joinToString("\n") ||
         calories != macroFieldText(macros) { it.calories } ||
@@ -1056,6 +1153,11 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
     // so a copied recipe reaches the library by exactly the path a written one
     // does.
     var browsingCatalogue by rememberSaveable(recipe.id) { mutableStateOf(false) }
+    // The "Send to Coach" bookmarklet: stacked over the editor, which it does not touch.
+    var showingBookmarklet by rememberSaveable(recipe.id) { mutableStateOf(false) }
+    if (showingBookmarklet) {
+        BookmarkletDialog(onDone = { showingBookmarklet = false })
+    }
     if (browsingCatalogue) {
         RecipeCatalogDialog(
             onDone = { browsingCatalogue = false },
@@ -1070,7 +1172,7 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
     AlertDialog(
         onDismissRequest = requestCancel,
         properties = EditorDialogProperties,
-        title = { Text(if (recipe.name.isBlank()) "New recipe" else "Edit recipe") },
+        title = { Text(if (fromLink || recipe.name.isBlank()) "New recipe" else "Edit recipe") },
         text = {
             // Scrolls. It did not, which was harmless with four fields and
             // unusable with the macro section: on a phone the lower fields sat
@@ -1095,6 +1197,9 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
                                     Text("From the catalogue")
                                 }
                             }
+                            TextButton(onClick = { showingBookmarklet = true }, colors = dclTextButtonColors()) {
+                                Text(BookmarkletText.OFFER)
+                            }
                         }
                     } else {
                         OutlinedTextField(
@@ -1103,6 +1208,7 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
                             label = { Text("Paste the recipe's text") },
                             colors = dclTextFieldColors()
                         )
+                        Text(PASTE_WEBSITE_NOTE, style = MaterialTheme.typography.bodySmall)
                         Row {
                             TextButton(
                                 enabled = pasteText.isNotBlank(),
@@ -1146,6 +1252,10 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
                     Spacer(Modifier.height(8.dp))
                 }
 
+                if (fromLink) {
+                    Text(linkReviewNote(recipe, servingsStated), style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(8.dp))
+                }
                 OutlinedTextField(value = name, onValueChange = { name = it },
                                   label = { Text("Name") }, singleLine = true, colors = dclTextFieldColors())
                 Spacer(Modifier.height(8.dp))
@@ -1241,7 +1351,8 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
         },
         confirmButton = {
             TextButton(
-                enabled = name.isNotBlank(),
+                enabled = name.isNotBlank() &&
+                    (!fromLink || servings.trim().toDoubleOrNull()?.let { it.isFinite() && it > 0 } == true),
                 onClick = {
                     onSave(
                         recipe.copy(
