@@ -81,6 +81,7 @@ import com.dugcanlift.coach.data.CookRepository
 import com.dugcanlift.coach.data.PlanEnvelope
 import com.dugcanlift.coach.data.PlannedMeal
 import com.dugcanlift.coach.data.Recipe
+import com.dugcanlift.coach.data.RecipeCatalog
 import com.dugcanlift.coach.data.RoadFoodChain
 import com.dugcanlift.coach.data.RoadFoodData
 import com.dugcanlift.coach.data.RoadFoodItem
@@ -423,12 +424,7 @@ private fun RecipeList(
         Card(modifier.fillMaxWidth(), border = dclCardBorder()) {
             Column(Modifier.padding(12.dp)) {
                 Text(recipe.name.ifBlank { "Untitled" }, style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "Serves ${recipe.servings.trimZeros()} · " +
-                        "${recipe.rawIngredients.size} ingredient(s)" +
-                        (recipe.nutritionPerServing?.takeIf { it.hasMacros }?.let { " · ${it.calories.toInt()} kcal/serving" } ?: ""),
-                    style = MaterialTheme.typography.bodySmall
-                )
+                Text(recipeCardLine(recipe), style = MaterialTheme.typography.bodySmall)
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { onEdit(recipe) }, colors = dclOutlinedButtonColors()) { Text("Edit") }
@@ -448,6 +444,20 @@ private fun RecipeList(
         }
     }
 }
+
+/**
+ * A library card's second line: "Serves 4 · 6 ingredient(s) · 225 kcal/serving".
+ *
+ * Calories go through [RecipeCatalog.whole], rounded half away from zero, the
+ * rule the catalogue and every Coach build share (2026-10-28). It truncated
+ * before, so a Beef Pot Pie copied at 4 servings read 225 in the catalogue
+ * and 224 here. Display only: the stored figure is untouched.
+ */
+internal fun recipeCardLine(recipe: Recipe): String =
+    "Serves ${recipe.servings.trimZeros()} \u00B7 " +
+        "${recipe.rawIngredients.size} ingredient(s)" +
+        (recipe.nutritionPerServing?.takeIf { it.hasMacros }
+            ?.let { " \u00B7 ${RecipeCatalog.whole(it.calories)} kcal/serving" } ?: "")
 
 /** Full width on a phone; in a wide layout a primary button stops being a banner. */
 internal fun Modifier.wideButton(columns: Int): Modifier =
