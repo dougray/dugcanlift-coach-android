@@ -77,6 +77,9 @@ object Routes {
  *   waiting to be imported by [RosterScreen]. If the coach is on another screen when it arrives,
  *   this pops back to the roster first so the import's snackbar feedback is always visible.
  * @param onImportHandled called once [RosterScreen] has submitted the pending import above.
+ * @param pendingRecipeLink a "Send to Coach" recipe link (see [com.dugcanlift.coach.MainActivity]),
+ *   which opens Cook for [CookScreen] to show in its recipe editor.
+ * @param onRecipeLinkHandled called once [CookScreen] has taken the link above.
  *
  * Layout follows [LocalWindowWidth] (see `ui/adaptive/WindowLayout.kt`). Compact gets a
  * [CoachNavigationBar] and from medium up a [CoachNavigationRail]: the same four top-level screens
@@ -93,7 +96,9 @@ fun CoachNavHost(
     navController: NavHostController = rememberNavController(),
     modifier: Modifier = Modifier,
     pendingImportFragment: String? = null,
-    onImportHandled: () -> Unit = {}
+    onImportHandled: () -> Unit = {},
+    pendingRecipeLink: String? = null,
+    onRecipeLinkHandled: () -> Unit = {}
 ) {
     val width = LocalWindowWidth.current
     val useRail = AdaptiveLayout.usesNavigationRail(width)
@@ -156,6 +161,18 @@ fun CoachNavHost(
         navController.navigate(target) {
             popUpTo(Routes.ROSTER)
             launchSingleTop = true
+        }
+    }
+
+    // A recipe link opens Cook, from wherever the coach is, for the same reason a log link
+    // opens the roster: the review has to be where the coach can see it. Keyed on the route
+    // being known too: on a cold start through the link, the first run comes before the back
+    // stack has its start destination, and a navigate made then was lost -- Coach opened on the
+    // roster with the link untaken.
+    val routeKnown = route != null
+    LaunchedEffect(pendingRecipeLink, routeKnown) {
+        if (pendingRecipeLink != null && routeKnown && route != Routes.COOK) {
+            openTopLevel(TopLevel.COOK)
         }
     }
 
@@ -237,7 +254,13 @@ fun CoachNavHost(
                 )
             }
             composable(Routes.COOK) {
-                CookScreen(repo = repo, onBack = { navController.popBackStack() }, showBack = false)
+                CookScreen(
+                    repo = repo,
+                    onBack = { navController.popBackStack() },
+                    showBack = false,
+                    pendingRecipeLink = pendingRecipeLink,
+                    onRecipeLinkHandled = onRecipeLinkHandled
+                )
             }
             composable(Routes.TRAIN) {
                 TrainScreen(repo = repo, onBack = { navController.popBackStack() }, showBack = false)
