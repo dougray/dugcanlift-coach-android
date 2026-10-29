@@ -81,6 +81,7 @@ import com.dugcanlift.coach.data.CookRepository
 import com.dugcanlift.coach.data.PlanEnvelope
 import com.dugcanlift.coach.data.PlannedMeal
 import com.dugcanlift.coach.data.Recipe
+import com.dugcanlift.coach.data.RecipeCatalog
 import com.dugcanlift.coach.data.RoadFoodChain
 import com.dugcanlift.coach.data.RoadFoodData
 import com.dugcanlift.coach.data.RoadFoodItem
@@ -423,12 +424,7 @@ private fun RecipeList(
         Card(modifier.fillMaxWidth(), border = dclCardBorder()) {
             Column(Modifier.padding(12.dp)) {
                 Text(recipe.name.ifBlank { "Untitled" }, style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "Serves ${recipe.servings.trimZeros()} · " +
-                        "${recipe.rawIngredients.size} ingredient(s)" +
-                        (recipe.nutritionPerServing?.takeIf { it.hasMacros }?.let { " · ${it.calories.toInt()} kcal/serving" } ?: ""),
-                    style = MaterialTheme.typography.bodySmall
-                )
+                Text(recipeCardLine(recipe), style = MaterialTheme.typography.bodySmall)
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { onEdit(recipe) }, colors = dclOutlinedButtonColors()) { Text("Edit") }
@@ -448,6 +444,20 @@ private fun RecipeList(
         }
     }
 }
+
+/**
+ * A library card's second line: "Serves 4 · 6 ingredient(s) · 225 kcal/serving".
+ *
+ * Calories go through [RecipeCatalog.whole], rounded half away from zero, the
+ * rule the catalogue and every Coach build share (2026-10-28). It truncated
+ * before, so a Beef Pot Pie copied at 4 servings read 225 in the catalogue
+ * and 224 here. Display only: the stored figure is untouched.
+ */
+internal fun recipeCardLine(recipe: Recipe): String =
+    "Serves ${recipe.servings.trimZeros()} \u00B7 " +
+        "${recipe.rawIngredients.size} ingredient(s)" +
+        (recipe.nutritionPerServing?.takeIf { it.hasMacros }
+            ?.let { " \u00B7 ${RecipeCatalog.whole(it.calories)} kcal/serving" } ?: "")
 
 /** Full width on a phone; in a wide layout a primary button stops being a banner. */
 internal fun Modifier.wideButton(columns: Int): Modifier =
@@ -1016,6 +1026,23 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
         )
     }
 
+    // The bundled catalogue, Coach iOS's "From the catalogue". It takes the
+    // editor's place rather than stacking over it, and Done brings the empty
+    // form back. Its Add is this editor's own Save, under this new recipe's id,
+    // so a copied recipe reaches the library by exactly the path a written one
+    // does.
+    var browsingCatalogue by rememberSaveable(recipe.id) { mutableStateOf(false) }
+    if (browsingCatalogue) {
+        RecipeCatalogDialog(
+            onDone = { browsingCatalogue = false },
+            onAdd = { copied ->
+                browsingCatalogue = false
+                onSave(copied.copy(id = recipe.id))
+            }
+        )
+        return
+    }
+
     AlertDialog(
         onDismissRequest = requestCancel,
         properties = EditorDialogProperties,
@@ -1032,7 +1059,19 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
                 // the quantities on save and still refuses to weigh a volume.
                 if (isNew) {
                     if (!pasting) {
-                        TextButton(onClick = { pasting = true }, colors = dclTextButtonColors()) { Text("Paste a recipe") }
+                        // Stacked, not side by side: in a phone's dialog the pair
+                        // does not fit on one line and the second label wrapped.
+                        Column {
+                            TextButton(onClick = { pasting = true }, colors = dclTextButtonColors()) { Text("Paste a recipe") }
+                            // Only while the form is untouched: the catalogue's Add
+                            // saves the recipe it shows, and would otherwise drop
+                            // whatever the coach had typed here.
+                            if (!changed) {
+                                TextButton(onClick = { browsingCatalogue = true }, colors = dclTextButtonColors()) {
+                                    Text("From the catalogue")
+                                }
+                            }
+                        }
                     } else {
                         OutlinedTextField(
                             value = pasteText,
