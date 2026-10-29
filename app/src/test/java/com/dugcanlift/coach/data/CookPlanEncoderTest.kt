@@ -55,7 +55,7 @@ class CookPlanEncoderTest {
         assertEquals(listOf("500 g beef mince", "2 tins chopped tomatoes"), recipe.ingredients)
         assertEquals(listOf("Brown the beef", "Simmer"), recipe.steps)
         assertEquals(520.0, recipe.nutritionPerServing!!.calories, 0.001)
-        assertEquals(9.0, recipe.nutritionPerServing!!.fiberG, 0.001)
+        assertEquals(9.0, recipe.nutritionPerServing!!.fiberG!!, 0.001)
         assertEquals(4.0, recipe.servings, 0.001)
     }
 
