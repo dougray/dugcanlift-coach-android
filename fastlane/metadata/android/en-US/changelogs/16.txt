@@ -1,4 +1,4 @@
-Cook plans the whole week: any meal on any day, for the servings you choose. Send recipes from your browser: save a bookmark once, tap it on a recipe page, and the recipe opens in Coach for you to check. Coach never visits the page. A new recipe can also start from a catalog of 622 recipes.
+Cook plans the whole week: any meal on any day, for the servings you choose. Send recipes from your browser: save a bookmark once, tap it on a recipe page, and the recipe opens in Coach for you to check. Coach never visits the page. Cook also adds 622 recipes and reads units written out, like "2 tablespoons".
 
 Train: supersets, circuits, drop sets and rest-pause sets, sent with the week.
 
