@@ -457,7 +457,31 @@ internal fun recipeCardLine(recipe: Recipe): String =
     "Serves ${recipe.servings.trimZeros()} \u00B7 " +
         "${recipe.rawIngredients.size} ingredient(s)" +
         (recipe.nutritionPerServing?.takeIf { it.hasMacros }
-            ?.let { " \u00B7 ${RecipeCatalog.whole(it.calories)} kcal/serving" } ?: "")
+            ?.let {
+                " \u00B7 ${RecipeCatalog.whole(it.calories)} kcal/serving" +
+                    if (it.estimated) ESTIMATED_SUFFIX else ""
+            } ?: "")
+
+/** Coach iOS's `CookView.macroLine` suffix, after the macros of a recipe whose
+ *  macros are an estimate ([RecipeNutrition.estimated]). Only beside macros:
+ *  an estimate of nothing says nothing. */
+internal const val ESTIMATED_SUFFIX = " \u00B7 estimated"
+
+/** Coach iOS's `RecipeEditorView` line under the macros, word for word. */
+internal const val ESTIMATED_NOTE = "Estimated from an import \u2014 check these before sending."
+
+/** The editor's estimated line, and the source's own note under it -- the
+ *  catalogue's attribution, licence and costing caveat, which ride in
+ *  [Recipe.unknownKeys] as BACKUP-FORMAT's `sourceTranscript`. */
+internal data class EstimatedNote(val note: String, val source: String?)
+
+/** Null for a recipe whose macros are not an estimate, so its editor shows
+ *  nothing new. Display only: nothing here is written back. */
+internal fun estimatedNote(recipe: Recipe): EstimatedNote? {
+    if (recipe.nutritionPerServing?.estimated != true) return null
+    val source = (recipe.unknownKeys?.opt("sourceTranscript") as? String)?.takeIf { it.isNotBlank() }
+    return EstimatedNote(ESTIMATED_NOTE, source)
+}
 
 /** Full width on a phone; in a wide layout a primary button stops being a banner. */
 internal fun Modifier.wideButton(columns: Int): Modifier =
@@ -1204,6 +1228,15 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
                 MacroField("Saturated fat", "g", saturatedFat) { saturatedFat = it }
                 MacroField("Sugar", "g", sugar) { sugar = it }
                 MacroField("Sodium", "mg", sodium) { sodium = it }
+
+                // Coach iOS's line under the macros of an imported estimate,
+                // with the source's own note. Save carries the flag, so this
+                // describes the recipe as it was opened.
+                estimatedNote(recipe)?.let { shown ->
+                    Spacer(Modifier.height(8.dp))
+                    Text(shown.note, style = MaterialTheme.typography.bodySmall)
+                    shown.source?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                }
             }
         },
         confirmButton = {
