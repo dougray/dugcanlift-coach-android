@@ -1016,6 +1016,23 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
         )
     }
 
+    // The bundled catalogue, Coach iOS's "From the catalogue". It takes the
+    // editor's place rather than stacking over it, and Done brings the empty
+    // form back. Its Add is this editor's own Save, under this new recipe's id,
+    // so a copied recipe reaches the library by exactly the path a written one
+    // does.
+    var browsingCatalogue by rememberSaveable(recipe.id) { mutableStateOf(false) }
+    if (browsingCatalogue) {
+        RecipeCatalogDialog(
+            onDone = { browsingCatalogue = false },
+            onAdd = { copied ->
+                browsingCatalogue = false
+                onSave(copied.copy(id = recipe.id))
+            }
+        )
+        return
+    }
+
     AlertDialog(
         onDismissRequest = requestCancel,
         properties = EditorDialogProperties,
@@ -1032,7 +1049,19 @@ private fun RecipeEditor(recipe: Recipe, onCancel: () -> Unit, onSave: (Recipe) 
                 // the quantities on save and still refuses to weigh a volume.
                 if (isNew) {
                     if (!pasting) {
-                        TextButton(onClick = { pasting = true }, colors = dclTextButtonColors()) { Text("Paste a recipe") }
+                        // Stacked, not side by side: in a phone's dialog the pair
+                        // does not fit on one line and the second label wrapped.
+                        Column {
+                            TextButton(onClick = { pasting = true }, colors = dclTextButtonColors()) { Text("Paste a recipe") }
+                            // Only while the form is untouched: the catalogue's Add
+                            // saves the recipe it shows, and would otherwise drop
+                            // whatever the coach had typed here.
+                            if (!changed) {
+                                TextButton(onClick = { browsingCatalogue = true }, colors = dclTextButtonColors()) {
+                                    Text("From the catalogue")
+                                }
+                            }
+                        }
                     } else {
                         OutlinedTextField(
                             value = pasteText,
