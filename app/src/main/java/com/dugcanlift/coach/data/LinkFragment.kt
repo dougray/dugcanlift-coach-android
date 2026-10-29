@@ -47,3 +47,51 @@ fun fragmentToImport(dataFragment: String?, action: String?, extraText: String?)
     if (action == ACTION_SEND && !extraText.isNullOrEmpty()) return fragmentFrom(extraText)
     return null
 }
+
+private const val ACTION_VIEW = "android.intent.action.VIEW"
+
+/** What an inbound intent carries: a client's log to import, or a recipe page to review. */
+sealed interface InboundLink {
+    /** A SHARE-FORMAT fragment for [ShareLinkImporter.import]. */
+    data class Log(val fragment: String) : InboundLink
+
+    /** An `r1` recipe link for [RecipeLinkImport.read], as the whole link text. */
+    data class RecipePage(val link: String) : InboundLink
+}
+
+/**
+ * Sorts an inbound intent's pieces into a log link, a recipe link, or nothing -- the one place
+ * the two are told apart, so neither ever reaches the other's reader.
+ *
+ * - `dugcanliftcoach://recipe#r1...` (VIEW, the "Send to Coach" bookmarklet, the scheme Coach
+ *   iPhone owns) is a recipe link, whatever follows the `#`: a mangled one is shown as unreadable
+ *   by the recipe reader rather than offered to the log importer.
+ * - Anything else goes through [fragmentToImport], exactly as before, and a fragment beginning
+ *   `r1` is a recipe link too. A log fragment begins `1z` or `1u`, so this only catches the
+ *   bookmarklet's `https://www.dugcanlift.com/coach/#r1...` target (Coach web's, which the App
+ *   Link can hand to this app) or a recipe link shared in as text.
+ *
+ * [dataString] is `Intent.getDataString()` -- encoded, as the bookmarklet wrote it.
+ */
+fun inboundLink(
+    action: String?,
+    scheme: String?,
+    host: String?,
+    dataString: String?,
+    dataFragment: String?,
+    extraText: String?
+): InboundLink? {
+    if (action == ACTION_VIEW && scheme.equals(RECIPE_LINK_SCHEME, ignoreCase = true) &&
+        host.equals(RECIPE_LINK_HOST, ignoreCase = true)
+    ) {
+        return InboundLink.RecipePage(dataString.orEmpty())
+    }
+    val fragment = fragmentToImport(dataFragment, action, extraText) ?: return null
+    if (RecipeLink.isRecipeFragment(fragment)) {
+        return InboundLink.RecipePage("#$fragment")
+    }
+    return InboundLink.Log(fragment)
+}
+
+const val RECIPE_LINK_SCHEME = "dugcanliftcoach"
+const val RECIPE_LINK_HOST = "recipe"
