@@ -409,6 +409,39 @@ there first.
   fixture's sides correctly through them -- the "old decoder" check. `PlanLog` (the Booked card)
   masks sides the same way and counts sets, so a set type changes no count there.
 
+## The recipe catalogue
+
+Cook's new-recipe editor offers **From the catalogue** beside "Paste a recipe"
+(only while the form is untouched): 622 bundled recipes a coach can browse,
+search and copy into the library. A port of Coach iOS's `RecipeCatalogView`,
+wording and all; the rules are `data/RecipeCatalog.kt`, the screen
+`ui/RecipeCatalogDialog.kt`, and `RecipeCatalogTest` pins both.
+
+- **The data is `app/src/main/assets/recipes.json`**, the kit's export of the
+  `recipes.db` the iPhones read (`dugcanlift-kit/Tools/export_recipes_json.py`),
+  with `recipes.sha256` beside it. Copy both from `dugcanlift-kit/data/`
+  together, byte for byte; never edit either here or write the hash by hand.
+  `RecipeCatalogTest` hashes the bundled bytes, as `RoadPicksTest` does for
+  `road-food.json`.
+- **Nothing is re-costed.** A copy takes the file's macros exactly.
+- **A null `servings` is a source that stated no yield**: the row carries
+  whole-dish totals, the coach picks a count on a stepper (1-48, default 4), and
+  per serving is the totals divided by it at that moment. A stated yield uses the
+  `*PerServing` figures and ignores the stepper.
+- **Search is iOS's FTS5 match, approximated in memory**: every word must begin
+  a word of the name, summary or country (not category), case and accents
+  ignored, two characters at least, 40 results; ranked name matches first, then
+  the shorter name. No Porter stemming. Before typing, the first 60 by name, as
+  iOS shows.
+- **A copy is an ordinary recipe** saved by the editor's own Save. Ingredient
+  lines go in raw. The credit and the costing note ride in `Recipe.unknownKeys`
+  under BACKUP-FORMAT's recipe names (`sourceAuthor`, `sourceUrl`,
+  `sourceTranscript`, `prepMinutes`, `cookMinutes`), because `Recipe` has no
+  fields for them; Coach iOS's backup ignores those keys.
+- **Attribution does not travel on the plan wire**, on either build: PLAN-FORMAT
+  has no field for it, so a CC BY-SA recipe sent to a client arrives uncredited.
+  That is an open wire-format question; do not patch it here.
+
 ## Sending a week from Train
 
 Train's Schedule shows one client's week -- seven days from a start the coach moves with
