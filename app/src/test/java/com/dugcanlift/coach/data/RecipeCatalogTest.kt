@@ -112,10 +112,11 @@ class RecipeCatalogTest {
 
     // MARK: - Browse and search
 
-    @Test fun `the opening page is the first 60 by name, both collections interleaved`() {
+    @Test fun `rule 1 - with nothing typed the list is all 622, by name, both collections interleaved`() {
         val page = catalog.browse()
-        assertEquals(60, page.size)
-        assertEquals(recipes.map { it.name }.sorted().take(60), page.map { it.name })
+        assertEquals(622, page.size)
+        assertEquals(recipes.map { it.name }.sorted(), page.map { it.name })
+        assertEquals(recipes.map { it.id }.toSet(), page.map { it.id }.toSet())
         assertEquals("A Good Pennsylvania Dutch Salad Dressing", page.first().name)
         assertTrue(page.any { it.source == "unitools" } && page.any { it.source.startsWith("gutenberg") })
     }
@@ -215,9 +216,63 @@ class RecipeCatalogTest {
         assertEquals(71.2 / 4, atFour.carbsG, 1e-9)
         assertEquals(50.2 / 4, atFour.fatG, 1e-9)
         assertEquals(898.1 / 6, potPie.nutrition(6.0)!!.calories, 1e-9)
-        assertEquals("224 kcal · P 10 · C 17 · F 12", RecipeCatalog.macroLine(atFour))
+        assertEquals("225 kcal · P 10 · C 18 · F 13", RecipeCatalog.macroLine(atFour))
         assertEquals("Per serving at 4 servings.", RecipeCatalog.macroBasis(potPie, 4.0))
         assertEquals("a nonsense count divides by one, never by zero", 898.1, potPie.nutrition(0.0)!!.calories, 1e-9)
+    }
+
+    @Test fun `rule 2 - whole numbers round half away from zero, never truncate`() {
+        assertEquals(225L, RecipeCatalog.whole(224.525))
+        assertEquals(224L, RecipeCatalog.whole(224.49))
+        assertEquals(1L, RecipeCatalog.whole(0.5))
+        assertEquals("half away from zero, not half to even", 3L, RecipeCatalog.whole(2.5))
+        assertEquals(-3L, RecipeCatalog.whole(-2.5))
+        assertEquals(0L, RecipeCatalog.whole(0.0))
+        // Beef Pot Pie at 4: 224.525 kcal, 10 P, 17.8 C, 12.55 F.
+        assertEquals("225 kcal · P 10 · C 18 · F 13", RecipeCatalog.macroLine(potPie.nutrition(4.0)!!))
+        // A row's per-serving figure rounds too.
+        val row = CatalogRecipe(id = "x", name = "Half", servings = 2.0, caloriesPerServing = 380.5, ingredients = listOf("1 egg"))
+        assertEquals("381 kcal per serving · 1 ingredients", RecipeCatalog.rowSummary(row))
+    }
+
+    @Test fun `rule 2 is display only - what is stored is not rounded`() {
+        val made = potPie.makeRecipe(chosenServings = 4.0)
+        assertEquals(898.1 / 4, made.nutritionPerServing!!.calories, 0.0)
+        assertEquals(71.2 / 4, made.nutritionPerServing!!.carbsG, 0.0)
+    }
+
+    @Test fun `rule 3 - the stepper shows for every recipe with no stated yield, macros or not`() {
+        val noYield = recipes.filter { it.servings == null }
+        assertTrue(noYield.all { it.asksServings })
+        assertTrue("some have no macros at all", noYield.any { it.caloriesTotal == null })
+        assertTrue(recipes.filter { it.servings != null }.none { it.asksServings })
+        val bare = noYield.first { it.caloriesTotal == null }
+        assertEquals(4.0, RecipeCatalog.openingServings(bare), 0.0)
+        assertEquals("the count the coach picks is the copy's yield", 7.0, bare.makeRecipe(7.0).servings, 0.0)
+        assertEquals(
+            "This book states no yield. Set how many it serves before sending it to anyone.",
+            RecipeCatalog.noYieldNote(bare)
+        )
+        assertEquals(
+            "This book states no yield, so the macros are for the whole dish. " +
+                "Set how many it serves before sending it to anyone.",
+            RecipeCatalog.noYieldNote(potPie)
+        )
+    }
+
+    @Test fun `rule 4 - stored per-serving values are the raw quotient`() {
+        for (count in listOf(3.0, 6.0, 7.0)) {
+            val stored = potPie.makeRecipe(chosenServings = count).nutritionPerServing!!
+            assertEquals(898.1 / count, stored.calories, 0.0)
+            assertEquals(40.0 / count, stored.proteinG, 0.0)
+            assertEquals(71.2 / count, stored.carbsG, 0.0)
+            assertEquals(50.2 / count, stored.fatG, 0.0)
+        }
+        assertEquals(149.68333333333334, potPie.makeRecipe(6.0).nutritionPerServing!!.calories, 0.0)
+        // And it survives the library's own file unrounded.
+        val cook = CookRepository(tmp.root)
+        cook.upsertRecipe(potPie.makeRecipe(chosenServings = 6.0, id = "raw"))
+        assertEquals(898.1 / 6, cook.load().recipes.single().nutritionPerServing!!.calories, 0.0)
     }
 
     @Test fun `no yield and no macros is no macros, not zeros`() {

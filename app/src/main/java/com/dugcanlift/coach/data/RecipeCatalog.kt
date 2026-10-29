@@ -77,6 +77,15 @@ data class CatalogRecipe(
     val needsServings: Boolean get() = servings == null && caloriesTotal != null
 
     /**
+     * True whenever the source stated no yield, with macros or without. The
+     * stepper shows for every such recipe, because the count the coach picks
+     * becomes the copy's yield either way. A rule all the Coach builds share
+     * (2026-10-28). [needsServings] is the narrower question of whether the
+     * macros are whole-dish.
+     */
+    val asksServings: Boolean get() = servings == null
+
+    /**
      * Per serving at [count]. A recipe that published per-serving figures
      * ignores the count: those were measured per serving already, and rescaling
      * them would be a second opinion about a number the publisher measured. A
@@ -221,13 +230,17 @@ class RecipeCatalog(val recipes: List<CatalogRecipe>) {
     private class Words(val name: List<String>, val rest: List<String>)
 
     /**
-     * The opening page: the first [BROWSE_LIMIT] by name, iOS's
-     * `browseRecipes()`. Ordered by name, not by source, so the two collections
+     * The opening page: **every** recipe, by name. A rule all the Coach builds
+     * share (2026-10-28), replacing the first 60 that iOS's `browseRecipes()`
+     * returned, which left most of the catalogue reachable only by search. The
+     * list that shows it is lazy, so 622 rows cost nothing until they scroll
+     * into view. Ordered by name, not by source, so the two collections
      * interleave rather than the heritage book reading as an afterthought.
      * Plain code-unit order, as SQLite's `ORDER BY name` is.
      */
-    fun browse(limit: Int = BROWSE_LIMIT): List<CatalogRecipe> =
-        recipes.sortedBy { it.name }.take(limit)
+    private val byName: List<CatalogRecipe> = recipes.sortedBy { it.name }
+
+    fun browse(): List<CatalogRecipe> = byName
 
     /**
      * Every word of [text] must begin some word of a recipe's name, summary or
@@ -272,7 +285,6 @@ class RecipeCatalog(val recipes: List<CatalogRecipe>) {
 
     companion object {
         const val SEARCH_LIMIT = 40
-        const val BROWSE_LIMIT = 60
         const val MIN_QUERY = 2
         const val DEFAULT_SERVINGS = 4.0
         const val MIN_SERVINGS = 1.0
@@ -298,22 +310,42 @@ class RecipeCatalog(val recipes: List<CatalogRecipe>) {
          */
         fun rowSummary(recipe: CatalogRecipe): String {
             val macros = when {
-                recipe.caloriesPerServing != null -> "${recipe.caloriesPerServing.toInt()} kcal per serving"
+                recipe.caloriesPerServing != null -> "${whole(recipe.caloriesPerServing)} kcal per serving"
                 recipe.needsServings -> "Macros for the whole dish"
                 else -> "No macros"
             }
             return "$macros · ${recipe.ingredients.size} ingredients"
         }
 
-        /** "690 kcal · P 32 · C 62 · F 34", truncated as iOS's `Int(...)` truncates. */
+        /**
+         * A macro as a whole number, for display: **rounded half away from
+         * zero, never truncated**, so 224.525 kcal reads 225. A rule all the
+         * Coach builds share (2026-10-28). Display only: the stored value stays
+         * the raw quotient. Not `kotlin.math.round`, which rounds half to even.
+         */
+        fun whole(value: Double): Long =
+            if (value < 0) -Math.floor(-value + 0.5).toLong() else Math.floor(value + 0.5).toLong()
+
+        /** "690 kcal · P 32 · C 62 · F 34", each figure through [whole]. */
         fun macroLine(facts: RecipeNutrition): String =
-            "${facts.calories.toInt()} kcal · P ${facts.proteinG.toInt()} · " +
-                "C ${facts.carbsG.toInt()} · F ${facts.fatG.toInt()}"
+            "${whole(facts.calories)} kcal · P ${whole(facts.proteinG)} · " +
+                "C ${whole(facts.carbsG)} · F ${whole(facts.fatG)}"
 
         /** What the Macros section says the figure is per. */
         fun macroBasis(recipe: CatalogRecipe, servings: Double): String =
             if (recipe.needsServings) "Per serving at ${servingsLabel(servings)}."
             else "Per serving, as published."
+
+        /**
+         * The line under the stepper. iOS's sentence where the macros are
+         * whole-dish; for a no-yield recipe with no macros at all, the same
+         * sentence without the clause about macros it does not have.
+         */
+        fun noYieldNote(recipe: CatalogRecipe): String =
+            if (recipe.needsServings)
+                "This book states no yield, so the macros are for the whole dish. " +
+                    "Set how many it serves before sending it to anyone."
+            else "This book states no yield. Set how many it serves before sending it to anyone."
 
         /** The count a recipe opens at: its own yield, or the default for the coach to change. */
         fun openingServings(recipe: CatalogRecipe): Double = recipe.servings ?: DEFAULT_SERVINGS

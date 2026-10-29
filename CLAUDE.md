@@ -424,15 +424,20 @@ wording and all; the rules are `data/RecipeCatalog.kt`, the screen
   `RecipeCatalogTest` hashes the bundled bytes, as `RoadPicksTest` does for
   `road-food.json`.
 - **Nothing is re-costed.** A copy takes the file's macros exactly.
-- **A null `servings` is a source that stated no yield**: the row carries
-  whole-dish totals, the coach picks a count on a stepper (1-48, default 4), and
-  per serving is the totals divided by it at that moment. A stated yield uses the
-  `*PerServing` figures and ignores the stepper.
+- **A null `servings` is a source that stated no yield**: the stepper (1-48,
+  default 4) shows for every such recipe, macros or not, and its count is the
+  copy's yield. Where the row carries whole-dish totals, per serving is the totals
+  divided by it, **stored as the raw quotient** (149.68333...). A stated yield
+  uses the `*PerServing` figures and ignores the stepper.
+- **Whole numbers on screen round half away from zero** (`RecipeCatalog.whole`),
+  never truncate: Beef Pot Pie at 4 servings is 225 kcal. Display only.
+- The four rules above (all 622, rounding, stepper, raw quotient) are shared by
+  every Coach build as of 2026-10-28; change them everywhere or nowhere.
 - **Search is iOS's FTS5 match, approximated in memory**: every word must begin
   a word of the name, summary or country (not category), case and accents
   ignored, two characters at least, 40 results; ranked name matches first, then
-  the shorter name. No Porter stemming. Before typing, the first 60 by name, as
-  iOS shows.
+  the shorter name. No Porter stemming. Before typing, **all 622** by name in
+  a lazy list.
 - **A copy is an ordinary recipe** saved by the editor's own Save. Ingredient
   lines go in raw. The credit and the costing note ride in `Recipe.unknownKeys`
   under BACKUP-FORMAT's recipe names (`sourceAuthor`, `sourceUrl`,

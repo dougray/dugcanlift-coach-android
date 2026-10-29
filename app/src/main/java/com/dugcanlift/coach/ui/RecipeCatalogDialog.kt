@@ -304,12 +304,9 @@ private fun CatalogDetail(
             DetailSection("Recipe", width) {
                 Text(recipe.name, style = MaterialTheme.typography.titleMedium)
                 recipe.summary?.let { Caption(it) }
-                if (recipe.needsServings) {
+                if (recipe.asksServings) {
                     ServingsStepper(servings, onServings)
-                    Caption(
-                        "This book states no yield, so the macros are for the whole dish. " +
-                            "Set how many it serves before sending it to anyone."
-                    )
+                    Caption(RecipeCatalog.noYieldNote(recipe))
                 } else {
                     recipe.servings?.let {
                         Text(RecipeCatalog.servingsLabel(it), style = MaterialTheme.typography.bodyMedium)
