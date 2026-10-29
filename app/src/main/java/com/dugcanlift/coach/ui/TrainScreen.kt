@@ -80,6 +80,7 @@ import com.dugcanlift.coach.data.searchExerciseLibrary
 import com.dugcanlift.coach.data.titleCaseAscii
 import com.dugcanlift.coach.data.ClientRepository
 import com.dugcanlift.coach.data.PlanWeek
+import com.dugcanlift.coach.data.PlanPrintout
 import com.dugcanlift.coach.data.LB_PER_KG
 import com.dugcanlift.coach.data.PrescribedSet
 import com.dugcanlift.coach.data.Routine
@@ -267,6 +268,26 @@ fun TrainScreen(
                                 android.content.Intent.createChooser(intent, "Send this week")
                             )
                         },
+                        onPrint = {
+                            // Paper, for the client who wants it printed. Not a send:
+                            // nothing is recorded, because a printout is not a plan the
+                            // client's app received.
+                            val week = PlanWeek(weekStart)
+                            val locale = java.util.Locale.getDefault()
+                            val pattern = android.text.format.DateFormat.getBestDateTimePattern(locale, "EEEdMMM")
+                            val coach = context.getSharedPreferences("connect", android.content.Context.MODE_PRIVATE)
+                                .getString("coachName", "")
+                            val name = clientName ?: "Plan"
+                            val lines = PlanPrintout.lines(
+                                clientName = name,
+                                weekStart = weekStart,
+                                coachName = coach,
+                                days = PlanPrintout.days(week, clientId ?: return@ScheduleList,
+                                                         library.sessions, library.routines),
+                                dayTitle = { PlanPrintout.dayTitle(it, locale, pattern) }
+                            )
+                            PlanPrintoutDocument.print(context, PlanPrintout.fileName(name, weekStart), lines)
+                        },
                         columns = columns
                     )
                 }
@@ -397,6 +418,7 @@ private fun ScheduleList(
     onBook: (Routine, String) -> Unit,
     onRemove: (ScheduledSession) -> Unit,
     onSend: () -> Unit,
+    onPrint: () -> Unit,
     columns: Int = 1
 ) {
     if (clients.isEmpty()) {
@@ -459,6 +481,18 @@ private fun ScheduleList(
     if (send.isSendable) {
         Button(onClick = onSend, modifier = Modifier.wideButton(columns)) {
             Text("Send this week to $clientName")
+        }
+        Spacer(Modifier.height(4.dp))
+    }
+    // Beside Send, as Coach iOS has it, and shown for any booking this week --
+    // a booking whose routine is gone prints as "Removed workout", as iOS's does.
+    if (sessions.any { it.dayKey in week.days }) {
+        OutlinedButton(
+            onClick = onPrint,
+            modifier = Modifier.wideButton(columns),
+            colors = dclOutlinedButtonColors()
+        ) {
+            Text("Print or save as PDF")
         }
         Spacer(Modifier.height(4.dp))
     }
