@@ -91,7 +91,7 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.window)
-    implementation("com.github.dougray:dugcanlift-kit-android:1.9.1")
+    implementation("com.github.dougray:dugcanlift-kit-android:d2a4271071")
     testImplementation(libs.junit)
     testImplementation(libs.json)
     testImplementation(libs.robolectric)

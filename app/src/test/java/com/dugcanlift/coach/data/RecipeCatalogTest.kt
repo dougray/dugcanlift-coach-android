@@ -289,7 +289,7 @@ class RecipeCatalogTest {
         assertEquals("a stated yield wins over the stepper", 2.0, made.servings, 0.0)
         assertEquals(carbonara.nutrition(2.0), made.nutritionPerServing)
         assertTrue("estimated carries over", made.nutritionPerServing!!.estimated)
-        assertEquals(0.0, made.nutritionPerServing!!.fiberG, 0.0)
+        assertNull("the catalogue states no fiber: unknown, not 0 g", made.nutritionPerServing!!.fiberG)
         assertNull(made.nutritionPerServing!!.saturatedFatG)
     }
 

@@ -91,12 +91,13 @@ data class Recipe(
 /**
  * Whether any of the five macros was entered. A [RecipeNutrition] can exist
  * with none of them -- a coach who knows a dish's sodium but not its calories --
- * and then carries zeros in the five non-null macro fields, the same shape Coach
- * iOS's `NutritionFacts` holds. Those zeros are "not entered", never a measured
- * zero-calorie dish: PLAN-FORMAT omits `u` for them, and no screen shows them.
+ * and then carries zeros in the four non-null macro fields and no fiber, the
+ * same shape Coach iOS's `NutritionFacts` holds. Those zeros are "not entered",
+ * never a measured zero-calorie dish: PLAN-FORMAT omits `u` for them, and no
+ * screen shows them. Unknown fiber (null) is not an entry.
  */
 val RecipeNutrition.hasMacros: Boolean
-    get() = listOf(calories, proteinG, carbsG, fatG, fiberG).any { it != 0.0 }
+    get() = listOf(calories, proteinG, carbsG, fatG, fiberG ?: 0.0).any { it != 0.0 }
 
 /**
  * A recipe placed on a day, for one client. Not something eaten -- the client
@@ -201,7 +202,7 @@ private fun JSONObject.copyInto(target: JSONObject) {
 }
 
 /** The fields [RecipeNutrition] models. Anything else is preserved, not dropped. */
-private val NUTRITION_KEYS = setOf("calories", "proteinG", "carbsG", "fatG", "fiberG", "estimated")
+private val NUTRITION_KEYS = setOf("calories", "proteinG", "carbsG", "fatG", "estimated")
 
 /**
  * Saturated fat, sugar and sodium, per serving (BACKUP-FORMAT `nutritionPerServing`).
@@ -209,7 +210,7 @@ private val NUTRITION_KEYS = setOf("calories", "proteinG", "carbsG", "fatG", "fi
  * from a hand-edited file -- stays in the unknown bag, so it is carried rather
  * than read as unknown and then written away.
  */
-private val DETAIL_KEYS = listOf("saturatedFatG", "sugarG", "sodiumMg")
+private val DETAIL_KEYS = listOf("fiberG", "saturatedFatG", "sugarG", "sodiumMg")
 
 /** Every key [nutritionFromJson] turned into a field, for this object. */
 private fun JSONObject.modelledNutritionKeys(): Set<String> =
@@ -228,7 +229,10 @@ private fun nutritionFromJson(o: JSONObject?): RecipeNutrition? {
         proteinG = o.optDouble("proteinG", 0.0),
         carbsG = o.optDouble("carbsG", 0.0),
         fatG = o.optDouble("fatG", 0.0),
-        fiberG = o.optDouble("fiberG", 0.0),
+        // Absent or null is unknown, never 0 g: Coach iOS writes no key for a
+        // nil `fiberG`. Every file an earlier build wrote has the key, so its
+        // zeros stay zeros -- nobody can say now which of them were unknown.
+        fiberG = o.optFiniteOrNull("fiberG"),
         // Whether these macros were an LLM's guess rather than a database
         // lookup. Round-tripped rather than defaulted: dropping it turns an
         // estimate into a stated fact on the next Save Backup.
@@ -246,7 +250,6 @@ private fun RecipeNutrition.toJson(extras: JSONObject?): JSONObject {
     o.put("proteinG", proteinG)
     o.put("carbsG", carbsG)
     o.put("fatG", fatG)
-    o.put("fiberG", fiberG)
     // Only when true. Coach iOS's NutritionFacts has no such field, so writing
     // `"estimated": false` would inject a key into every recipe of a file that
     // never had one -- harmless to iOS's decoder, which ignores what it does not
@@ -255,6 +258,7 @@ private fun RecipeNutrition.toJson(extras: JSONObject?): JSONObject {
     if (estimated) o.put("estimated", true)
     // Only when known. Written after the extras, so a field wins over any stale
     // copy of the same key; absent is null, never zero.
+    fiberG?.let { o.put("fiberG", it) }
     saturatedFatG?.let { o.put("saturatedFatG", it) }
     sugarG?.let { o.put("sugarG", it) }
     sodiumMg?.let { o.put("sodiumMg", it) }
