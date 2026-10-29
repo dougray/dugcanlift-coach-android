@@ -503,6 +503,31 @@ the system chooser as a plain-text `ACTION_SEND`, the mechanism Cook's Send alre
 - Booking used to be "today or nowhere" -- every session landed on `DayKey.today()`. The week is
   what made a Send mean anything.
 
+### A week can be printed
+
+"Print or save as PDF", under Send, lays the week out on US Letter pages and opens the system print
+dialog, whose destinations always include every printer and "Save as PDF". Coach iOS writes the
+same PDF and opens the share sheet, where Print and Save to Files are always offered; Android's
+share sheet has neither unless some app claims a PDF, so the print dialog is the one place that
+reaches both on every device. It shows for any booking in the week, a removed one included.
+
+- **The lines are Coach iOS's `PlanPrintout`, line for line, and Coach web prints the same**: the
+  client's name; "Week of Mon, Oct 26", with " · from <coach>" only when Connect has a name; then
+  each day with a booking, in order, headed the same way; each booking's routine name ("Removed
+  workout" when its template is gone, with nothing under it); one line an exercise,
+  "Back Squat (Barbell): 3 × 100 × 5", read by `PrescriptionSides.summary` exactly as the workout
+  cards read it (kilograms, as this app stores them); and the exercise's note under it. A week with
+  nothing booked says "Nothing is booked this week." Change these lines in all three builds or in
+  none.
+- **`PlanPrintout` is a value with no Android in it**, and so is `PlanPrintout.paginate`: a block
+  that does not fit starts a new page. `PlanPrintoutTest` pins the lines and that 80 exercises run
+  onto a second page. `PlanPrintoutDocument` only measures with `StaticLayout` and draws with
+  `PdfDocument`, which Robolectric cannot run natively -- check a change there on a device.
+- **Dates are the reader's locale**, from `getBestDateTimePattern(locale, "EEEdMMM")`;
+  `PlanPrintoutDocumentTest` checks what en-US gets so the pinned words are real ones.
+- **Printing records nothing.** No `SentPlan` row: a printout is not a plan the client's app
+  received.
+
 ## Road picks
 
 A coach marks the Road Food items they are happy with for a client, and they
