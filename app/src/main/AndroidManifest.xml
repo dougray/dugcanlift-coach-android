@@ -47,6 +47,19 @@
                     android:pathPrefix="/coach/" />
             </intent-filter>
 
+            <!-- "Send to Coach": the recipe bookmarklet opens dugcanliftcoach://recipe#r1...,
+                 the scheme Coach iPhone owns, so one bookmark works on either phone. The page's
+                 recipe rides after the # and nothing is fetched (dugcanlift-kit
+                 bookmarklet/README.md). A custom scheme needs no site file and no permission. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="dugcanliftcoach"
+                    android:host="recipe" />
+            </intent-filter>
+
             <!-- Share-sheet target: a coach can also share the link text directly into Coach. -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
