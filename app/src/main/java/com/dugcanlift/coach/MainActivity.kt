@@ -20,7 +20,8 @@ import androidx.window.layout.FoldingFeature
 import androidx.window.layout.WindowInfoTracker
 import com.dugcanlift.coach.ui.adaptive.ProvideWindowLayout
 import kotlinx.coroutines.launch
-import com.dugcanlift.coach.data.fragmentToImport
+import com.dugcanlift.coach.data.InboundLink
+import com.dugcanlift.coach.data.inboundLink
 import com.dugcanlift.coach.ui.theme.CoachTheme
 
 /**
@@ -36,16 +37,22 @@ import com.dugcanlift.coach.ui.theme.CoachTheme
  * is not imported a second time. A fresh tap or share while the app is already running (this
  * activity is `singleTop`) arrives via [onNewIntent] instead, which always sets a new pending
  * fragment since that is a genuinely new user action.
+ *
+ * A recipe link from the "Send to Coach" bookmarklet (`dugcanliftcoach://recipe#r1...`, see the
+ * kit's `bookmarklet/README.md`) arrives the same two ways and is held in [pendingRecipeLink]
+ * instead, by the same rules. [inboundLink] is what tells the two apart, so a log link never
+ * reaches the recipe reader and a recipe link never reaches the log importer.
  */
 class MainActivity : ComponentActivity() {
     private var pendingImportFragment by mutableStateOf<String?>(null)
+    private var pendingRecipeLink by mutableStateOf<String?>(null)
     private var verticalHinge by mutableStateOf<Pair<Int, Int>?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         if (savedInstanceState == null) {
-            pendingImportFragment = fragmentFrom(intent)
+            take(intent)
         }
         watchFolds()
         val repo = (application as CoachApp).repo
@@ -68,7 +75,9 @@ class MainActivity : ComponentActivity() {
                         repo = repo,
                         modifier = Modifier.fillMaxSize(),
                         pendingImportFragment = pendingImportFragment,
-                        onImportHandled = { pendingImportFragment = null }
+                        onImportHandled = { pendingImportFragment = null },
+                        pendingRecipeLink = pendingRecipeLink,
+                        onRecipeLinkHandled = { pendingRecipeLink = null }
                     )
                 }
             }
@@ -99,13 +108,21 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        pendingImportFragment = fragmentFrom(intent)
+        take(intent)
     }
 
-    private fun fragmentFrom(intent: Intent): String? =
-        fragmentToImport(
-            dataFragment = intent.data?.fragment,
+    private fun take(intent: Intent) {
+        when (val link = inboundLink(
             action = intent.action,
+            scheme = intent.data?.scheme,
+            host = intent.data?.host,
+            dataString = intent.dataString,
+            dataFragment = intent.data?.fragment,
             extraText = intent.getStringExtra(Intent.EXTRA_TEXT)
-        )
+        )) {
+            is InboundLink.Log -> pendingImportFragment = link.fragment
+            is InboundLink.RecipePage -> pendingRecipeLink = link.link
+            null -> Unit
+        }
+    }
 }
