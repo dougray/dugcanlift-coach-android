@@ -1,3 +1,4 @@
+import com.android.build.api.artifact.SingleArtifact
 import java.util.Properties
 
 // Signing mirrors LIFT Android's: the keystore path and passwords live in a
@@ -77,6 +78,24 @@ android {
         // The debug and release build types each set their own app_name, so the
         // launcher shows which one you are looking at.
         resValues = true
+    }
+}
+
+// PermissionsPinTest pins the release APK's permissions to the privacy page -- none, apart from
+// androidx's own receiver guard. It reads the release variant's MERGED manifest, this app's plus
+// every library's, which is what an installed APK declares: a dependency that quietly brings in
+// INTERNET or ACCESS_NETWORK_STATE appears there and nowhere in src/main. The file is an input of
+// every unit test task, so testDebugUnitTest runs processReleaseManifest first and reruns when a
+// dependency bump changes the merged result.
+androidComponents {
+    onVariants(selector().withBuildType("release")) { variant ->
+        val merged = variant.artifacts.get(SingleArtifact.MERGED_MANIFEST)
+        tasks.withType<Test>().configureEach {
+            inputs.file(merged).withPropertyName("releaseMergedManifest").withPathSensitivity(PathSensitivity.NONE)
+            jvmArgumentProviders.add(CommandLineArgumentProvider {
+                listOf("-DreleaseMergedManifest=${merged.get().asFile.absolutePath}")
+            })
+        }
     }
 }
 
