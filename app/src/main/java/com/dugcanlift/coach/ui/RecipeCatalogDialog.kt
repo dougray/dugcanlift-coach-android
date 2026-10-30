@@ -99,7 +99,7 @@ internal fun RecipeCatalogDialog(onDone: () -> Unit, onAdd: (Recipe) -> Unit) {
     LaunchedEffect(query, catalog, loadFailed) {
         if (loadFailed) {
             entries = emptyList()
-            note = "The recipe catalogue could not be opened."
+            note = "The recipe catalog could not be opened."
             return@LaunchedEffect
         }
         val loaded = catalog ?: return@LaunchedEffect
@@ -122,7 +122,7 @@ internal fun RecipeCatalogDialog(onDone: () -> Unit, onAdd: (Recipe) -> Unit) {
                 containerColor = MaterialTheme.colorScheme.background,
                 topBar = {
                     TopAppBar(
-                        title = { Text(if (selected == null) "Recipe catalogue" else "Add recipe") },
+                        title = { Text(if (selected == null) "Recipe catalog" else "Add recipe") },
                         navigationIcon = {
                             TextButton(onClick = back, colors = dclTextButtonColors()) {
                                 Text(if (selected == null) "Done" else "Back")
@@ -220,7 +220,7 @@ private fun CatalogList(
                 modifier = Modifier
                     .widthIn(max = AdaptiveLayout.MAX_FORM_DP.dp)
                     .fillMaxWidth()
-                    .semantics { contentDescription = "Search the recipe catalogue" },
+                    .semantics { contentDescription = "Search the recipe catalog" },
                 colors = dclTextFieldColors()
             )
         }
