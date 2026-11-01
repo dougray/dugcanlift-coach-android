@@ -777,7 +777,7 @@ class PlanLogTest {
             listOf(recipe("Beef Chilli")), listOf(meal("2026-10-12", dinner, 0)),
             listOf(foodDay("2026-10-12", totals = true))
         )
-        assertEquals("Food logged that day, not itemised", day(r, 0).foodContext)
+        assertEquals("Food logged that day, not itemized", day(r, 0).foodContext)
         assertNull(day(r, 0).meals[0].logged)
         assertFalse(PlanLog.lines(r).joinToString(" ").contains("Nothing logged"))
     }

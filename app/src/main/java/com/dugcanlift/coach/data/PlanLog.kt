@@ -735,7 +735,7 @@ object PlanLog {
      * `not tied to a meal` is the same guard for an entry the client's app recorded with no slot.
      */
     private fun foodContext(food: DayFood): String = when (food.state) {
-        FoodState.TOTALS -> "Food logged that day, not itemised"
+        FoodState.TOTALS -> "Food logged that day, not itemized"
         FoodState.NONE -> "No food logged that day"
         FoodState.ITEMS -> {
             val loose = food.items.count { MEAL_SLOTS.getOrNull(it.meal) == null }
