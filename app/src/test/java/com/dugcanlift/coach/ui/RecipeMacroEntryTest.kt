@@ -48,14 +48,23 @@ class RecipeMacroEntryTest {
         assertEquals(30.0, macros.proteinG, 1e-9)
         assertEquals(40.0, macros.carbsG, 1e-9)
         assertEquals(12.0, macros.fatG, 1e-9)
-        assertEquals(7.0, macros.fiberG, 1e-9)
+        assertEquals(7.0, macros.fiberG!!, 1e-9)
     }
 
-    /** Fibre alone is content: the form is not untouched. */
+    /** Blank fiber beside real calories is unknown, as on Coach iOS -- never 0 g. */
     @Test
-    fun `fibre alone counts as entered`() {
+    fun `blank fiber stays unknown`() {
+        val macros = entered("420", "30", "40", "12", "")!!
+        assertNull(macros.fiberG)
+        assertEquals("", macroFieldText(macros) { it.fiberG })
+        assertEquals("0", macroFieldText(entered("420", fiber = "0")) { it.fiberG })
+    }
+
+    /** Fiber alone is content: the form is not untouched. */
+    @Test
+    fun `fiber alone counts as entered`() {
         val macros = entered(fiber = "7")
-        assertEquals(7.0, macros!!.fiberG, 1e-9)
+        assertEquals(7.0, macros!!.fiberG!!, 1e-9)
         assertEquals(0.0, macros.calories, 1e-9)
     }
 

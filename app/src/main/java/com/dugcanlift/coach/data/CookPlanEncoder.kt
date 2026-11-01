@@ -96,8 +96,11 @@ object CookPlanEncoder {
                 // holding only sodium carries five placeholder zeros (see
                 // [hasMacros]). Coach iOS's `PlanLinkEncoder.planRecipe` guards the
                 // same all-zero case.
+                // Unknown fiber travels as 0: `u` is five plain numbers, and
+                // the iOS decoders reject a null in it and drop the whole plan.
+                // Coach iOS writes `fiberG ?? 0` for the same reason.
                 if (n.hasMacros) {
-                    o.put("u", JSONArray(listOf(n.calories, n.proteinG, n.carbsG, n.fatG, n.fiberG)))
+                    o.put("u", JSONArray(listOf(n.calories, n.proteinG, n.carbsG, n.fatG, n.fiberG ?: 0.0)))
                 }
                 uxTuple(n)?.let { o.put("ux", it) }
             }
