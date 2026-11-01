@@ -1,5 +1,5 @@
-Cook plans the whole week: any meal on any day, for the servings you choose. Send recipes from your browser: save a bookmark once, tap it on a recipe page, and the recipe opens in Coach for you to check. Coach never visits the page. Cook also adds 622 recipes and reads units written out, like "2 tablespoons".
+Cook plans the whole week: any meal on any day, for the servings you choose. Send recipes from your browser: save a bookmark once, tap it on a recipe page, and it opens in Coach for you to check. Coach never visits the page. Cook adds 622 recipes and reads "2 tablespoons" and "½ cup".
 
-Train: supersets, circuits, drop sets and rest-pause sets, sent with the week.
+Train: supersets, circuits, drop sets and rest-pause sets, sent with the week. Print or save a week as a PDF.
 
 Road Food adds six chains. Fixed: saving a routine lost the sets of an exercise with no equipment.
