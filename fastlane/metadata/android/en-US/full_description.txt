@@ -19,10 +19,10 @@ TABLETS AND FOLDABLES
 On a tablet, a foldable or in split screen, the tabs become a side rail, the roster sits beside the client you have open when there is room, and a client's charts, recipes, workouts and the week's plan spread across the space. A phone held upright looks as it always has.
 
 COOK
-Write recipes, or paste a recipe's text and edit it into shape. Build a week of meals for a client, read the shopping list that comes out of it, and send the week as a link that opens in their LIFT.
+Write recipes, paste a recipe's text and edit it into shape, or start from a catalog of 622 recipes. From a recipe website, use Send recipes from your browser: save a bookmark once, tap it on a recipe page, and the recipe opens in Coach for you to check. Coach never visits the page. Build a week of meals for a client, read the shopping list that comes out of it, and send the week as a link that opens in their LIFT.
 
 TRAIN
-Write routines, search an exercise library shared with LIFT so a lift you prescribe and a set your client logs are the same lift, and book sessions onto a client's days.
+Write routines, search an exercise library shared with LIFT so a lift you prescribe and a set your client logs are the same lift, and book sessions onto a client's days. Group exercises into supersets and circuits, and mark drop sets and rest-pause sets.
 
 BACKUP
 Save Backup and Restore from Backup write and read a file you keep wherever you choose. It is the same backup file Coach on iPhone uses.
