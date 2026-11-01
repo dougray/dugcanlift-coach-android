@@ -394,6 +394,7 @@ fun CookScreen(
             )
             is RecipeLinkReview.Refused -> AlertDialog(
                 onDismissRequest = { reviewQueue.removeAt(0) },
+                title = { Text("Couldn't read that recipe") },
                 text = { Text(review.message) },
                 confirmButton = {
                     TextButton(onClick = { reviewQueue.removeAt(0) }, colors = dclTextButtonColors()) { Text("OK") }
@@ -1194,7 +1195,7 @@ private fun RecipeEditor(
                             // whatever the coach had typed here.
                             if (!changed) {
                                 TextButton(onClick = { browsingCatalogue = true }, colors = dclTextButtonColors()) {
-                                    Text("From the catalogue")
+                                    Text("From the catalog")
                                 }
                             }
                             TextButton(onClick = { showingBookmarklet = true }, colors = dclTextButtonColors()) {
@@ -1229,7 +1230,7 @@ private fun RecipeEditor(
                                             Split.LABELLED ->
                                                 "Split on the headings in the text \u2014 check it read them right."
                                             Split.INFERRED ->
-                                                "The text labelled one section and this worked out the rest, " +
+                                                "The text labeled one section and this worked out the rest, " +
                                                     "so check the division."
                                             Split.UNSORTED ->
                                                 "The text had no headings, so everything landed in Ingredients " +
@@ -1325,7 +1326,7 @@ private fun RecipeEditor(
                 MacroField("Protein", "g", protein) { protein = it }
                 MacroField("Carbs", "g", carbs) { carbs = it }
                 MacroField("Fat", "g", fat) { fat = it }
-                MacroField("Fibre", "g", fiber) { fiber = it }
+                MacroField("Fiber", "g", fiber) { fiber = it }
 
                 Spacer(Modifier.height(8.dp))
                 Text("Also per serving", style = MaterialTheme.typography.labelLarge)
@@ -1405,13 +1406,11 @@ private fun MacroField(
  * total. This is the rule `MacroFields.entered` holds on iOS and the web app's
  * recipe form holds in `app.js`.
  *
- * **Fibre cannot say "unknown" here, and that is a model limit rather than a
- * choice.** [RecipeNutrition]'s fields are non-null `Double`s, so a blank fibre
- * field with real calories stores 0.0 and ships `u[4] = 0`. iOS can hold
- * `fiberG` as nil locally; the wire cannot -- PLAN-FORMAT's `u` is five plain
- * numbers -- so every client already sends 0 for unknown fibre. Widening
- * [RecipeNutrition] would be a data-shape change reaching both shipped Android
- * apps and would still not change what travels.
+ * **Blank fiber stays unknown** (kit-android 1.10.0): [RecipeNutrition.fiberG]
+ * is nullable, as Coach iOS's `NutritionFacts.fiberG` is, so a blank fiber
+ * field with real calories saves null and reopens blank. The plan link still
+ * ships `u[4] = 0` for it -- PLAN-FORMAT's `u` is five plain numbers -- but the
+ * recipe, the backup and every screen here keep the difference.
  *
  * `estimated` is carried from the existing figure rather than reset: a coach
  * correcting one number on an imported recipe has not turned it into a
@@ -1429,8 +1428,8 @@ internal fun enteredMacros(
     sodium: String = ""
 ): RecipeNutrition? {
     val values = listOf(calories, protein, carbs, fat, fiber).map { it.trim().toDoubleOrNull() }
-    // Saturated fat, sugar and sodium are each nullable, so unlike fibre above
-    // blank really can stay unknown. Negative or non-finite is not a reading.
+    // Saturated fat, sugar and sodium are each nullable and blank stays
+    // unknown. Negative or non-finite is not a reading.
     val details = listOf(saturatedFat, sugar, sodium)
         .map { it.trim().toDoubleOrNull()?.takeIf { v -> v.isFinite() && v >= 0 } }
     if (values.all { it == null } && details.all { it == null }) return null
@@ -1442,7 +1441,7 @@ internal fun enteredMacros(
         proteinG = values[1] ?: 0.0,
         carbsG = values[2] ?: 0.0,
         fatG = values[3] ?: 0.0,
-        fiberG = values[4] ?: 0.0,
+        fiberG = values[4],
         estimated = existing?.estimated ?: false,
         saturatedFatG = details[0],
         sugarG = details[1],
@@ -1453,11 +1452,11 @@ internal fun enteredMacros(
 /**
  * The text a macro field opens with: blank when the recipe has no macros at all
  * -- no nutrition, or nutrition holding only saturated fat, sugar or sodium,
- * whose five macros are placeholders (see `hasMacros`). Showing those as "0"
+ * whose five macros are placeholders (see `hasMacros`) -- or unknown fiber. Showing those as "0"
  * would put a zero in front of the coach that the next Save turns into fact.
  */
-internal fun macroFieldText(nutrition: RecipeNutrition?, pick: (RecipeNutrition) -> Double): String =
-    nutrition?.takeIf { it.hasMacros }?.let { pick(it).trimZeros() } ?: ""
+internal fun macroFieldText(nutrition: RecipeNutrition?, pick: (RecipeNutrition) -> Double?): String =
+    nutrition?.takeIf { it.hasMacros }?.let { pick(it)?.trimZeros() } ?: ""
 
 
 private fun roundOne(value: Double): Double = Math.round(value * 10) / 10.0
