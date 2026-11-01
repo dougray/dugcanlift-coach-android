@@ -394,6 +394,7 @@ fun CookScreen(
             )
             is RecipeLinkReview.Refused -> AlertDialog(
                 onDismissRequest = { reviewQueue.removeAt(0) },
+                title = { Text("Couldn't read that recipe") },
                 text = { Text(review.message) },
                 confirmButton = {
                     TextButton(onClick = { reviewQueue.removeAt(0) }, colors = dclTextButtonColors()) { Text("OK") }
@@ -1194,7 +1195,7 @@ private fun RecipeEditor(
                             // whatever the coach had typed here.
                             if (!changed) {
                                 TextButton(onClick = { browsingCatalogue = true }, colors = dclTextButtonColors()) {
-                                    Text("From the catalogue")
+                                    Text("From the catalog")
                                 }
                             }
                             TextButton(onClick = { showingBookmarklet = true }, colors = dclTextButtonColors()) {
@@ -1229,7 +1230,7 @@ private fun RecipeEditor(
                                             Split.LABELLED ->
                                                 "Split on the headings in the text \u2014 check it read them right."
                                             Split.INFERRED ->
-                                                "The text labelled one section and this worked out the rest, " +
+                                                "The text labeled one section and this worked out the rest, " +
                                                     "so check the division."
                                             Split.UNSORTED ->
                                                 "The text had no headings, so everything landed in Ingredients " +
@@ -1325,7 +1326,7 @@ private fun RecipeEditor(
                 MacroField("Protein", "g", protein) { protein = it }
                 MacroField("Carbs", "g", carbs) { carbs = it }
                 MacroField("Fat", "g", fat) { fat = it }
-                MacroField("Fibre", "g", fiber) { fiber = it }
+                MacroField("Fiber", "g", fiber) { fiber = it }
 
                 Spacer(Modifier.height(8.dp))
                 Text("Also per serving", style = MaterialTheme.typography.labelLarge)
