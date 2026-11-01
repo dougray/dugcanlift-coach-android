@@ -91,8 +91,7 @@ data class CatalogRecipe(
      * them would be a second opinion about a number the publisher measured. A
      * whole-dish recipe divides. Null when the catalogue has no macros for it.
      *
-     * Fibre is 0.0 because [RecipeNutrition] cannot hold "unknown" fibre (see
-     * `enteredMacros`); the catalogue carries none.
+     * Fiber is null, unknown: the catalogue carries none, and it is not zero.
      */
     fun nutrition(count: Double): RecipeNutrition? {
         caloriesPerServing?.let { calories ->
