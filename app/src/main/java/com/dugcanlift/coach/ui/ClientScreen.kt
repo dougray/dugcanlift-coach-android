@@ -346,9 +346,12 @@ private fun ClientDetailContent(
 
     val bodyweightSection: @Composable () -> Unit = {
         SectionTitle("Bodyweight")
+        // Fitted to the weights, not drawn from zero: from zero, a few pounds over a month is a
+        // flat line. The guides carry their values so the fit cannot exaggerate unseen.
         LineChart(
             points = bodyweightPoints,
             lineColor = DclAccent,
+            fitToData = true,
             description = chartSummary("Bodyweight", bodyweightPoints, unit),
             modifier = Modifier.padding(horizontal = 16.dp)
         )

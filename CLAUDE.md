@@ -557,6 +557,16 @@ there first, as with `SideBalance` and `sides.js`.
   copy it here, never here alone. Coach's parser reads a deliberate **subset**:
   no ordering rules, no `kind`, no staleness, because Coach does not rank.
   LIFT ranks, against a day this app knows nothing about.
+- **A chain carries two dates, and Coach says both**: "Published Nov 2022 ·
+  checked Sep 23, 2026" under its name (`ui/RoadFoodDates.kt`, a port of Coach
+  iPhone's `RoadFoodDates` formatted as LIFT Android's `publishedLabel`).
+  `checkedOn` is the day a person read the chart; `publishedOn` is the date the
+  chart states about itself, printed no more precisely than it wrote it -- a
+  month-only date stays a month. The reader's locale; a value that is not
+  `YYYY-MM-DD` or `YYYY-MM` is no date and its clause is left out. **Coach does
+  not warn**: LIFT warns from `publishedOn` at six months and no Coach build
+  does, so this line gains a clause in all three or in none. `RoadFoodDatesTest`
+  pins the strings under en-US.
 - **Storage is `road-picks.json`**, one list of ids per client, with
   `CookRepository`'s unreadable-is-not-empty care: every write is a
   read-modify-write that would otherwise save an empty read over the real file.
@@ -721,6 +731,22 @@ choice, not a placeholder waiting to be replaced — the charts are simple
 (bars, a line, no zoom/pan/legend interaction) and a dependency buys nothing
 here but bundle size and an API to track. Don't reach for a charting library
 without a concrete need the Canvas approach can't meet.
+
+**The axes read as dates, in the reader's locale** (`ui/charts/ChartAxis.kt`, pure and
+pinned by `ChartAxisTest`; `DateAxis.kt` only measures and places). Every client chart is
+keyed by a day key, and its x axis shows a few of them as short dates -- "Sep 27", or
+"Sep 27, 2025" when the chart crosses a year -- from `getBestDateTimePattern`, never the raw
+ISO key. `ChartAxis.ticks` picks the most evenly spaced labels that fit with a label's width
+of room between them, first and last always among them, each under its own point, so a phone
+chart gets three or four and a wide scrolling weekly chart more. Day keys are parsed as local
+dates; nothing here does arithmetic in seconds. Coach iPhone's Swift Charts do the same
+(coach-ios #67).
+
+**Bodyweight is fitted to the weights**, not drawn from zero (`ChartAxis.fittedBounds`, as
+LIFT's and Coach iPhone's are): from zero, a few pounds over a month drew a flat line. Its
+three guides sit at round numbers and are labelled with their values, because a fitted axis
+with no numbers would make a pound look like a cliff. The other charts keep `yAxisBounds`.
+All of this is display only: no number, statistic or stored value changes.
 
 ## No Google Play Services
 
