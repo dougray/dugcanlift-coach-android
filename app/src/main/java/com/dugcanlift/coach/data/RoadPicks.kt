@@ -147,8 +147,8 @@ object RoadPicks {
  * the fields a coach picking items is shown.
  *
  * Coach reads a deliberate **subset** of the file LIFT reads: no ordering
- * rules, no `kind`, no "checked on" staleness, and none of the nutrition
- * beyond what a row prints. Coach does not rank -- LIFT ranks, against a day
+ * rules, no `kind`, no staleness warning (a chain's two dates are read, and
+ * shown, never judged), and none of the nutrition beyond what a row prints. Coach does not rank -- LIFT ranks, against a day
  * this app knows nothing about -- so a full parser here would be a second
  * implementation of rules nothing here uses. [RoadFoodItem.id] is the whole
  * contract; the rest is text on a row.
@@ -167,8 +167,21 @@ data class RoadFoodItem(
     val category: String? = null
 )
 
-/** A chain. Its items are what a coach ticks; the chain itself never travels. */
-data class RoadFoodChain(val id: String, val name: String, val items: List<RoadFoodItem>)
+/**
+ * A chain. Its items are what a coach ticks; the chain itself never travels.
+ *
+ * [checkedOn] is the day a person read its chart and [publishedOn] the date the
+ * chart states about itself (`YYYY-MM-DD`, or `YYYY-MM` where the document names
+ * only a month), each as the file wrote it. The place card says both through
+ * `RoadFoodDates`, and nothing here judges either: Coach does not warn.
+ */
+data class RoadFoodChain(
+    val id: String,
+    val name: String,
+    val items: List<RoadFoodItem>,
+    val checkedOn: String? = null,
+    val publishedOn: String? = null
+)
 
 data class RoadFoodData(val chains: List<RoadFoodChain>, val snacks: List<RoadFoodItem>)
 
@@ -184,7 +197,13 @@ fun parseRoadFood(json: String): RoadFoodData {
         chains = chains.roadObjects().mapNotNull { c ->
             val id = c.roadText("id") ?: return@mapNotNull null
             val items = c.optJSONArray("items") ?: return@mapNotNull null
-            RoadFoodChain(id = id, name = c.roadText("name") ?: id, items = items.roadObjects().map(::roadItem))
+            RoadFoodChain(
+                id = id,
+                name = c.roadText("name") ?: id,
+                items = items.roadObjects().map(::roadItem),
+                checkedOn = c.roadText("checkedOn"),
+                publishedOn = c.roadText("publishedOn")
+            )
         },
         snacks = root.optJSONArray("snacks")?.roadObjects()?.map(::roadItem) ?: emptyList()
     )
