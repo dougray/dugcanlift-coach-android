@@ -13,11 +13,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.dugcanlift.coach.ui.theme.DclAccent
@@ -89,6 +93,12 @@ fun LineChart(
     lineColor: Color = DclAccent,
     goal: Double? = null,
     height: Dp = 160.dp,
+    /**
+     * Fit the y axis to the values ([ChartAxis.fittedBounds]) instead of drawing from zero, and
+     * label its three guides with their values -- a fitted axis without numbers would make a
+     * pound look like a cliff. Bodyweight, as on LIFT and Coach iPhone.
+     */
+    fitToData: Boolean = false,
     /** Spoken in place of the drawing; see [chartSummary]. */
     description: String = chartSummary("Chart", points)
 ) {
@@ -98,11 +108,25 @@ fun LineChart(
     val goalColor = DclMuted
     val values = points.map { it.second }
     val maxValue = (values.maxOrNull() ?: 0.0).coerceAtLeast(goal ?: 0.0)
+    val fitted = if (fitToData) ChartAxis.fittedBounds(values + listOfNotNull(goal)) else null
     // The single-point case keeps its original 0..maxValue scale unchanged (per review: leave
     // single-point rendering as-is) -- only the multi-point series gets the minimum-span floor.
-    val bounds = if (points.size > 1) yAxisBounds(values, goal) else 0.0..maxValue
+    val bounds = when {
+        fitted != null -> fitted.bottom..fitted.top
+        points.size > 1 -> yAxisBounds(values, goal)
+        else -> 0.0..maxValue
+    }
     val bottom = bounds.start
     val top = bounds.endInclusive
+    val guideStyle = MaterialTheme.typography.bodySmall
+    val guideColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val measurer = rememberTextMeasurer()
+    val guideLabels = remember(fitted, guideStyle, measurer) {
+        fitted?.guides?.map { measurer.measure(ChartAxis.guideLabel(it), guideStyle, softWrap = false, maxLines = 1) }
+    }
+    val density = LocalDensity.current
+    // Room on the left for the guide values, so they never sit on the line.
+    val gutter: Dp = guideLabels?.let { list -> with(density) { list.maxOf { it.size.width }.toDp() } + 6.dp } ?: 0.dp
 
     Column(modifier = modifier.fillMaxWidth()) {
         if (points.isEmpty() || maxValue <= 0.0) {
@@ -120,23 +144,29 @@ fun LineChart(
                 .height(height)
                 .semantics { contentDescription = description }
         ) {
-            val w = size.width
+            val left = gutter.toPx()
+            val w = size.width - left
             val h = size.height
             val count = points.size
             val span = top - bottom
 
-            // Horizontal guides at 0, 50, 100% of the max.
-            listOf(0f, 0.5f, 1f).forEach { fraction ->
+            // Horizontal guides at 0, 50, 100% of the range -- for a fitted axis, at the values
+            // printed beside them.
+            listOf(0f, 0.5f, 1f).forEachIndexed { i, fraction ->
                 val y = h - (h * fraction)
-                drawLine(color = gridColor, start = Offset(0f, y), end = Offset(w, y), strokeWidth = 1f)
+                drawLine(color = gridColor, start = Offset(left, y), end = Offset(left + w, y), strokeWidth = 1f)
+                guideLabels?.get(i)?.let { text ->
+                    val ty = (y - text.size.height / 2f).coerceIn(0f, h - text.size.height)
+                    drawText(text, color = guideColor, topLeft = Offset(0f, ty))
+                }
             }
 
             goal?.let { g ->
                 val y = h - ((g - bottom) / span * h).toFloat()
                 drawLine(
                     color = goalColor,
-                    start = Offset(0f, y),
-                    end = Offset(w, y),
+                    start = Offset(left, y),
+                    end = Offset(left + w, y),
                     strokeWidth = 3f,
                     pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 10f))
                 )
@@ -144,12 +174,12 @@ fun LineChart(
 
             if (count == 1) {
                 val y = h - ((points[0].second - bottom) / span * h).toFloat()
-                drawCircle(color = lineColor, radius = 5f, center = Offset(w / 2f, y))
+                drawCircle(color = lineColor, radius = 5f, center = Offset(left + w / 2f, y))
             } else {
                 val stepX = w / (count - 1)
                 var previous: Offset? = null
                 points.forEachIndexed { index, (_, value) ->
-                    val x = stepX * index
+                    val x = left + stepX * index
                     val y = h - ((value - bottom) / span * h).toFloat()
                     val point = Offset(x, y)
                     previous?.let {
@@ -169,21 +199,7 @@ fun LineChart(
 
         Spacer(modifier = Modifier.height(4.dp))
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(
-                text = points.first().first,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = points.last().first,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+        DateAxis(points.map { it.first }, AxisLayout.LINE, Modifier.padding(start = gutter))
     }
 }
 
@@ -279,17 +295,6 @@ fun MultiLineChart(
 
         Spacer(modifier = Modifier.height(4.dp))
 
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(
-                text = labels.first(),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = labels.last(),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+        DateAxis(labels, AxisLayout.LINE)
     }
 }
