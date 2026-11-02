@@ -28,9 +28,11 @@ fun BarChart(
     modifier: Modifier = Modifier,
     barColor: Color = DclAccent,
     height: Dp = 160.dp,
-    /** Spoken in place of the drawing; see [chartSummary]. */
-    description: String = chartSummary("Chart", values)
+    /** Spoken in place of the drawing; see [chartSummary]. Null for a plain one with dates. */
+    description: String? = null
 ) {
+    val dateLabel = rememberDayLabeler(values.map { it.first })
+    val spokenDescription = description ?: chartSummary("Chart", values, dateLabel = dateLabel)
     val gridColor = MaterialTheme.colorScheme.outline
     val maxValue = values.maxOfOrNull { it.second } ?: 0.0
 
@@ -48,7 +50,7 @@ fun BarChart(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(height)
-                .semantics { contentDescription = description }
+                .semantics { contentDescription = spokenDescription }
         ) {
             val w = size.width
             val h = size.height

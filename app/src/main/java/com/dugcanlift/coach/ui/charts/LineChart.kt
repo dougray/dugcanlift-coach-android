@@ -71,19 +71,27 @@ internal fun yAxisBounds(values: List<Double>, goal: Double? = null): ClosedFloa
 /**
  * What a chart says to TalkBack: the Canvas draws nothing a screen reader can read, so each chart
  * carries its story as one sentence built from the data it already has. "Bodyweight, 12 points,
- * from 182 on 2026-07-01 to 176 on 2026-09-20. High 183, low 175."
+ * from 182 on Jul 1 to 176 on Sep 20. High 183, low 175."
+ *
+ * [dateLabel] speaks a point's day key; on screen it is [rememberDayLabeler], the axis's own
+ * formatter, so TalkBack reads the dates the axis shows rather than "2026-07-01" digit by digit.
  */
-internal fun chartSummary(title: String, points: List<Pair<String, Double>>, unit: String = ""): String {
+internal fun chartSummary(
+    title: String,
+    points: List<Pair<String, Double>>,
+    unit: String = "",
+    dateLabel: (String) -> String = { it }
+): String {
     if (points.isEmpty()) return "$title, nothing logged yet."
     fun v(x: Double) = (Math.round(x * 10) / 10.0).let { if (it == Math.floor(it)) it.toLong().toString() else it.toString() } +
         (if (unit.isBlank()) "" else " $unit")
     val first = points.first()
     val last = points.last()
-    if (points.size == 1) return "$title, one point: ${v(first.second)} on ${first.first}."
+    if (points.size == 1) return "$title, one point: ${v(first.second)} on ${dateLabel(first.first)}."
     val high = points.maxOf { it.second }
     val low = points.minOf { it.second }
-    return "$title, ${points.size} points, from ${v(first.second)} on ${first.first} to " +
-        "${v(last.second)} on ${last.first}. High ${v(high)}, low ${v(low)}."
+    return "$title, ${points.size} points, from ${v(first.second)} on ${dateLabel(first.first)} to " +
+        "${v(last.second)} on ${dateLabel(last.first)}. High ${v(high)}, low ${v(low)}."
 }
 
 @Composable
@@ -99,9 +107,11 @@ fun LineChart(
      * pound look like a cliff. Bodyweight, as on LIFT and Coach iPhone.
      */
     fitToData: Boolean = false,
-    /** Spoken in place of the drawing; see [chartSummary]. */
-    description: String = chartSummary("Chart", points)
+    /** Spoken in place of the drawing; see [chartSummary]. Null for a plain one with dates. */
+    description: String? = null
 ) {
+    val dateLabel = rememberDayLabeler(points.map { it.first })
+    val spokenDescription = description ?: chartSummary("Chart", points, dateLabel = dateLabel)
     val gridColor = MaterialTheme.colorScheme.outline
     // Captured here because the Canvas lambda below is not composition, and the
     // palette resolves against the current light or dark appearance.
@@ -142,7 +152,7 @@ fun LineChart(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(height)
-                .semantics { contentDescription = description }
+                .semantics { contentDescription = spokenDescription }
         ) {
             val left = gutter.toPx()
             val w = size.width - left
@@ -241,6 +251,7 @@ fun MultiLineChart(
     // chart still count that one session, because the client did train it.
     val drawn = series.filter { it.points.size >= 2 }
     val labels = drawn.flatMap { s -> s.points.map { it.first } }.distinct().sorted()
+    val dateLabel = rememberDayLabeler(labels)
     val values = drawn.flatMap { s -> s.points.map { it.second } }
     val bounds = if (values.size > 1) yAxisBounds(values) else 0.0..(values.maxOrNull() ?: 0.0)
     val bottom = bounds.start
@@ -267,7 +278,7 @@ fun MultiLineChart(
             }
         }
 
-        val spoken = description ?: drawn.joinToString(" ") { chartSummary(it.label, it.points) }
+        val spoken = description ?: drawn.joinToString(" ") { chartSummary(it.label, it.points, dateLabel = dateLabel) }
         Canvas(modifier = Modifier.fillMaxWidth().height(height).semantics { contentDescription = spoken }) {
             val w = size.width
             val h = size.height
