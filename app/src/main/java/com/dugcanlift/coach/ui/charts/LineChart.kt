@@ -13,11 +13,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.dugcanlift.coach.ui.theme.DclAccent
@@ -67,19 +71,27 @@ internal fun yAxisBounds(values: List<Double>, goal: Double? = null): ClosedFloa
 /**
  * What a chart says to TalkBack: the Canvas draws nothing a screen reader can read, so each chart
  * carries its story as one sentence built from the data it already has. "Bodyweight, 12 points,
- * from 182 on 2026-07-01 to 176 on 2026-09-20. High 183, low 175."
+ * from 182 on Jul 1 to 176 on Sep 20. High 183, low 175."
+ *
+ * [dateLabel] speaks a point's day key; on screen it is [rememberDayLabeler], the axis's own
+ * formatter, so TalkBack reads the dates the axis shows rather than "2026-07-01" digit by digit.
  */
-internal fun chartSummary(title: String, points: List<Pair<String, Double>>, unit: String = ""): String {
+internal fun chartSummary(
+    title: String,
+    points: List<Pair<String, Double>>,
+    unit: String = "",
+    dateLabel: (String) -> String = { it }
+): String {
     if (points.isEmpty()) return "$title, nothing logged yet."
     fun v(x: Double) = (Math.round(x * 10) / 10.0).let { if (it == Math.floor(it)) it.toLong().toString() else it.toString() } +
         (if (unit.isBlank()) "" else " $unit")
     val first = points.first()
     val last = points.last()
-    if (points.size == 1) return "$title, one point: ${v(first.second)} on ${first.first}."
+    if (points.size == 1) return "$title, one point: ${v(first.second)} on ${dateLabel(first.first)}."
     val high = points.maxOf { it.second }
     val low = points.minOf { it.second }
-    return "$title, ${points.size} points, from ${v(first.second)} on ${first.first} to " +
-        "${v(last.second)} on ${last.first}. High ${v(high)}, low ${v(low)}."
+    return "$title, ${points.size} points, from ${v(first.second)} on ${dateLabel(first.first)} to " +
+        "${v(last.second)} on ${dateLabel(last.first)}. High ${v(high)}, low ${v(low)}."
 }
 
 @Composable
@@ -89,20 +101,42 @@ fun LineChart(
     lineColor: Color = DclAccent,
     goal: Double? = null,
     height: Dp = 160.dp,
-    /** Spoken in place of the drawing; see [chartSummary]. */
-    description: String = chartSummary("Chart", points)
+    /**
+     * Fit the y axis to the values ([ChartAxis.fittedBounds]) instead of drawing from zero, and
+     * label its three guides with their values -- a fitted axis without numbers would make a
+     * pound look like a cliff. Bodyweight, as on LIFT and Coach iPhone.
+     */
+    fitToData: Boolean = false,
+    /** Spoken in place of the drawing; see [chartSummary]. Null for a plain one with dates. */
+    description: String? = null
 ) {
+    val dateLabel = rememberDayLabeler(points.map { it.first })
+    val spokenDescription = description ?: chartSummary("Chart", points, dateLabel = dateLabel)
     val gridColor = MaterialTheme.colorScheme.outline
     // Captured here because the Canvas lambda below is not composition, and the
     // palette resolves against the current light or dark appearance.
     val goalColor = DclMuted
     val values = points.map { it.second }
     val maxValue = (values.maxOrNull() ?: 0.0).coerceAtLeast(goal ?: 0.0)
+    val fitted = if (fitToData) ChartAxis.fittedBounds(values + listOfNotNull(goal)) else null
     // The single-point case keeps its original 0..maxValue scale unchanged (per review: leave
     // single-point rendering as-is) -- only the multi-point series gets the minimum-span floor.
-    val bounds = if (points.size > 1) yAxisBounds(values, goal) else 0.0..maxValue
+    val bounds = when {
+        fitted != null -> fitted.bottom..fitted.top
+        points.size > 1 -> yAxisBounds(values, goal)
+        else -> 0.0..maxValue
+    }
     val bottom = bounds.start
     val top = bounds.endInclusive
+    val guideStyle = MaterialTheme.typography.bodySmall
+    val guideColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val measurer = rememberTextMeasurer()
+    val guideLabels = remember(fitted, guideStyle, measurer) {
+        fitted?.guides?.map { measurer.measure(ChartAxis.guideLabel(it), guideStyle, softWrap = false, maxLines = 1) }
+    }
+    val density = LocalDensity.current
+    // Room on the left for the guide values, so they never sit on the line.
+    val gutter: Dp = guideLabels?.let { list -> with(density) { list.maxOf { it.size.width }.toDp() } + 6.dp } ?: 0.dp
 
     Column(modifier = modifier.fillMaxWidth()) {
         if (points.isEmpty() || maxValue <= 0.0) {
@@ -118,25 +152,31 @@ fun LineChart(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(height)
-                .semantics { contentDescription = description }
+                .semantics { contentDescription = spokenDescription }
         ) {
-            val w = size.width
+            val left = gutter.toPx()
+            val w = size.width - left
             val h = size.height
             val count = points.size
             val span = top - bottom
 
-            // Horizontal guides at 0, 50, 100% of the max.
-            listOf(0f, 0.5f, 1f).forEach { fraction ->
+            // Horizontal guides at 0, 50, 100% of the range -- for a fitted axis, at the values
+            // printed beside them.
+            listOf(0f, 0.5f, 1f).forEachIndexed { i, fraction ->
                 val y = h - (h * fraction)
-                drawLine(color = gridColor, start = Offset(0f, y), end = Offset(w, y), strokeWidth = 1f)
+                drawLine(color = gridColor, start = Offset(left, y), end = Offset(left + w, y), strokeWidth = 1f)
+                guideLabels?.get(i)?.let { text ->
+                    val ty = (y - text.size.height / 2f).coerceIn(0f, h - text.size.height)
+                    drawText(text, color = guideColor, topLeft = Offset(0f, ty))
+                }
             }
 
             goal?.let { g ->
                 val y = h - ((g - bottom) / span * h).toFloat()
                 drawLine(
                     color = goalColor,
-                    start = Offset(0f, y),
-                    end = Offset(w, y),
+                    start = Offset(left, y),
+                    end = Offset(left + w, y),
                     strokeWidth = 3f,
                     pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 10f))
                 )
@@ -144,12 +184,12 @@ fun LineChart(
 
             if (count == 1) {
                 val y = h - ((points[0].second - bottom) / span * h).toFloat()
-                drawCircle(color = lineColor, radius = 5f, center = Offset(w / 2f, y))
+                drawCircle(color = lineColor, radius = 5f, center = Offset(left + w / 2f, y))
             } else {
                 val stepX = w / (count - 1)
                 var previous: Offset? = null
                 points.forEachIndexed { index, (_, value) ->
-                    val x = stepX * index
+                    val x = left + stepX * index
                     val y = h - ((value - bottom) / span * h).toFloat()
                     val point = Offset(x, y)
                     previous?.let {
@@ -169,21 +209,7 @@ fun LineChart(
 
         Spacer(modifier = Modifier.height(4.dp))
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(
-                text = points.first().first,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = points.last().first,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+        DateAxis(points.map { it.first }, AxisLayout.LINE, Modifier.padding(start = gutter))
     }
 }
 
@@ -225,6 +251,7 @@ fun MultiLineChart(
     // chart still count that one session, because the client did train it.
     val drawn = series.filter { it.points.size >= 2 }
     val labels = drawn.flatMap { s -> s.points.map { it.first } }.distinct().sorted()
+    val dateLabel = rememberDayLabeler(labels)
     val values = drawn.flatMap { s -> s.points.map { it.second } }
     val bounds = if (values.size > 1) yAxisBounds(values) else 0.0..(values.maxOrNull() ?: 0.0)
     val bottom = bounds.start
@@ -251,7 +278,7 @@ fun MultiLineChart(
             }
         }
 
-        val spoken = description ?: drawn.joinToString(" ") { chartSummary(it.label, it.points) }
+        val spoken = description ?: drawn.joinToString(" ") { chartSummary(it.label, it.points, dateLabel = dateLabel) }
         Canvas(modifier = Modifier.fillMaxWidth().height(height).semantics { contentDescription = spoken }) {
             val w = size.width
             val h = size.height
@@ -279,17 +306,6 @@ fun MultiLineChart(
 
         Spacer(modifier = Modifier.height(4.dp))
 
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(
-                text = labels.first(),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = labels.last(),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+        DateAxis(labels, AxisLayout.LINE)
     }
 }
