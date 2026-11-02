@@ -68,6 +68,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -858,6 +859,11 @@ private fun RoadList(
 
     val summary = RoadPicks.summary(picks, data)
     val missing = RoadPicks.missing(picks, data)
+    // The reader's locale, as every LIFT build formats these dates.
+    val locale = LocalLocale.current.platformLocale
+    val monthYearPattern = remember(locale) {
+        android.text.format.DateFormat.getBestDateTimePattern(locale, RoadFoodDates.MONTH_YEAR_SKELETON)
+    }
 
     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item(key = "road-summary") {
@@ -888,7 +894,10 @@ private fun RoadList(
         }
 
         data.chains.forEach { chain ->
-            roadPlace(chain.id, chain.name, chain.items, picks, open, onSetPicks, showCategory = false)
+            roadPlace(
+                chain.id, chain.name, chain.items, picks, open, onSetPicks, showCategory = false,
+                dates = RoadFoodDates.line(chain.publishedOn, chain.checkedOn, locale, monthYearPattern)
+            )
         }
         if (data.snacks.isNotEmpty()) {
             val snacks = data.snacks.sortedWith(
@@ -913,7 +922,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.roadPlace(
     picks: List<String>,
     open: MutableMap<String, Boolean>,
     onSetPicks: (List<String>) -> Unit,
-    showCategory: Boolean
+    showCategory: Boolean,
+    /** "Published Nov 2022 · checked Sep 23, 2026" ([RoadFoodDates]); null for none. */
+    dates: String? = null
 ) {
     item(key = "road-place-$placeId") {
         val isOpen = open[placeId] == true
@@ -937,6 +948,15 @@ private fun androidx.compose.foundation.lazy.LazyListScope.roadPlace(
                     Text(
                         if (picked > 0) "$picked of ${items.size} picked" else "${items.size} items",
                         style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                // What the chain published and when a person read it, said and never judged:
+                // no Coach build warns about an old chart.
+                dates?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 if (!isOpen) return@Column

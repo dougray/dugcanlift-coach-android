@@ -39,7 +39,8 @@ class OutdoorDisplayTest {
     }
     @Test fun `dates and summaries`() {
         assertEquals("Sun, Sep 13", formatRouteDate(1789259200, ZoneOffset.UTC, Locale.US))
-        assertEquals("Sep 13", formatShortDay("2026-09-13", Locale.US)); assertEquals("2026-9-3", formatShortDay("2026-9-3", Locale.US))
+        // "MMM d" is Android's en-US pattern for "MMMd" (OutdoorDisplaySkeletonTest checks it).
+        assertEquals("Sep 13", formatShortDay("2026-09-13", Locale.US, "MMM d")); assertEquals("2026-9-3", formatShortDay("2026-9-3", Locale.US, "MMM d"))
         assertEquals("1.74 mi · 28:40", activitySummary(OutdoorActivity(0, 1720, 2795, 37), "mi"))
     }
     @Test fun `recent is outdoor days only, newest first, capped`() {
