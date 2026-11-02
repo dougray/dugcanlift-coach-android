@@ -57,6 +57,16 @@ internal object ChartAxis {
     fun dayLabel(dayKey: String, locale: Locale, pattern: String): String =
         DayKey.parse(dayKey)?.let { DateTimeFormatter.ofPattern(pattern, locale).format(it) } ?: dayKey
 
+    /**
+     * One formatter for a chart's days, shared by its axis and by what TalkBack says about it, so
+     * the two can never print a day differently. [pattern] turns [skeleton] into the locale's own
+     * pattern -- on a device, `getBestDateTimePattern(locale, it)`.
+     */
+    fun labeler(dayKeys: List<String>, locale: Locale, pattern: (String) -> String): (String) -> String {
+        val p = pattern(skeleton(dayKeys))
+        return { dayLabel(it, locale, p) }
+    }
+
     /** A label on the axis: which point it names, and where its left edge sits, in pixels. */
     data class Tick(val index: Int, val left: Float)
 

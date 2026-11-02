@@ -66,6 +66,7 @@ import com.dugcanlift.coach.data.WeekStats
 import com.dugcanlift.coach.ui.charts.BarChart
 import com.dugcanlift.coach.ui.charts.LineChart
 import com.dugcanlift.coach.ui.charts.chartSummary
+import com.dugcanlift.coach.ui.charts.rememberDayLabeler
 import com.dugcanlift.coach.ui.charts.LineSeries
 import com.dugcanlift.coach.ui.charts.MultiLineChart
 import com.dugcanlift.coach.ui.charts.RouteCanvas
@@ -309,7 +310,10 @@ private fun ClientDetailContent(
             BarChart(
                 values = volumeBars,
                 barColor = DclAccent,
-                description = chartSummary("Training volume by week", volumeBars),
+                description = chartSummary(
+                    "Training volume by week", volumeBars,
+                    dateLabel = rememberDayLabeler(volumeBars.map { it.first })
+                ),
                 modifier = Modifier.width(weeklyChartWidth).padding(horizontal = 16.dp)
             )
         }
@@ -330,7 +334,10 @@ private fun ClientDetailContent(
                 points = fuelPoints,
                 lineColor = DclAccent,
                 goal = goalCalories,
-                description = chartSummary("Calories by week", fuelPoints, "kcal") +
+                description = chartSummary(
+                    "Calories by week", fuelPoints, "kcal",
+                    dateLabel = rememberDayLabeler(fuelPoints.map { it.first })
+                ) +
                     (goalCalories?.let { " Goal ${Math.round(it)} kcal." } ?: ""),
                 modifier = Modifier.width(weeklyChartWidth).padding(horizontal = 16.dp)
             )
@@ -352,7 +359,10 @@ private fun ClientDetailContent(
             points = bodyweightPoints,
             lineColor = DclAccent,
             fitToData = true,
-            description = chartSummary("Bodyweight", bodyweightPoints, unit),
+            description = chartSummary(
+                "Bodyweight", bodyweightPoints, unit,
+                dateLabel = rememberDayLabeler(bodyweightPoints.map { it.first })
+            ),
             modifier = Modifier.padding(horizontal = 16.dp)
         )
     }
@@ -393,11 +403,15 @@ private fun ClientDetailContent(
                 )
             },
             legend = lift.sided,
-            description = lift.series.filter { it.points.size >= 2 }.joinToString(" ") { line ->
-                chartSummary(
-                    "${liftDisplayName(lift.key)} e1RM" + (if (lift.sided) ", ${sideSeriesLabel(line.side)}" else ""),
-                    line.points, unit
-                )
+            description = lift.series.filter { it.points.size >= 2 }.let { drawn ->
+                // The axis's own formatter, over the same days the chart draws.
+                val dateLabel = rememberDayLabeler(drawn.flatMap { l -> l.points.map { it.first } }.distinct().sorted())
+                drawn.joinToString(" ") { line ->
+                    chartSummary(
+                        "${liftDisplayName(lift.key)} e1RM" + (if (lift.sided) ", ${sideSeriesLabel(line.side)}" else ""),
+                        line.points, unit, dateLabel
+                    )
+                }
             }.ifBlank { null },
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
         )

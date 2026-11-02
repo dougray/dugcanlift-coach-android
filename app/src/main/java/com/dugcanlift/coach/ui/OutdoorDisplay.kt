@@ -73,9 +73,21 @@ fun bestStats(best: OutdoorBest, distanceUnit: String): List<Pair<String, String
 fun formatRouteDate(startedAtEpochSec: Long, zone: ZoneId = ZoneId.systemDefault(), locale: Locale = Locale.getDefault()): String =
     DateTimeFormatter.ofPattern("EEE, MMM d", locale).format(Instant.ofEpochSecond(startedAtEpochSec).atZone(zone))
 
-/** A day key as "Sep 13"; the key itself if it does not parse, never a throw inside composition. */
-fun formatShortDay(dayKey: String, locale: Locale = Locale.getDefault()): String =
-    DayKey.parse(dayKey)?.let { DateTimeFormatter.ofPattern("MMM d", locale).format(it) } ?: dayKey
+/**
+ * A day key as "Sep 13" in en-US, "13. Sept." in German: the locale's own pattern for
+ * [SHORT_DAY_SKELETON], so the month and day come in the reader's order rather than a fixed
+ * "MMM d". The key itself if it does not parse, never a throw inside composition.
+ *
+ * @param pattern the locale's pattern for [SHORT_DAY_SKELETON]; tests pass it to assert a string.
+ */
+fun formatShortDay(
+    dayKey: String,
+    locale: Locale = Locale.getDefault(),
+    pattern: String = android.text.format.DateFormat.getBestDateTimePattern(locale, SHORT_DAY_SKELETON)
+): String = DayKey.parse(dayKey)?.let { DateTimeFormatter.ofPattern(pattern, locale).format(it) } ?: dayKey
+
+/** Month and day, in whichever order and form the locale writes them. The chart axis's skeleton too. */
+const val SHORT_DAY_SKELETON = "MMMd"
 
 /** One activity as a line in a day's log or the Recent card: "3.11 mi · 28:40". */
 fun activitySummary(activity: OutdoorActivity, distanceUnit: String): String =

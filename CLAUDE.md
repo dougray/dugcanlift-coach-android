@@ -740,7 +740,10 @@ ISO key. `ChartAxis.ticks` picks the most evenly spaced labels that fit with a l
 of room between them, first and last always among them, each under its own point, so a phone
 chart gets three or four and a wide scrolling weekly chart more. Day keys are parsed as local
 dates; nothing here does arithmetic in seconds. Coach iPhone's Swift Charts do the same
-(coach-ios #67).
+(coach-ios #67). **TalkBack hears the same dates**: `chartSummary` takes the axis's own
+formatter (`rememberDayLabeler`, built on `ChartAxis.labeler`), so a summary says "from 182 on
+Jul 1", never the ISO key. `formatShortDay` uses the locale's "MMMd" pattern too, so a German
+reader sees "13. Sept." where en-US still sees "Sep 13".
 
 **Bodyweight is fitted to the weights**, not drawn from zero (`ChartAxis.fittedBounds`, as
 LIFT's and Coach iPhone's are): from zero, a few pounds over a month drew a flat line. Its

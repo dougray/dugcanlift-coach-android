@@ -13,6 +13,19 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.IntOffset
 import kotlin.math.roundToInt
 
+/**
+ * [ChartAxis.labeler] in the reader's locale, observed so a locale change redraws: the one way a
+ * chart turns a day key into words, for its axis and for TalkBack alike.
+ */
+@Composable
+internal fun rememberDayLabeler(dayKeys: List<String>): (String) -> String {
+    val locale = LocalLocale.current.platformLocale
+    val skeleton = ChartAxis.skeleton(dayKeys)
+    return remember(locale, skeleton) {
+        ChartAxis.labeler(dayKeys, locale) { android.text.format.DateFormat.getBestDateTimePattern(locale, it) }
+    }
+}
+
 /** How a chart lays its points along the x axis; see [ChartAxis.linePositions] / [ChartAxis.barPositions]. */
 internal enum class AxisLayout { LINE, BAR }
 
@@ -28,12 +41,8 @@ internal enum class AxisLayout { LINE, BAR }
 @Composable
 internal fun DateAxis(dayKeys: List<String>, layout: AxisLayout, modifier: Modifier = Modifier) {
     if (dayKeys.isEmpty()) return
-    val locale = LocalLocale.current.platformLocale
-    val skeleton = remember(dayKeys) { ChartAxis.skeleton(dayKeys) }
-    val pattern = remember(locale, skeleton) {
-        android.text.format.DateFormat.getBestDateTimePattern(locale, skeleton)
-    }
-    val labels = remember(dayKeys, locale, pattern) { dayKeys.map { ChartAxis.dayLabel(it, locale, pattern) } }
+    val label = rememberDayLabeler(dayKeys)
+    val labels = remember(dayKeys, label) { dayKeys.map(label) }
     val style = MaterialTheme.typography.bodyMedium
     val color = MaterialTheme.colorScheme.onSurfaceVariant
     val measurer = rememberTextMeasurer()
