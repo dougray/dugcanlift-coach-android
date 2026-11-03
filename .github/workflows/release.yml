@@ -1,7 +1,7 @@
 name: Release
 
 # A pushed tag builds, signs and publishes that exact commit. The signing
-# happens on the self-hosted runner on signer-host, where the release
+# happens on the self-hosted signing runner, where the release
 # keystore lives; it is never uploaded anywhere. The `sign` job sits behind
 # the `release` environment, so nothing is built with the key until Doug
 # approves the run in the Actions tab.
@@ -150,8 +150,13 @@ jobs:
 
       - name: Notify
         if: always()
+        env:
+          # Private alert endpoint, kept in a repo secret so the address never
+          # appears in this public repo. Empty secret = no alert.
+          NTFY_URL: ${{ secrets.NTFY_URL }}
         run: |
+          [ -n "$NTFY_URL" ] || exit 0
           curl -fsS -o /dev/null \
             -H "Title: Coach Android ${TAG#v} release ${{ job.status }}" \
             -d "${{ github.server_url }}/${{ github.repository }}/releases/tag/$TAG" \
-            http://192.0.2.119:8090/homelab || true
+            "$NTFY_URL" || true
