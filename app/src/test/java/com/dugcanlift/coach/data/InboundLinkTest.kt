@@ -94,7 +94,10 @@ class InboundLinkTest {
         assertTrue(filter.contains("android.intent.category.BROWSABLE"))
         assertTrue(filter.contains("android:host=\"recipe\""))
         assertTrue(!filter.contains("autoVerify"))
-        assertTrue(!manifest.contains("android.permission.INTERNET"))
+        // Coach now asks for INTERNET (street-map downloads), so the guarantee this line made is
+        // kept in its new form: no app source opens a connection; the only network code is the
+        // kit's MapDownload, reached only when a coach starts a download.
+        assertEquals(emptyList<String>(), com.dugcanlift.coach.NoAppConnection.offenders())
         // The log filters are untouched.
         assertTrue(manifest.contains("android:pathPrefix=\"/coach/\""))
         assertTrue(manifest.contains("android:mimeType=\"text/plain\""))
