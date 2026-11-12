@@ -96,3 +96,11 @@ fun activitySummary(activity: OutdoorActivity, distanceUnit: String): String =
 /** Days holding an outdoor activity, newest first, at most [limit] of them -- Coach web's Recent. */
 fun recentOutdoorDays(days: List<TrainingDay>, limit: Int = 10): List<TrainingDay> =
     days.filter { it.outdoor.isNotEmpty() }.sortedByDescending { it.dayKey }.take(limit)
+
+/**
+ * Whether a route card offers "Download streets for this route": the route is drawn as the plain
+ * line (not covered, or a write has maps paused), has two points or more (one point has bounds but
+ * no extent, so a download would be a zero-area one), and has bounds to download.
+ */
+fun offersStreetDownload(pointCount: Int, hasBounds: Boolean, drawnAsLine: Boolean, writing: Boolean): Boolean =
+    pointCount >= 2 && hasBounds && drawnAsLine && !writing

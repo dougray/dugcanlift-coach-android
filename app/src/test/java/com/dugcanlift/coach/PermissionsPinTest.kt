@@ -12,8 +12,8 @@ import org.w3c.dom.Element
  * policy has to match.
  *
  * The page is `www.dugcanlift.com/coach/privacy/` (`dugcanlift-site/coach-privacy.md`), section
- * "Network requests, by platform" > "Android". Task 16 rewrites
- * it: the Android app now holds the internet permission for one request, a street-map download the
+ * "Network requests, by platform" > "Android". The privacy page is
+ * updated in the same release: the Android app now holds the internet permission for one request, a street-map download the
  * coach starts. Coach asks the user for nothing at all -- a link or
  * a backup file is everything it reads. **A new permission fails this test until someone has
  * updated that page.** The page is public copy and Doug reviews it, so change `coach-privacy.md`

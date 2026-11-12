@@ -999,7 +999,7 @@ private fun LastRouteCard(route: LastRoute, distanceUnit: String, clientName: St
             if (store == null) RouteMapDecision.LINE
             else RouteMapDecision.decide(points, writing) { store.covers(it) }
         }
-        if (store != null && bounds != null && decision == RouteMapDecision.LINE && !writing) {
+        if (store != null && offersStreetDownload(points.size, bounds != null, decision == RouteMapDecision.LINE, writing)) {
             TextButton(onClick = { downloading = true }, colors = dclTextButtonColors()) {
                 Text("Download streets for this route")
             }
