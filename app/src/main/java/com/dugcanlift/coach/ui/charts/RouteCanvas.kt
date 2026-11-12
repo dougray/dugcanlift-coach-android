@@ -28,9 +28,11 @@ private const val MIN_SPAN_DEGREES = 0.0001
 
 /**
  * A client's route as a line on a plain panel, ported from LIFT Android's `RoutePolylineCanvas`
- * (`OutdoorRecordingScreen.kt`). No map SDK and no street tiles, on purpose: a tile server would
- * learn where the client runs, and this app talks to no server about a client at all. Same reason
- * the charts are hand-drawn -- see `LineChart`.
+ * (`OutdoorRecordingScreen.kt`). It draws no street tiles itself and fetches nothing: it is the
+ * `fallback` of the kit's `RouteMap`, shown until the coach downloads the streets around the route.
+ * That download (never made while viewing) sends the area's tile coordinates and the coach's IP
+ * address to OpenFreeMap, and nothing to the developer. The charts are hand-drawn for the same
+ * reason -- see `LineChart`.
  *
  * [points] are (latitude, longitude). Line and finish dot in the accent, start dot in the second
  * accent, as LIFT and Coach web draw them. Wider than tall by [aspectRatio] (2:1 on the client

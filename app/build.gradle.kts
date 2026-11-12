@@ -112,8 +112,8 @@ dependencies {
     implementation(libs.androidx.window)
     // Per-module JitPack coordinates, pinned exactly (never the repo-level one: from 1.11.0 that is
     // an aggregate that pulls liftmap and MapLibre into anything that names it).
-    implementation("com.github.dougray.dugcanlift-kit-android:liftcore:1.11.0")
-    implementation("com.github.dougray.dugcanlift-kit-android:liftmap:1.11.0")
+    implementation("com.github.dougray.dugcanlift-kit-android:liftcore:1.11.1")
+    implementation("com.github.dougray.dugcanlift-kit-android:liftmap:1.11.1")
     testImplementation(libs.junit)
     testImplementation(libs.json)
     testImplementation(libs.robolectric)

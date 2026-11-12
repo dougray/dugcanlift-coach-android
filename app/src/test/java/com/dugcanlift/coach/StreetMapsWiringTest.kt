@@ -22,8 +22,8 @@ class StreetMapsWiringTest {
 
     @Test fun `liftmap is pinned exactly, per module`() {
         val gradle = text("build.gradle.kts")
-        assertTrue(gradle.contains("com.github.dougray.dugcanlift-kit-android:liftcore:1.11.0"))
-        assertTrue(gradle.contains("com.github.dougray.dugcanlift-kit-android:liftmap:1.11.0"))
+        assertTrue(gradle.contains("com.github.dougray.dugcanlift-kit-android:liftcore:1.11.1"))
+        assertTrue(gradle.contains("com.github.dougray.dugcanlift-kit-android:liftmap:1.11.1"))
         // The repo-level coordinate is an aggregate of both modules: never used.
         assertFalse(gradle.contains("\"com.github.dougray:dugcanlift-kit-android"))
     }

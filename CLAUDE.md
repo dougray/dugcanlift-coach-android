@@ -185,8 +185,9 @@ Coach iOS and Coach web; days do not -- each link is the truth for the days it
 covers, whenever it arrives.
 
 The route is drawn on a `Canvas` (`ui/charts/RouteCanvas.kt`, LIFT Android's
-projection), never on map tiles: a tile server would learn where the client
-runs. `outdoor-share-link.txt` / `outdoor-share-expected.json` were written by
+projection), never on live map tiles fetched while viewing: a tile server would learn where the
+client runs every time a route is opened. (A coach can download the streets around a route on
+purpose; see "Street maps".) `outdoor-share-link.txt` / `outdoor-share-expected.json` were written by
 LIFT web -- never regenerate them from this code or the kit.
 
 ## App Links depend on the site
@@ -922,9 +923,16 @@ Any callback that can navigate belongs in the same explicit hop.
 ## Street maps
 
 Coach now holds `INTERNET`, and **nothing in the app may use it** except the kit's
-`liftmap` module (dugcanlift-kit-android 1.11.0, `MapDownload`): https to
+`liftmap` module (dugcanlift-kit-android 1.11.1, `MapDownload`): https to
 OpenFreeMap's tile host, only when a coach taps through the download sheet, never on its
 own. Coach makes no network calls except a street-map download the coach starts.
+
+**What that download tells whom.** It sends the tile coordinates of the area around a client's route
+(the "Download streets for this route" button) or of an area the coach chose, plus the coach's IP
+address, to OpenFreeMap, and nothing to the developer. So a download from a client's route does
+reveal, to OpenFreeMap, roughly where that client runs; the sheet says "This asks for the area
+around your client's route." before the coach taps. Any sentence here, in a comment or on the
+privacy page that says the download sends nothing about the person or a client is wrong.
 
 - **`NoAppConnection`** (a test helper) is the guard that replaced the old "no INTERNET in the
   manifest" assertions in `InboundLinkTest` and `RecipeCatalogTest`: no file under
