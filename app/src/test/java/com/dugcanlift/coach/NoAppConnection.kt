@@ -19,12 +19,17 @@ object NoAppConnection {
         "openConnection",
         "openStream",
         "OkHttp",
+        "okhttp3",
+        ".openConnection(",
         "java.net.URL(",
         "URL(\"",
         "WebView",
         "openfreemap",
         "Socket(",
     )
+
+    /** The spellings in [text] that [forbidden] names; what the scan applies to each file. */
+    fun spellingsIn(text: String): List<String> = forbidden.filter { text.contains(it) }
 
     private val textExtensions = setOf("kt", "java", "xml", "json", "txt", "kts", "md", "html", "js")
 
@@ -38,7 +43,7 @@ object NoAppConnection {
             .filter { it.isFile && it.extension in textExtensions }
             .flatMap { file ->
                 val text = file.readText()
-                forbidden.filter { text.contains(it) }.map { "${file.relativeTo(root)}: $it" }
+                spellingsIn(text).map { "${file.relativeTo(root)}: $it" }
             }
             .toList()
 }
