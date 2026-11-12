@@ -51,6 +51,8 @@ import com.dugcanlift.coach.data.RoadPickRepository
 import com.dugcanlift.coach.data.SentPlanRepository
 import com.dugcanlift.coach.data.TrainRepository
 import com.dugcanlift.coach.data.ClientRepository
+import com.dugcanlift.liftmap.MapsCard
+import com.dugcanlift.liftmap.StreetStore
 import java.io.File
 import kotlinx.coroutines.launch
 import com.dugcanlift.coach.ui.theme.dclOutlinedButtonColors
@@ -285,6 +287,17 @@ fun ConnectScreen(repo: ClientRepository, onBack: () -> Unit, showBack: Boolean 
                     color = if (statusIsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+
+            // Street maps: the areas downloaded, Update and Delete. Coach never asks where the
+            // coach is (no "around here"), and the route download lives on the client's route card.
+            val streetStore = remember(context) { runCatching { StreetStore.standard(context) }.getOrNull() }
+            if (streetStore != null) {
+                Spacer(modifier = Modifier.height(24.dp))
+                HorizontalDivider()
+                Spacer(modifier = Modifier.height(24.dp))
+                MapsCard(streetStore, aroundHere = null, lastRunStart = null)
+            }
+            MapLicencesSection()
 
             Spacer(modifier = Modifier.height(24.dp))
             Text(

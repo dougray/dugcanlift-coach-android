@@ -9,6 +9,8 @@
    off it.
 -->
 <full-backup-content>
+    <!-- The street-map file (kit liftmap): large, re-downloadable, never backed up. -->
+    <exclude domain="file" path="liftmap/" />
     <exclude domain="root" path="." />
     <exclude domain="file" path="." />
     <exclude domain="database" path="." />

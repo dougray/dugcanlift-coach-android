@@ -12,15 +12,15 @@ import org.w3c.dom.Element
  * policy has to match.
  *
  * The page is `www.dugcanlift.com/coach/privacy/` (`dugcanlift-site/coach-privacy.md`), section
- * "Network requests, by platform" > "Android": "None. The Android app has no internet permission
- * and makes no network requests of any kind." Coach asks the user for nothing at all -- a link or
+ * "Network requests, by platform" > "Android". Task 16 rewrites
+ * it: the Android app now holds the internet permission for one request, a street-map download the
+ * coach starts. Coach asks the user for nothing at all -- a link or
  * a backup file is everything it reads. **A new permission fails this test until someone has
  * updated that page.** The page is public copy and Doug reviews it, so change `coach-privacy.md`
  * first and this list second, never the list alone.
  *
- * This is the merged-manifest form of the no-INTERNET guards in `InboundLinkTest` and
- * `RecipeCatalogTest`, which read `src/main/AndroidManifest.xml`. Those catch a permission written
- * into Coach's own manifest; this catches one a library brings in, because it reads the release
+ * `InboundLinkTest` and `RecipeCatalogTest` read `src/main/AndroidManifest.xml` and the app's
+ * sources: no app source opens a connection. This catches a permission a library brings in, because it reads the release
  * variant's **merged** manifest -- Coach's plus every dependency's, which is what an installed APK
  * declares. `app/build.gradle.kts` hands its path across as `releaseMergedManifest` and declares it
  * an input of every unit test task, so `testDebugUnitTest` runs `processReleaseManifest` first.
@@ -28,6 +28,12 @@ import org.w3c.dom.Element
 class PermissionsPinTest {
 
     private val expected: Set<String> = setOf(
+        // Street maps: the one request Coach makes, a street-map download the coach starts
+        // (dugcanlift-kit-android's MapDownload, https to tiles.openfreemap.org). Nothing else in
+        // the app opens a connection (NoAppConnection). MapLibre merges in ACCESS_NETWORK_STATE,
+        // ACCESS_WIFI_STATE and two location permissions; the manifest removes all four, so none is
+        // in this list.
+        "android.permission.INTERNET",
         // Not a request to the user or to the system: androidx.core declares this signature-level
         // permission and holds it itself, so a receiver registered NOT_EXPORTED on Android 12 and
         // older is protected from other apps. Only an app signed with Coach's key can hold it.

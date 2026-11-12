@@ -37,6 +37,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -78,6 +79,12 @@ import com.dugcanlift.coach.ui.theme.dclCardBorder
 import com.dugcanlift.coach.ui.theme.dclOutlinedButtonColors
 import com.dugcanlift.coach.ui.theme.dclTextButtonColors
 import com.dugcanlift.kit.OutdoorShare
+import com.dugcanlift.liftmap.MapBounds
+import com.dugcanlift.liftmap.RouteMap
+import com.dugcanlift.liftmap.RouteMapDecision
+import com.dugcanlift.liftmap.StreetAreaPlan
+import com.dugcanlift.liftmap.StreetStore
+import com.dugcanlift.liftmap.StreetsSheet
 import com.dugcanlift.kit.DayKey
 import kotlinx.coroutines.Dispatchers
 import kotlin.math.floor
@@ -495,7 +502,7 @@ private fun ClientDetailContent(
         if (hasOutdoor) {
             item { Column(wide) { SectionTitle("Outdoor") } }
             if (columns == 1) {
-                client.lastRoute?.let { route -> item { Column(wide) { LastRouteCard(route, distanceUnitFor(unit)) } } }
+                client.lastRoute?.let { route -> item { Column(wide) { LastRouteCard(route, distanceUnitFor(unit), client.name) } } }
                 client.outdoorBests?.let { bests -> item { Column(wide) { PersonalBestsCard(bests, distanceUnitFor(unit)) } } }
                 if (recentOutdoor.isNotEmpty()) item { Column(wide) { RecentOutdoorCard(recentOutdoor, distanceUnitFor(unit)) } }
             } else {
@@ -503,7 +510,7 @@ private fun ClientDetailContent(
                 item {
                     Row(wide, verticalAlignment = Alignment.Top) {
                         client.lastRoute?.let { route ->
-                            Column(Modifier.weight(1.25f)) { LastRouteCard(route, distanceUnitFor(unit), aspectRatio = 4f / 3f) }
+                            Column(Modifier.weight(1.25f)) { LastRouteCard(route, distanceUnitFor(unit), client.name, aspectRatio = 4f / 3f) }
                         }
                         Column(Modifier.weight(1f)) {
                             client.outdoorBests?.let { PersonalBestsCard(it, distanceUnitFor(unit)) }
@@ -975,10 +982,37 @@ private fun OutdoorStats(stats: List<Pair<String, String>>) {
 }
 
 @Composable
-private fun LastRouteCard(route: LastRoute, distanceUnit: String, aspectRatio: Float = 2f) {
+private fun LastRouteCard(route: LastRoute, distanceUnit: String, clientName: String, aspectRatio: Float = 2f) {
     val points = remember(route.polyline) { OutdoorShare.decodePolyline(route.polyline) }
+    val context = LocalContext.current
+    // The kit's one way to a store; null (a file that will not open) leaves the plain line.
+    val store = remember(context) { runCatching { StreetStore.standard(context) }.getOrNull() }
+    val revision = store?.revision?.collectAsState()?.value
+    val writing = store?.writing?.collectAsState()?.value ?: false
+    var downloading by rememberSaveable { mutableStateOf(false) }
     OutdoorCard("Last route") {
-        RouteCanvas(points = points, aspectRatio = aspectRatio)
+        // The route over streets the coach downloaded; the hand-drawn line when no area covers it.
+        RouteMap(points, aspectRatio = aspectRatio, fallback = { m -> RouteCanvas(points, m, aspectRatio) })
+        // Offered only while the route is the plain line, and never while a write has maps paused.
+        val bounds = remember(points) { MapBounds.around(points) }
+        val decision = remember(points, store, revision, writing) {
+            if (store == null) RouteMapDecision.LINE
+            else RouteMapDecision.decide(points, writing) { store.covers(it) }
+        }
+        if (store != null && bounds != null && decision == RouteMapDecision.LINE && !writing) {
+            TextButton(onClick = { downloading = true }, colors = dclTextButtonColors()) {
+                Text("Download streets for this route")
+            }
+        }
+        if (downloading && store != null && bounds != null) {
+            StreetsSheet(
+                plan = StreetAreaPlan.forRoute(bounds),
+                name = "$clientName's route",
+                store = store,
+                note = "This asks for the area around your client's route.",
+                onDone = { downloading = false },
+            )
+        }
         Spacer(modifier = Modifier.height(8.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(text = outdoorTypeLabel(route.type) ?: "Activity", style = MaterialTheme.typography.bodyMedium)

@@ -2,7 +2,9 @@
 
 Native Android app (Jetpack Compose) for a coach to import a lifter's shared
 link and review their training. Local to the device; no backend of its own —
-matches Coach iOS's own "no backend, no accounts" design exactly.
+matches Coach iOS's own "no backend, no accounts" design exactly. It makes no
+network calls **except a street-map download the coach starts** (see "Street
+maps" below).
 
 ## Build and test
 
@@ -113,7 +115,9 @@ covered by the kit's own tests.
   See "The wire format is a contract" below before touching anything
   that reads a `Share*` type.
 
-The app depends on it as `com.github.dougray:dugcanlift-kit-android`, pinned
+The app depends on it per module, `com.github.dougray.dugcanlift-kit-android:liftcore`
+and `…:liftmap` (never the repo-level `com.github.dougray:dugcanlift-kit-android`,
+which from 1.11.0 is an aggregate that pulls both modules), pinned
 to an **exact release tag** in `app/build.gradle.kts` — never a branch, never
 `SNAPSHOT`, never a version range — resolved through JitPack. A range or a
 branch dependency means Coach's behavior can change on a rebuild with no
@@ -129,8 +133,8 @@ kitPath=../dugcanlift-kit-android
 
 in `local.properties` (gitignored, not committed) — path is relative to this
 Gradle root. `settings.gradle.kts` turns that into an `includeBuild` with a
-dependency substitution, so the local `:liftcore` project wins over the
-JitPack artifact with no network resolution. Remove the line (or delete the
+dependency substitution, so the local `:liftcore` and `:liftmap` projects win over the
+JitPack artifacts with no network resolution. Remove the line (or delete the
 file) to go back to building against the pinned tag.
 
 ## The wire format is a contract with three independent encoders
@@ -914,3 +918,36 @@ Compose test's dispatcher sometimes resumes the coroutine on the IO worker
 instead. That is how `RemoveClientFlowTest` came to fail on a CI runner
 ("Method setCurrentState must be called on the main thread") while passing here.
 Any callback that can navigate belongs in the same explicit hop.
+
+## Street maps
+
+Coach now holds `INTERNET`, and **nothing in the app may use it** except the kit's
+`liftmap` module (dugcanlift-kit-android 1.11.0, `MapDownload`): https to
+OpenFreeMap's tile host, only when a coach taps through the download sheet, never on its
+own. Coach makes no network calls except a street-map download the coach starts.
+
+- **`NoAppConnection`** (a test helper) is the guard that replaced the old "no INTERNET in the
+  manifest" assertions in `InboundLinkTest` and `RecipeCatalogTest`: no file under
+  `app/src/main` may contain `HttpURLConnection`, `openConnection`, `OkHttp`, `java.net.URL(`,
+  `openfreemap`, `WebView` and the like. A request of Coach's own is a deliberate edit to that
+  list and to the privacy page, never a drive-by.
+- **`PermissionsPinTest`** pins the merged release manifest: `INTERNET` plus androidx's
+  signature-level receiver guard, nothing else. MapLibre's manifest also merges in
+  `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE` and **both location permissions**; `AndroidManifest.xml`
+  removes all four with `tools:node="remove"`. Coach never asks where the coach is.
+- **`CoachApp.onCreate`** installs `MapNetworkGuard` (MapLibre told it is offline, its HTTP client
+  refusing every call). Robolectric runs `TestCoachApp` (`src/test/resources/robolectric.properties`),
+  which skips it: MapLibre's native library does not load on a JVM.
+- **The client's route**: `LastRouteCard` draws the kit's `RouteMap` with `RouteCanvas` as its
+  `fallback` (the plain line when no downloaded area covers the route). While it is the line, a
+  **Download streets for this route** button opens `StreetsSheet` with the note "This asks for
+  the area around your client's route." The route is already trimmed by the sender; Coach draws what
+  arrives.
+- **Connect** carries the kit's `MapsCard(store, aroundHere = null, lastRunStart = null)`: the
+  areas, Update and Delete, no "around here". Below it, **Map credits** and a **Map licences**
+  dialog (`MapLicences`, the kit's `NOTICE` wording: MapLibre Native BSD-2, Noto Sans OFL 1.1,
+  OpenStreetMap ODbL, OpenFreeMap).
+- **The street file** is `filesDir/liftmap/streets.mbtiles`; `backup_rules.xml` and both sections of
+  `data_extraction_rules.xml` exclude `liftmap/` (`StreetMapsWiringTest`). It is not in a Coach
+  backup file either: the maps are re-downloadable.
+- Never a map in a `WebView`, never a tile fetched while viewing.

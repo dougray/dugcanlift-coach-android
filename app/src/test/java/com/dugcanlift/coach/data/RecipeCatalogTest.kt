@@ -346,9 +346,13 @@ class RecipeCatalogTest {
 
     // MARK: - No connection
 
-    @Test fun `the app still asks for no network permission`() {
+    @Test fun `no app source opens a connection`() {
+        // Replaces "the app asks for no INTERNET": Coach now declares it for the street-map
+        // download, whose network code is the kit's MapDownload and nothing written here.
+        assertEquals(emptyList<String>(), com.dugcanlift.coach.NoAppConnection.offenders())
+        // The recipe catalogue is bundled data: nothing in it names a server to fetch from.
         val manifest = File("src/main/AndroidManifest.xml").readText()
-        assertFalse(manifest.contains("android.permission.INTERNET"))
-        assertFalse(manifest.contains("ACCESS_NETWORK_STATE"))
+        assertTrue(manifest.contains("android.permission.INTERNET"))
+        assertFalse(Regex("<uses-permission(?![^>]*tools:node=\"remove\")[^>]*ACCESS_NETWORK_STATE").containsMatchIn(manifest))
     }
 }

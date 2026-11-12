@@ -8,6 +8,7 @@ updates:
     # bumps to it are a deliberate decision, not a bot PR.
     ignore:
       - dependency-name: "com.github.dougray:dugcanlift-kit-android"
+      - dependency-name: "com.github.dougray.dugcanlift-kit-android:*"
   - package-ecosystem: github-actions
     directory: /
     schedule:
